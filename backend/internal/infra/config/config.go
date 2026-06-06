@@ -211,6 +211,22 @@ type yamlConfig struct {
 		DataEncryptionKey      string `yaml:"data_encryption_key"`
 		SSRFProtectionEnabled  *bool  `yaml:"ssrf_protection_enabled"`
 		TurnstileSiteverifyURL string `yaml:"turnstile_siteverify_url"`
+		BrowserProof           struct {
+			Enabled    *bool `yaml:"enabled"`
+			ShadowMode *bool `yaml:"shadow_mode"`
+		} `yaml:"browser_proof"`
+		PoW struct {
+			Enabled             *bool          `yaml:"enabled"`
+			BaseDifficulty      map[string]int `yaml:"base_difficulty"`
+			MaxDifficulty       int            `yaml:"max_difficulty"`
+			ChallengeTTLSeconds int            `yaml:"challenge_ttl_seconds"`
+			NonceTTLSeconds     int            `yaml:"nonce_ttl_seconds"`
+		} `yaml:"pow"`
+		RequestSigning struct {
+			Enabled              *bool `yaml:"enabled"`
+			TimestampSkewSeconds int   `yaml:"timestamp_skew_seconds"`
+			NonceTTLSeconds      int   `yaml:"nonce_ttl_seconds"`
+		} `yaml:"request_signing"`
 	} `yaml:"security"`
 	Database struct {
 		Postgres struct {
@@ -266,59 +282,69 @@ type yamlConfig struct {
 // 静态字段由 YAML/ENV 加载；动态字段由 settings.RuntimeSettings.ApplyTo 从数据库覆盖。
 type Config struct {
 	// ── 静态配置（YAML/ENV） ──
-	AppName                      string
-	Env                          string
-	HTTPPort                     string
-	CORSAllowOrigin              string
-	TrustedProxies               string
-	PublicAPIBaseURL             string
-	PublicWebBaseURL             string
-	FrontendDistDir              string
-	HTTPReadHeaderTimeoutSeconds int
-	HTTPReadTimeoutSeconds       int
-	HTTPIdleTimeoutSeconds       int
-	HTTPMaxHeaderBytes           int
-	JWTSecret                    string
-	DataEncryptionKey            string
-	SSRFProtectionEnabled        bool
-	PostgresDSN                  string
-	PostgresMaxOpenConns         int
-	PostgresMaxIdleConns         int
-	PostgresConnMaxLifetimeMin   int
-	PostgresConnMaxIdleTimeMin   int
-	RedisAddr                    string
-	RedisPassword                string
-	RedisDB                      int
-	StorageBackend               string
-	StorageRootDir               string
-	StorageS3Endpoint            string
-	StorageS3Region              string
-	StorageS3Bucket              string
-	StorageS3Prefix              string
-	StorageS3AccessKeyID         string
-	StorageS3SecretAccessKey     string
-	StorageS3ForcePathStyle      bool
-	AdminUsername                string
-	AdminDisplayName             string
-	GeoIPProvider                string
-	GeoIPBaseURL                 string
-	GeoIPToken                   string
-	GeoIPTimeoutMS               int
-	GeoIPDatabaseURL             string
-	GeoIPDatabasePath            string
-	GeoIPDatabaseMaxBytes        int64
-	GeoIPRefreshIntervalHours    int
-	SMTPHost                     string
-	SMTPPort                     int
-	SMTPUsername                 string
-	SMTPPassword                 string
-	SMTPFrom                     string
-	TurnstileSiteverifyURL       string
-	OTelEnabled                  *bool
-	OTelExporterOTLPEndpoint     string
-	OTelExporterOTLPHeaders      string
-	OTelExporterOTLPInsecure     bool
-	OTelSamplingRate             float64
+	AppName                            string
+	Env                                string
+	HTTPPort                           string
+	CORSAllowOrigin                    string
+	TrustedProxies                     string
+	PublicAPIBaseURL                   string
+	PublicWebBaseURL                   string
+	FrontendDistDir                    string
+	HTTPReadHeaderTimeoutSeconds       int
+	HTTPReadTimeoutSeconds             int
+	HTTPIdleTimeoutSeconds             int
+	HTTPMaxHeaderBytes                 int
+	JWTSecret                          string
+	DataEncryptionKey                  string
+	SSRFProtectionEnabled              bool
+	PostgresDSN                        string
+	PostgresMaxOpenConns               int
+	PostgresMaxIdleConns               int
+	PostgresConnMaxLifetimeMin         int
+	PostgresConnMaxIdleTimeMin         int
+	RedisAddr                          string
+	RedisPassword                      string
+	RedisDB                            int
+	StorageBackend                     string
+	StorageRootDir                     string
+	StorageS3Endpoint                  string
+	StorageS3Region                    string
+	StorageS3Bucket                    string
+	StorageS3Prefix                    string
+	StorageS3AccessKeyID               string
+	StorageS3SecretAccessKey           string
+	StorageS3ForcePathStyle            bool
+	AdminUsername                      string
+	AdminDisplayName                   string
+	GeoIPProvider                      string
+	GeoIPBaseURL                       string
+	GeoIPToken                         string
+	GeoIPTimeoutMS                     int
+	GeoIPDatabaseURL                   string
+	GeoIPDatabasePath                  string
+	GeoIPDatabaseMaxBytes              int64
+	GeoIPRefreshIntervalHours          int
+	SMTPHost                           string
+	SMTPPort                           int
+	SMTPUsername                       string
+	SMTPPassword                       string
+	SMTPFrom                           string
+	TurnstileSiteverifyURL             string
+	BrowserProofEnabled                bool
+	BrowserProofShadowMode             bool
+	PoWEnabled                         bool
+	PoWBaseDifficulty                  map[string]int
+	PoWMaxDifficulty                   int
+	PoWChallengeTTLSeconds             int
+	PoWNonceTTLSeconds                 int
+	RequestSigningEnabled              bool
+	RequestSigningTimestampSkewSeconds int
+	RequestSigningNonceTTLSeconds      int
+	OTelEnabled                        *bool
+	OTelExporterOTLPEndpoint           string
+	OTelExporterOTLPHeaders            string
+	OTelExporterOTLPInsecure           bool
+	OTelSamplingRate                   float64
 
 	// ── 动态配置（由 DB 种子初始化默认值，settings.RuntimeSettings.ApplyTo 覆盖） ──
 	// 认证配置
@@ -470,59 +496,69 @@ func Load() Config {
 	yc := loadYAML()
 	return Config{
 		// 静态基础设施
-		AppName:                      envOr("APP_NAME", yc.App.Name, "DEEIX Chat"),
-		Env:                          normalizeEnv(envOrNonEmpty("APP_ENV", yc.App.Env, "prod")),
-		HTTPPort:                     envOr("HTTP_PORT", yc.Server.HTTPPort, "8080"),
-		CORSAllowOrigin:              envOr("CORS_ALLOW_ORIGIN", yc.Server.CORSAllowOrigin, "http://127.0.0.1:8080,http://localhost:8080"),
-		TrustedProxies:               envOr("TRUSTED_PROXIES", yc.Server.TrustedProxies, ""),
-		PublicAPIBaseURL:             envOr("PUBLIC_API_BASE_URL", yc.Server.PublicAPIBaseURL, ""),
-		PublicWebBaseURL:             envOr("PUBLIC_WEB_BASE_URL", yc.Server.PublicWebBaseURL, ""),
-		FrontendDistDir:              envOrPath("FRONTEND_DIST_DIR", yc.Server.FrontendDistDir, "../frontend/out", yc.sourceDir),
-		HTTPReadHeaderTimeoutSeconds: envOrInt("HTTP_READ_HEADER_TIMEOUT_SECONDS", yc.Server.ReadHeaderTimeoutSeconds, defaultHTTPReadHeaderTimeoutSeconds),
-		HTTPReadTimeoutSeconds:       envOrInt("HTTP_READ_TIMEOUT_SECONDS", yc.Server.ReadTimeoutSeconds, defaultHTTPReadTimeoutSeconds),
-		HTTPIdleTimeoutSeconds:       envOrInt("HTTP_IDLE_TIMEOUT_SECONDS", yc.Server.IdleTimeoutSeconds, defaultHTTPIdleTimeoutSeconds),
-		HTTPMaxHeaderBytes:           envOrInt("HTTP_MAX_HEADER_BYTES", yc.Server.MaxHeaderBytes, defaultHTTPMaxHeaderBytes),
-		JWTSecret:                    envOr("JWT_SECRET", yc.Security.JWTSecret, defaultJWTSecret),
-		DataEncryptionKey:            envOr("DATA_ENCRYPTION_KEY", yc.Security.DataEncryptionKey, defaultDataEncryptionKey),
-		SSRFProtectionEnabled:        envOrBoolPtr("SSRF_PROTECTION_ENABLED", yc.Security.SSRFProtectionEnabled, false),
-		PostgresDSN:                  envOr("POSTGRES_DSN", yc.Database.Postgres.DSN, "host=127.0.0.1 user=deeix_chat password=deeix_chat_dev_2026 dbname=deeix_chat port=5432 sslmode=disable TimeZone=Asia/Shanghai"),
-		PostgresMaxOpenConns:         envOrInt("POSTGRES_MAX_OPEN_CONNS", yc.Database.Postgres.MaxOpenConns, 30),
-		PostgresMaxIdleConns:         envOrInt("POSTGRES_MAX_IDLE_CONNS", yc.Database.Postgres.MaxIdleConns, 10),
-		PostgresConnMaxLifetimeMin:   envOrInt("POSTGRES_CONN_MAX_LIFETIME_MINUTES", yc.Database.Postgres.ConnMaxLifetimeMin, 60),
-		PostgresConnMaxIdleTimeMin:   envOrInt("POSTGRES_CONN_MAX_IDLE_TIME_MINUTES", yc.Database.Postgres.ConnMaxIdleTimeMin, 10),
-		RedisAddr:                    envOr("REDIS_ADDR", yc.Database.Redis.Addr, "127.0.0.1:6379"),
-		RedisPassword:                envOr("REDIS_PASSWORD", yc.Database.Redis.Password, ""),
-		RedisDB:                      envOrInt("REDIS_DB", yc.Database.Redis.DB, 0),
-		StorageBackend:               envOr("STORAGE_BACKEND", yc.Storage.Backend, "local"),
-		StorageRootDir:               envOrPath("STORAGE_ROOT_DIR", yc.Storage.Local.RootDir, "./storage", yc.sourceDir),
-		StorageS3Endpoint:            envOr("STORAGE_S3_ENDPOINT", yc.Storage.S3.Endpoint, ""),
-		StorageS3Region:              envOr("STORAGE_S3_REGION", yc.Storage.S3.Region, "auto"),
-		StorageS3Bucket:              envOr("STORAGE_S3_BUCKET", yc.Storage.S3.Bucket, ""),
-		StorageS3Prefix:              envOr("STORAGE_S3_PREFIX", yc.Storage.S3.Prefix, ""),
-		StorageS3AccessKeyID:         envOr("STORAGE_S3_ACCESS_KEY_ID", yc.Storage.S3.AccessKeyID, ""),
-		StorageS3SecretAccessKey:     envOr("STORAGE_S3_SECRET_ACCESS_KEY", yc.Storage.S3.SecretAccessKey, ""),
-		StorageS3ForcePathStyle:      envOrBoolPtr("STORAGE_S3_FORCE_PATH_STYLE", yc.Storage.S3.ForcePathStyle, true),
-		AdminUsername:                defaultAdminUsername,
-		AdminDisplayName:             defaultAdminDisplayName,
-		GeoIPProvider:                envOr("GEOIP_PROVIDER", yc.GeoIP.Provider, "ipwhois"),
-		GeoIPBaseURL:                 envOr("GEOIP_BASE_URL", yc.GeoIP.BaseURL, "https://ipwho.is"),
-		GeoIPToken:                   envOr("GEOIP_TOKEN", yc.GeoIP.Token, ""),
-		GeoIPTimeoutMS:               envOrInt("GEOIP_TIMEOUT_MS", yc.GeoIP.TimeoutMS, 2500),
-		GeoIPDatabaseURL:             envOr("GEOIP_DATABASE_URL", yc.GeoIP.DatabaseURL, ""),
-		GeoIPDatabasePath:            envOrPath("GEOIP_DATABASE_PATH", yc.GeoIP.DatabasePath, "./data/geoip/geoip.mmdb", yc.sourceDir),
-		GeoIPDatabaseMaxBytes:        envOrInt64("GEOIP_DATABASE_MAX_BYTES", yc.GeoIP.DatabaseMaxBytes, defaultGeoIPMaxBytes),
-		GeoIPRefreshIntervalHours:    envOrInt("GEOIP_REFRESH_INTERVAL_HOURS", yc.GeoIP.RefreshIntervalHours, 168),
-		SMTPHost:                     "",
-		SMTPPort:                     587,
-		SMTPUsername:                 "",
-		SMTPPassword:                 "",
-		SMTPFrom:                     "",
-		TurnstileSiteverifyURL:       envOr("TURNSTILE_SITEVERIFY_URL", yc.Security.TurnstileSiteverifyURL, DefaultTurnstileSiteverifyURL),
-		OTelEnabled:                  envOrBoolOptional("OTEL_ENABLED", yc.Observability.Tracing.Enabled),
-		OTelExporterOTLPEndpoint:     envOr("OTEL_EXPORTER_OTLP_ENDPOINT", yc.Observability.Tracing.Endpoint, ""),
-		OTelExporterOTLPHeaders:      envOr("OTEL_EXPORTER_OTLP_HEADERS", yc.Observability.Tracing.Headers, ""),
-		OTelExporterOTLPInsecure:     envOrBoolPtr("OTEL_EXPORTER_OTLP_INSECURE", yc.Observability.Tracing.Insecure, false),
-		OTelSamplingRate:             envOrFloat("OTEL_TRACES_SAMPLER_ARG", envOrFloat("OTEL_SAMPLING_RATE", yc.Observability.Tracing.SamplingRate, 1), 1),
+		AppName:                            envOr("APP_NAME", yc.App.Name, "DEEIX Chat"),
+		Env:                                normalizeEnv(envOrNonEmpty("APP_ENV", yc.App.Env, "prod")),
+		HTTPPort:                           envOr("HTTP_PORT", yc.Server.HTTPPort, "8080"),
+		CORSAllowOrigin:                    envOr("CORS_ALLOW_ORIGIN", yc.Server.CORSAllowOrigin, "http://127.0.0.1:8080,http://localhost:8080"),
+		TrustedProxies:                     envOr("TRUSTED_PROXIES", yc.Server.TrustedProxies, ""),
+		PublicAPIBaseURL:                   envOr("PUBLIC_API_BASE_URL", yc.Server.PublicAPIBaseURL, ""),
+		PublicWebBaseURL:                   envOr("PUBLIC_WEB_BASE_URL", yc.Server.PublicWebBaseURL, ""),
+		FrontendDistDir:                    envOrPath("FRONTEND_DIST_DIR", yc.Server.FrontendDistDir, "../frontend/out", yc.sourceDir),
+		HTTPReadHeaderTimeoutSeconds:       envOrInt("HTTP_READ_HEADER_TIMEOUT_SECONDS", yc.Server.ReadHeaderTimeoutSeconds, defaultHTTPReadHeaderTimeoutSeconds),
+		HTTPReadTimeoutSeconds:             envOrInt("HTTP_READ_TIMEOUT_SECONDS", yc.Server.ReadTimeoutSeconds, defaultHTTPReadTimeoutSeconds),
+		HTTPIdleTimeoutSeconds:             envOrInt("HTTP_IDLE_TIMEOUT_SECONDS", yc.Server.IdleTimeoutSeconds, defaultHTTPIdleTimeoutSeconds),
+		HTTPMaxHeaderBytes:                 envOrInt("HTTP_MAX_HEADER_BYTES", yc.Server.MaxHeaderBytes, defaultHTTPMaxHeaderBytes),
+		JWTSecret:                          envOr("JWT_SECRET", yc.Security.JWTSecret, defaultJWTSecret),
+		DataEncryptionKey:                  envOr("DATA_ENCRYPTION_KEY", yc.Security.DataEncryptionKey, defaultDataEncryptionKey),
+		SSRFProtectionEnabled:              envOrBoolPtr("SSRF_PROTECTION_ENABLED", yc.Security.SSRFProtectionEnabled, false),
+		PostgresDSN:                        envOr("POSTGRES_DSN", yc.Database.Postgres.DSN, "host=127.0.0.1 user=deeix_chat password=deeix_chat_dev_2026 dbname=deeix_chat port=5432 sslmode=disable TimeZone=Asia/Shanghai"),
+		PostgresMaxOpenConns:               envOrInt("POSTGRES_MAX_OPEN_CONNS", yc.Database.Postgres.MaxOpenConns, 30),
+		PostgresMaxIdleConns:               envOrInt("POSTGRES_MAX_IDLE_CONNS", yc.Database.Postgres.MaxIdleConns, 10),
+		PostgresConnMaxLifetimeMin:         envOrInt("POSTGRES_CONN_MAX_LIFETIME_MINUTES", yc.Database.Postgres.ConnMaxLifetimeMin, 60),
+		PostgresConnMaxIdleTimeMin:         envOrInt("POSTGRES_CONN_MAX_IDLE_TIME_MINUTES", yc.Database.Postgres.ConnMaxIdleTimeMin, 10),
+		RedisAddr:                          envOr("REDIS_ADDR", yc.Database.Redis.Addr, "127.0.0.1:6379"),
+		RedisPassword:                      envOr("REDIS_PASSWORD", yc.Database.Redis.Password, ""),
+		RedisDB:                            envOrInt("REDIS_DB", yc.Database.Redis.DB, 0),
+		StorageBackend:                     envOr("STORAGE_BACKEND", yc.Storage.Backend, "local"),
+		StorageRootDir:                     envOrPath("STORAGE_ROOT_DIR", yc.Storage.Local.RootDir, "./storage", yc.sourceDir),
+		StorageS3Endpoint:                  envOr("STORAGE_S3_ENDPOINT", yc.Storage.S3.Endpoint, ""),
+		StorageS3Region:                    envOr("STORAGE_S3_REGION", yc.Storage.S3.Region, "auto"),
+		StorageS3Bucket:                    envOr("STORAGE_S3_BUCKET", yc.Storage.S3.Bucket, ""),
+		StorageS3Prefix:                    envOr("STORAGE_S3_PREFIX", yc.Storage.S3.Prefix, ""),
+		StorageS3AccessKeyID:               envOr("STORAGE_S3_ACCESS_KEY_ID", yc.Storage.S3.AccessKeyID, ""),
+		StorageS3SecretAccessKey:           envOr("STORAGE_S3_SECRET_ACCESS_KEY", yc.Storage.S3.SecretAccessKey, ""),
+		StorageS3ForcePathStyle:            envOrBoolPtr("STORAGE_S3_FORCE_PATH_STYLE", yc.Storage.S3.ForcePathStyle, true),
+		AdminUsername:                      defaultAdminUsername,
+		AdminDisplayName:                   defaultAdminDisplayName,
+		GeoIPProvider:                      envOr("GEOIP_PROVIDER", yc.GeoIP.Provider, "ipwhois"),
+		GeoIPBaseURL:                       envOr("GEOIP_BASE_URL", yc.GeoIP.BaseURL, "https://ipwho.is"),
+		GeoIPToken:                         envOr("GEOIP_TOKEN", yc.GeoIP.Token, ""),
+		GeoIPTimeoutMS:                     envOrInt("GEOIP_TIMEOUT_MS", yc.GeoIP.TimeoutMS, 2500),
+		GeoIPDatabaseURL:                   envOr("GEOIP_DATABASE_URL", yc.GeoIP.DatabaseURL, ""),
+		GeoIPDatabasePath:                  envOrPath("GEOIP_DATABASE_PATH", yc.GeoIP.DatabasePath, "./data/geoip/geoip.mmdb", yc.sourceDir),
+		GeoIPDatabaseMaxBytes:              envOrInt64("GEOIP_DATABASE_MAX_BYTES", yc.GeoIP.DatabaseMaxBytes, defaultGeoIPMaxBytes),
+		GeoIPRefreshIntervalHours:          envOrInt("GEOIP_REFRESH_INTERVAL_HOURS", yc.GeoIP.RefreshIntervalHours, 168),
+		SMTPHost:                           "",
+		SMTPPort:                           587,
+		SMTPUsername:                       "",
+		SMTPPassword:                       "",
+		SMTPFrom:                           "",
+		TurnstileSiteverifyURL:             envOr("TURNSTILE_SITEVERIFY_URL", yc.Security.TurnstileSiteverifyURL, DefaultTurnstileSiteverifyURL),
+		BrowserProofEnabled:                envOrBoolPtr("BROWSER_PROOF_ENABLED", yc.Security.BrowserProof.Enabled, true),
+		BrowserProofShadowMode:             envOrBoolPtr("BROWSER_PROOF_SHADOW_MODE", yc.Security.BrowserProof.ShadowMode, false),
+		PoWEnabled:                         envOrBoolPtr("POW_ENABLED", yc.Security.PoW.Enabled, true),
+		PoWBaseDifficulty:                  defaultPoWBaseDifficulty(yc.Security.PoW.BaseDifficulty),
+		PoWMaxDifficulty:                   envOrInt("POW_MAX_DIFFICULTY", yc.Security.PoW.MaxDifficulty, 10),
+		PoWChallengeTTLSeconds:             envOrInt("POW_CHALLENGE_TTL_SECONDS", yc.Security.PoW.ChallengeTTLSeconds, 60),
+		PoWNonceTTLSeconds:                 envOrInt("POW_NONCE_TTL_SECONDS", yc.Security.PoW.NonceTTLSeconds, 120),
+		RequestSigningEnabled:              envOrBoolPtr("REQUEST_SIGNING_ENABLED", yc.Security.RequestSigning.Enabled, true),
+		RequestSigningTimestampSkewSeconds: envOrInt("REQUEST_SIGNING_TIMESTAMP_SKEW_SECONDS", yc.Security.RequestSigning.TimestampSkewSeconds, 60),
+		RequestSigningNonceTTLSeconds:      envOrInt("REQUEST_SIGNING_NONCE_TTL_SECONDS", yc.Security.RequestSigning.NonceTTLSeconds, 120),
+		OTelEnabled:                        envOrBoolOptional("OTEL_ENABLED", yc.Observability.Tracing.Enabled),
+		OTelExporterOTLPEndpoint:           envOr("OTEL_EXPORTER_OTLP_ENDPOINT", yc.Observability.Tracing.Endpoint, ""),
+		OTelExporterOTLPHeaders:            envOr("OTEL_EXPORTER_OTLP_HEADERS", yc.Observability.Tracing.Headers, ""),
+		OTelExporterOTLPInsecure:           envOrBoolPtr("OTEL_EXPORTER_OTLP_INSECURE", yc.Observability.Tracing.Insecure, false),
+		OTelSamplingRate:                   envOrFloat("OTEL_TRACES_SAMPLER_ARG", envOrFloat("OTEL_SAMPLING_RATE", yc.Observability.Tracing.SamplingRate, 1), 1),
 
 		// 动态配置默认值（会被 DB 覆盖）
 		TokenTTLHours:                     24,
@@ -833,6 +869,27 @@ func envOrFloat(envKey string, yamlVal float64, defaultVal float64) float64 {
 		return yamlVal
 	}
 	return defaultVal
+}
+
+func defaultPoWBaseDifficulty(yamlVal map[string]int) map[string]int {
+	defaults := map[string]int{
+		"send_message":           5,
+		"generate_image":         7,
+		"stream_expensive_model": 6,
+		"upload_file":            4,
+		"cancel_generation":      4,
+		"default":                5,
+	}
+	if len(yamlVal) == 0 {
+		return defaults
+	}
+	for key, value := range yamlVal {
+		if strings.TrimSpace(key) == "" || value <= 0 {
+			continue
+		}
+		defaults[strings.TrimSpace(key)] = value
+	}
+	return defaults
 }
 
 func envOrBoolOptional(envKey string, yamlVal *bool) *bool {

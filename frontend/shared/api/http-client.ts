@@ -75,6 +75,12 @@ function buildRequestInit(options: ApiRequestOptions): RequestInit {
     body = options.body;
   } else if (typeof FormData !== "undefined" && options.body instanceof FormData) {
     body = options.body;
+  } else if (typeof Blob !== "undefined" && options.body instanceof Blob) {
+    body = options.body;
+  } else if (typeof ArrayBuffer !== "undefined" && options.body instanceof ArrayBuffer) {
+    body = options.body;
+  } else if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView(options.body)) {
+    body = options.body as BodyInit;
   } else if (typeof options.body !== "undefined") {
     body = JSON.stringify(options.body);
   }

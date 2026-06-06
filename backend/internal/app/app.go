@@ -24,6 +24,7 @@ import (
 	appprocessing "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/processing"
 	apprag "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/rag"
 	appruntime "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/runtime"
+	appsecurity "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/security"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/settings"
 	appsystemevent "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/systemevent"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/user"
@@ -43,6 +44,7 @@ import (
 	conversationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/conversation"
 	mcprepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/mcp"
 	memoryrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/memory"
+	securityrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/security"
 	settingsrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/settings"
 	systemeventrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/systemevent"
 	userrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/user"
@@ -56,6 +58,7 @@ import (
 	conversationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/conversation"
 	mcphttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/mcp"
 	memoryhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/memory"
+	securityhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/security"
 	settingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/settings"
 	usersettingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/usersettings"
 	"github.com/gin-gonic/gin"
@@ -130,6 +133,30 @@ func NewApp() (*App, error) {
 	if err = runtimeSettings.ApplyTo(context.Background(), runtimeCfg); err != nil {
 		return nil, fmt.Errorf("apply settings: %w", err)
 	}
+	fingerprintRepo := securityrepo.NewRepo(db)
+	fingerprintService := appsecurity.NewFingerprintService(fingerprintRepo)
+	securityProofStore := platformcache.NewSecurityProofStore(redisClient)
+	securitySnapshot := runtimeCfg.Snapshot()
+	powDefaultDifficulty := securitySnapshot.PoWBaseDifficulty["default"]
+	powService := appsecurity.NewPoWService(appsecurity.PoWServiceOptions{
+		Store:             securityProofStore,
+		BaseDifficulty:    securitySnapshot.PoWBaseDifficulty,
+		DefaultDifficulty: powDefaultDifficulty,
+		MaxDifficulty:     securitySnapshot.PoWMaxDifficulty,
+		ChallengeTTL:      time.Duration(securitySnapshot.PoWChallengeTTLSeconds) * time.Second,
+		UsedChallengeTTL:  time.Duration(securitySnapshot.PoWNonceTTLSeconds) * time.Second,
+		RiskResolver:      fingerprintService,
+	})
+	requestProofService := appsecurity.NewRequestProofService(appsecurity.RequestProofServiceOptions{
+		Store:           securityProofStore,
+		TimestampSkew:   time.Duration(securitySnapshot.RequestSigningTimestampSkewSeconds) * time.Second,
+		RequestNonceTTL: time.Duration(securitySnapshot.RequestSigningNonceTTLSeconds) * time.Second,
+		KeyTTL:          time.Duration(securitySnapshot.RefreshTokenTTLHours) * time.Hour,
+		PoWVerifier:     powService,
+		RequirePoW:      securitySnapshot.PoWEnabled,
+	})
+	securityHandler := securityhttp.NewHandler(powService, requestProofService, fingerprintService)
+	securityModule := securityhttp.NewModule(securityHandler)
 
 	// 启动时确保 embedding_model_signature 已写入：首次部署或签名字段为空时自动补全。
 	if startCfg := runtimeCfg.Snapshot(); startCfg.EmbeddingModelSignature == "" && startCfg.RAGModel != "" {
@@ -239,6 +266,9 @@ func NewApp() (*App, error) {
 		Conversation: conversationModule,
 		MCP:          mcpModule,
 		Memory:       memoryModule,
+		Security:     securityModule,
+		BrowserProof: requestProofService,
+		Fingerprint:  fingerprintService,
 		Billing:      billingModule,
 		Admin:        adminModule,
 		Settings:     settingsModule,

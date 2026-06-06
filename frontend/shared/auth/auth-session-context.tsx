@@ -5,6 +5,7 @@ import * as React from "react";
 import { getMe } from "@/shared/api/auth";
 import type { UserDTO } from "@/shared/api/auth.types";
 import { USER_PROFILE_UPDATED_EVENT } from "@/shared/auth/user-profile-events";
+import { reportFingerprintOnce } from "@/shared/security/fingerprint-reporter";
 
 type AuthSessionUserStatus = "loading" | "ready" | "failed";
 
@@ -64,6 +65,10 @@ export function AuthSessionProvider({
     return () => {
       cancelled = true;
     };
+  }, [accessToken]);
+
+  React.useEffect(() => {
+    void reportFingerprintOnce(accessToken);
   }, [accessToken]);
 
   React.useEffect(() => {

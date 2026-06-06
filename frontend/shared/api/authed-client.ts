@@ -1,7 +1,8 @@
-import { clearSessionSnapshot, writeSessionSnapshot } from "@/shared/auth/session";
+import { clearSessionSnapshot, readSessionID, writeSessionSnapshot } from "@/shared/auth/session";
 import { apiRequest, ApiError, resolveApiBaseURL, type ApiRequestOptions } from "@/shared/api/http-client";
 import type { ApiEnvelope } from "@/shared/api/common.types";
 import type { LoginData } from "@/shared/api/auth.types";
+import { attachBrowserProof, prepareProofBody } from "@/shared/security/browser-proof";
 
 type AuthedRequestOptions = Omit<ApiRequestOptions, "accessToken"> & {
   accessToken: string;
@@ -52,7 +53,7 @@ export async function authedRequest<T>(
   allowRefresh = true,
 ): Promise<T> {
   try {
-    return await apiRequest<T>(path, options);
+    return await apiRequest<T>(path, await prepareAuthedRequestOptions(path, options));
   } catch (error) {
     const isUnauthorized = error instanceof ApiError && error.status === 401;
     if (!allowRefresh || !isUnauthorized) {
@@ -65,10 +66,10 @@ export async function authedRequest<T>(
     }
 
     try {
-      return await apiRequest<T>(path, {
+      return await apiRequest<T>(path, await prepareAuthedRequestOptions(path, {
         ...options,
         accessToken: refreshedToken,
-      });
+      }));
     } catch (retryError) {
       if (retryError instanceof ApiError && retryError.status === 401) {
         clearSessionSnapshot();
@@ -89,6 +90,56 @@ function buildAuthedFetchInit(options: AuthedFetchOptions): RequestInit {
     headers,
     credentials: "include",
   };
+}
+
+async function prepareAuthedRequestOptions(path: string, options: AuthedRequestOptions): Promise<AuthedRequestOptions> {
+  const headers = new Headers(options.headers ?? {});
+  const preparedBody = await prepareProofBody(options.body);
+  if (preparedBody.contentType && !headers.has("Content-Type")) {
+    headers.set("Content-Type", preparedBody.contentType);
+  }
+  await attachBrowserProof({
+    path,
+    method: options.method,
+    bodyBytes: preparedBody.bodyBytes,
+    accessToken: options.accessToken,
+    sessionID: readSessionID(),
+    headers,
+  });
+  return {
+    ...options,
+    body: preparedBody.body,
+    headers: headersToRecord(headers),
+  };
+}
+
+async function prepareAuthedFetchOptions(path: string, options: AuthedFetchOptions): Promise<AuthedFetchOptions> {
+  const headers = new Headers(options.headers ?? {});
+  const preparedBody = await prepareProofBody(options.body);
+  if (preparedBody.contentType && !headers.has("Content-Type")) {
+    headers.set("Content-Type", preparedBody.contentType);
+  }
+  await attachBrowserProof({
+    path,
+    method: options.method,
+    bodyBytes: preparedBody.bodyBytes,
+    accessToken: options.accessToken,
+    sessionID: readSessionID(),
+    headers,
+  });
+  return {
+    ...options,
+    body: preparedBody.body,
+    headers,
+  };
+}
+
+function headersToRecord(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
 }
 
 async function toApiError(response: Response): Promise<ApiError> {
@@ -123,7 +174,7 @@ export async function authedFetch(
   allowRefresh = true,
 ): Promise<Response> {
   const endpoint = `${resolveApiBaseURL()}${path}`;
-  const response = await fetch(endpoint, buildAuthedFetchInit(options));
+  const response = await fetch(endpoint, buildAuthedFetchInit(await prepareAuthedFetchOptions(path, options)));
   if (response.ok) {
     return response;
   }
@@ -140,10 +191,10 @@ export async function authedFetch(
 
   const retryResponse = await fetch(
     endpoint,
-    buildAuthedFetchInit({
+    buildAuthedFetchInit(await prepareAuthedFetchOptions(path, {
       ...options,
       accessToken: refreshedToken,
-    }),
+    })),
   );
   if (retryResponse.status === 401) {
     clearSessionSnapshot();

@@ -141,6 +141,8 @@ func migrate(db *gorm.DB, cfg config.Config) error {
 		"system_events":                  "后台系统事件表",
 		"system_settings":                "系统动态配置表",
 		"user_settings":                  "用户个人偏好配置表",
+		"device_fingerprints":            "设备指纹记录表",
+		"fingerprint_associations":       "多账号指纹关联表",
 		"file_chunks":                    "RAG文件分片表",
 		"chat_message_chunks":            "会话消息向量分片表(历史对话语义检索)",
 	}
@@ -218,6 +220,8 @@ func applySchemaBaseline(db *gorm.DB) error {
 		&model.SystemEvent{},
 		&model.SystemSetting{},
 		&model.UserSetting{},
+		&model.DeviceFingerprint{},
+		&model.FingerprintAssociation{},
 		&model.FileChunk{},
 		&model.MessageChunk{},
 	}

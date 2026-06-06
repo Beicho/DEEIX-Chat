@@ -25,6 +25,25 @@ security:
   ssrf_protection_enabled: false
   # Optional: override only when using a compatible Turnstile verification proxy.
   turnstile_siteverify_url: "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+  browser_proof:
+    enabled: true
+    shadow_mode: false
+  pow:
+    enabled: true
+    base_difficulty:
+      send_message: 5
+      generate_image: 7
+      stream_expensive_model: 6
+      upload_file: 4
+      cancel_generation: 4
+      default: 5
+    max_difficulty: 10
+    challenge_ttl_seconds: 60
+    nonce_ttl_seconds: 120
+  request_signing:
+    enabled: true
+    timestamp_skew_seconds: 60
+    nonce_ttl_seconds: 120
 
 database:
   postgres:

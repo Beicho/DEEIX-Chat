@@ -22,6 +22,7 @@ import (
 	mcphttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/mcp"
 	memoryhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/memory"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
+	securityhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/security"
 	settingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/settings"
 	usersettingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/usersettings"
 	"github.com/gin-gonic/gin"
@@ -52,6 +53,9 @@ type Modules struct {
 	Conversation *conversationhttp.Module
 	MCP          *mcphttp.Module
 	Memory       *memoryhttp.Module
+	Security     *securityhttp.Module
+	BrowserProof middleware.BrowserProofVerifier
+	Fingerprint  middleware.FingerprintRecorder
 	Billing      *billinghttp.Module
 	Admin        *adminhttp.Module
 	Settings     *settingshttp.Module
@@ -120,10 +124,19 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 
 	authRequired := api.Group("")
 	authRequired.Use(middleware.AuthMiddleware(snapshot.JWTSecret, modules.AuthService))
+	if snapshot.BrowserProofEnabled && snapshot.RequestSigningEnabled && modules.BrowserProof != nil {
+		authRequired.Use(middleware.BrowserProofMiddleware(modules.BrowserProof))
+	}
+	if modules.Fingerprint != nil {
+		authRequired.Use(middleware.FingerprintMiddleware(modules.Fingerprint))
+	}
 	authRequired.Use(middleware.RateLimit(limiter, cfg))
 
 	if modules.Auth != nil {
 		modules.Auth.RegisterProtectedRoutes(authRequired)
+	}
+	if modules.Security != nil {
+		modules.Security.RegisterRoutes(authRequired)
 	}
 	if modules.Conversation != nil {
 		modules.Conversation.RegisterRoutes(authRequired)
@@ -146,7 +159,7 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.Settings != nil {
 		modules.Settings.RegisterRoutes(authRequired)
 	}
-	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.MCP != nil || modules.Settings != nil {
+	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.MCP != nil || modules.Settings != nil || modules.Security != nil {
 		adminGroup := authRequired.Group("/admin")
 		adminGroup.Use(middleware.AdminOnly())
 		if modules.Auth != nil {
@@ -166,6 +179,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		}
 		if modules.Settings != nil {
 			modules.Settings.RegisterAdminRoutes(adminGroup)
+		}
+		if modules.Security != nil {
+			modules.Security.RegisterAdminRoutes(adminGroup)
 		}
 	}
 
