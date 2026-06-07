@@ -32,6 +32,8 @@ func TestTableNamesUseRestructuredDomains(t *testing.T) {
 		PaymentOrder{},
 		BillingAccount{},
 		BalanceTransaction{},
+		RedemptionCode{},
+		Redemption{},
 		ModelPricing{},
 		UsageLedger{},
 		Conversation{},
@@ -51,8 +53,12 @@ func TestTableNamesUseRestructuredDomains(t *testing.T) {
 		UserMemory{},
 		AuditLog{},
 		SystemEvent{},
+		Announcement{},
+		AnnouncementUserState{},
 		SystemSetting{},
 		UserSetting{},
+		DeviceFingerprint{},
+		FingerprintAssociation{},
 	}
 
 	deprecated := map[string]struct{}{

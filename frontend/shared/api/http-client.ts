@@ -94,6 +94,7 @@ function buildRequestInit(options: ApiRequestOptions): RequestInit {
     headers,
     body,
     credentials: "include",
+    cache: "no-store",
   };
 }
 

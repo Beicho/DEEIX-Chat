@@ -15,6 +15,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/buildinfo"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
 	adminhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/admin"
+	announcementhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/announcement"
 	authhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/auth"
 	billinghttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/billing"
 	channelhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/channel"
@@ -58,8 +59,10 @@ type Modules struct {
 	Fingerprint  middleware.FingerprintRecorder
 	Billing      *billinghttp.Module
 	Admin        *adminhttp.Module
+	Announcement *announcementhttp.Module
 	Settings     *settingshttp.Module
 	UserSettings *usersettingshttp.Module
+	StartupLog   func(*zap.Logger)
 }
 
 // NewEngine 创建并注册 API 路由。
@@ -103,6 +106,8 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 
 	api := engine.Group("/api/v1")
 	api.GET("/version", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+		c.Header("Pragma", "no-cache")
 		c.JSON(http.StatusOK, buildinfo.Snapshot())
 	})
 	if modules.Auth != nil || modules.Settings != nil || modules.Billing != nil || modules.Conversation != nil {
@@ -153,13 +158,16 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.Billing != nil {
 		modules.Billing.RegisterRoutes(authRequired)
 	}
+	if modules.Announcement != nil {
+		modules.Announcement.RegisterRoutes(authRequired)
+	}
 	if modules.UserSettings != nil {
 		modules.UserSettings.RegisterRoutes(authRequired)
 	}
 	if modules.Settings != nil {
 		modules.Settings.RegisterRoutes(authRequired)
 	}
-	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.MCP != nil || modules.Settings != nil || modules.Security != nil {
+	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.MCP != nil || modules.Settings != nil || modules.Security != nil || modules.Announcement != nil {
 		adminGroup := authRequired.Group("/admin")
 		adminGroup.Use(middleware.AdminOnly())
 		if modules.Auth != nil {
@@ -183,8 +191,14 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		if modules.Security != nil {
 			modules.Security.RegisterAdminRoutes(adminGroup)
 		}
+		if modules.Announcement != nil {
+			modules.Announcement.RegisterAdminRoutes(adminGroup)
+		}
 	}
 
+	if modules.StartupLog != nil {
+		modules.StartupLog(log)
+	}
 	registerFrontendStatic(engine, snapshot.FrontendDistDir, log)
 
 	return engine, nil
@@ -310,11 +324,33 @@ func isRegularFile(filePath string) bool {
 }
 
 func applyFrontendCacheHeaders(c *gin.Context, requestPath string) {
-	if strings.HasPrefix(requestPath, "/_next/static/") || strings.HasPrefix(requestPath, "/fonts/") {
+	if isImmutableFrontendAsset(requestPath) {
 		c.Header("Cache-Control", "public, max-age=31536000, immutable")
 		return
 	}
+	if isVendorIconAsset(requestPath) {
+		c.Header("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+		return
+	}
+	if isNextExportDataAsset(requestPath) {
+		c.Header("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+		return
+	}
 	c.Header("Cache-Control", "public, max-age=3600")
+}
+
+func isImmutableFrontendAsset(requestPath string) bool {
+	return strings.HasPrefix(requestPath, "/_next/static/") ||
+		strings.HasPrefix(requestPath, "/fonts/")
+}
+
+func isVendorIconAsset(requestPath string) bool {
+	return strings.HasPrefix(requestPath, "/vendor/lobehub-icons/")
+}
+
+func isNextExportDataAsset(requestPath string) bool {
+	fileName := path.Base(requestPath)
+	return strings.HasPrefix(fileName, "__next.") && strings.EqualFold(path.Ext(fileName), ".txt")
 }
 
 func readyzHandler(hc HealthChecker) gin.HandlerFunc {

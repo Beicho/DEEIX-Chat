@@ -39,14 +39,16 @@ func (s *Service) CreateConversation(ctx context.Context, userID uint, title str
 
 	normalizedModel := strings.TrimSpace(modelName)
 	var projectID *uint
+	var project *model.ConversationProject
 	if normalizedProjectID := strings.TrimSpace(projectPublicID); normalizedProjectID != "" {
-		project, err := s.repo.GetConversationProjectByPublicID(ctx, userID, normalizedProjectID)
+		resolvedProject, err := s.repo.GetConversationProjectByPublicID(ctx, userID, normalizedProjectID)
 		if err != nil {
 			if errors.Is(err, repository.ErrNotFound) {
 				return nil, ErrConversationProjectNotFound
 			}
 			return nil, err
 		}
+		project = resolvedProject
 		projectID = &project.ID
 	}
 
@@ -67,6 +69,11 @@ func (s *Service) CreateConversation(ctx context.Context, userID uint, title str
 	}
 	if err := s.repo.CreateConversation(ctx, item); err != nil {
 		return nil, err
+	}
+	if project != nil {
+		item.ProjectPublicID = project.PublicID
+		item.ProjectName = project.Name
+		item.ProjectSystemPrompt = project.SystemPrompt
 	}
 	return item, nil
 }
@@ -248,6 +255,51 @@ func (s *Service) SetMessageFeedback(
 		ThumbsUpCount:   enriched.ThumbsUpCount,
 		ThumbsDownCount: enriched.ThumbsDownCount,
 	}, nil
+}
+
+// UpdateAssistantMessageContent 更新当前用户的一条 assistant 消息正文。
+func (s *Service) UpdateAssistantMessageContent(
+	ctx context.Context,
+	userID uint,
+	messagePublicID string,
+	content string,
+) (*model.Message, error) {
+	normalizedPublicID := strings.TrimSpace(messagePublicID)
+	if normalizedPublicID == "" {
+		return nil, ErrMessageNotFound
+	}
+	normalizedContent := strings.TrimSpace(content)
+	if normalizedContent == "" {
+		return nil, ErrInvalidMessageContent
+	}
+
+	message, err := s.repo.GetMessageByPublicIDForUser(ctx, userID, normalizedPublicID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrMessageNotFound
+		}
+		return nil, err
+	}
+	if message.Role != "assistant" {
+		return nil, ErrMessageEditTargetInvalid
+	}
+	if message.Status == "pending" {
+		return nil, ErrMessageEditStateInvalid
+	}
+
+	updated, err := s.repo.UpdateAssistantMessageContent(ctx, userID, normalizedPublicID, normalizedContent, time.Now())
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrMessageNotFound
+		}
+		return nil, err
+	}
+	items := []model.Message{*updated}
+	if err = s.hydrateMessageFeedback(ctx, userID, items); err != nil {
+		return nil, err
+	}
+	updated = &items[0]
+	return updated, nil
 }
 
 // RenameConversation 重命名会话。

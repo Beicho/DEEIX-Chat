@@ -25,6 +25,7 @@ import {
   sharePatchFromDTO,
 } from "@/features/chat/components/sections/conversation-share-dialog";
 import { DeleteFilesOption } from "@/features/recent/components/delete-files-option";
+import { useChatPreferences } from "@/features/settings/hooks/use-chat-preferences";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +48,7 @@ import { listAvailableMCPTools } from "@/shared/api/mcp";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import type { ConversationOptions } from "@/shared/api/conversation.types";
 import type { MCPToolDTO } from "@/shared/api/mcp.types";
+import { useTheme } from "@/shared/components/theme-provider";
 import { cn } from "@/lib/utils";
 
 const MODEL_OPTIONS_STORAGE_PREFIX = "deeix-chat:chat-model-options:";
@@ -108,7 +110,8 @@ export function AppChatArea() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const routeConversationID = searchParams.get("conversation_id")?.trim() || null;
-  const { newConversationRevision, requestNewConversation } = useChatSession();
+  const routeProjectID = searchParams.get("project_id")?.trim() || null;
+  const { newConversationRevision, newConversationProjectID: requestedNewConversationProjectID, requestNewConversation } = useChatSession();
   const [locallyCreatedConversationID, setLocallyCreatedConversationID] = React.useState<string | null>(null);
   const [newConversationOverride, setNewConversationOverride] = React.useState<{
     ignoredConversationID: string | null;
@@ -144,10 +147,13 @@ export function AppChatArea() {
       ? null
       : resolvedRouteConversationID;
   const onNewConversationFromLoadError = React.useCallback(() => {
-    requestNewConversation();
-    router.push("/chat");
-  }, [requestNewConversation, router]);
+    const projectID = routeProjectID ?? "";
+    requestNewConversation({ projectID });
+    router.push(projectID ? `/chat?project_id=${encodeURIComponent(projectID)}` : "/chat");
+  }, [requestNewConversation, routeProjectID, router]);
   const activeGenerationRunsRef = React.useRef<Set<string>>(new Set());
+  const failedGenerationRunsRef = React.useRef<Set<string>>(new Set());
+  const { deleteFilesByDefault } = useChatPreferences();
   const {
     items,
     projects,
@@ -164,9 +170,11 @@ export function AppChatArea() {
     errorMsg,
     messages,
     reload,
+    replaceMessage,
     resumingRunID,
   } = useChatData(conversationID, {
     activeGenerationRunsRef,
+    failedGenerationRunsRef,
   });
   const { greetingTitle } = useChatViewerProfile();
   const [manualConversationTitle, setManualConversationTitle] = React.useState("");
@@ -180,9 +188,21 @@ export function AppChatArea() {
     }
     return items.find((item) => item.publicID === conversationID) ?? null;
   }, [conversationID, items]);
+  const activeRouteProject = React.useMemo(() => {
+    if (!routeProjectID || conversationID) {
+      return null;
+    }
+    return projects.find((item) => item.publicID === routeProjectID) ?? null;
+  }, [conversationID, projects, routeProjectID]);
+  const newConversationProjectID = !conversationID ? routeProjectID ?? requestedNewConversationProjectID : "";
+  const prependNewConversationInContext = React.useCallback(
+    (platformModelName?: string) => prependNewConversation(platformModelName, newConversationProjectID || undefined),
+    [newConversationProjectID, prependNewConversation],
+  );
 
   const {
     modelOptions,
+    refreshModelOption,
     modelsLoading,
     modelsErrorMsg,
     sendShortcut,
@@ -223,6 +243,7 @@ export function AppChatArea() {
   const [toolsLoading, setToolsLoading] = React.useState(true);
   const [selectedToolIDs, setSelectedToolIDs] = React.useState<number[]>([]);
   const htmlVisualPrompt = useHTMLVisualPrompt();
+  const { resolvedTheme } = useTheme();
   const initializedOptionsModelRef = React.useRef("");
   const fileDragDepthRef = React.useRef(0);
   const [fileDragActive, setFileDragActive] = React.useState(false);
@@ -266,14 +287,23 @@ export function AppChatArea() {
     [selectedModel?.platformModelName],
   );
 
-  const resetModelOptions = React.useCallback(() => {
+  const resetModelOptions = React.useCallback((defaults?: ConversationOptions) => {
     const platformModelName = selectedModel?.platformModelName.trim() || "";
-    const defaults = cloneConversationOptions(selectedModel?.defaultOptions ?? {});
+    const nextDefaults = cloneConversationOptions(defaults ?? selectedModel?.defaultOptions ?? {});
     if (platformModelName) {
       removeCachedModelOptions(platformModelName);
     }
-    setOptions(defaults);
+    setOptions(nextDefaults);
   }, [selectedModel]);
+
+  const restoreBackendDefaultModelOptions = React.useCallback(async () => {
+    const platformModelName = selectedModel?.platformModelName.trim() || selectedPlatformModelName.trim();
+    if (!platformModelName) {
+      return null;
+    }
+    const refreshedModel = await refreshModelOption(platformModelName);
+    return refreshedModel ? cloneConversationOptions(refreshedModel.defaultOptions) : null;
+  }, [refreshModelOption, selectedModel?.platformModelName, selectedPlatformModelName]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -332,6 +362,7 @@ export function AppChatArea() {
 
   const {
     onCycleMessageBranch,
+    onEditAssistantMessage,
     onEditUserMessage,
     onContinueAssistantMessage,
     onRetryAssistantMessage,
@@ -354,20 +385,24 @@ export function AppChatArea() {
     modelOptions,
     selectedToolIDs,
     htmlVisualPromptEnabled: htmlVisualPrompt.enabled,
+    htmlVisualColorMode: resolvedTheme,
     options: modelOptionPolicyDisabled ? EMPTY_CONVERSATION_OPTIONS : options,
     draft,
     attachments,
     maxFilesPerMessage,
     uploading,
     restoreDraftOnFailure,
-    prependNewConversation,
+    prependNewConversation: prependNewConversationInContext,
     onConversationCreated: setLocallyCreatedConversationID,
     touchByPublicID,
     reload,
+    replaceMessage,
     setDraft,
     setAttachments,
     releaseAttachments,
     activeGenerationRunsRef,
+    failedGenerationRunsRef,
+    resumingRunID,
   });
   const generating = sending || Boolean(resumingRunID);
   const uploadDropDisabled = generating || loading || uploading;
@@ -496,8 +531,9 @@ export function AppChatArea() {
     if (!canOperateConversation) {
       return;
     }
+    setDeleteFiles(deleteFilesByDefault);
     setDeleteDialogOpen(true);
-  }, [canOperateConversation]);
+  }, [canOperateConversation, deleteFilesByDefault]);
 
   const onConfirmDeleteActiveConversation = React.useCallback(async () => {
     if (!canOperateConversation) {
@@ -745,6 +781,7 @@ export function AppChatArea() {
     onHTMLVisualPromptChange: htmlVisualPrompt.setEnabled,
     onOptionsChange: setModelOptions,
     onOptionsReset: resetModelOptions,
+    onOptionsDefaultRestore: restoreBackendDefaultModelOptions,
     onUploadFiles,
     onCaptureScreenshot,
     onRemoveAttachment,
@@ -766,7 +803,11 @@ export function AppChatArea() {
     >
       {shouldUseCenteredComposer ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ChatEmptyState greetingTitle={greetingTitle}>
+          <ChatEmptyState
+            greetingTitle={activeRouteProject?.name || greetingTitle}
+            badgeLabel={activeRouteProject ? t("projectMode") : undefined}
+            badgeTooltip={activeRouteProject ? t("projectModeTooltip") : undefined}
+          >
             <ChatInput {...chatInputProps} />
           </ChatEmptyState>
         </div>
@@ -804,6 +845,7 @@ export function AppChatArea() {
                   onRetryUserMessage={onRetryUserMessage}
                   onRetryAssistantMessage={onRetryAssistantMessage}
                   onContinueAssistantMessage={onContinueAssistantMessage}
+                  onEditAssistantMessage={onEditAssistantMessage}
                   onEditUserMessage={onEditUserMessage}
                   onEditImageAttachment={onEditGeneratedImageAttachment}
                   onOpenCodeArtifact={artifactWorkspace.openArtifact}

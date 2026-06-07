@@ -1,6 +1,6 @@
 # DEEIX Chat Frontend
 
-DEEIX Chat 前端是基于 Next.js App Router 的管理与对话界面，负责聊天工作区、文件页、最近会话、用户设置、MCP 工具选择和管理员后台。
+DEEIX Chat 前端是基于 Next.js App Router 的管理与对话界面，负责聊天工作区、模型参数配置、文件页、最近会话、用户设置、MCP 工具选择、官方原生工具配置和管理员后台。
 
 ## 技术栈
 
@@ -8,7 +8,7 @@ DEEIX Chat 前端是基于 Next.js App Router 的管理与对话界面，负责�
 - React 19
 - TypeScript
 - Tailwind CSS
-- shadcn/ui 风格组件
+- Shadcn/UI
 - Radix UI / Base UI
 - lucide-react
 - Streamdown / KaTeX / Mermaid
@@ -20,10 +20,10 @@ DEEIX Chat 前端是基于 Next.js App Router 的管理与对话界面，负责�
 - `components/ui/`：基础 UI 组件
 - `components/common/`：跨页面通用组件
 - `features/`：按业务域组织的页面组件、hooks、types、utils
-- `features/chat`：对话工作区、输入框、消息渲染、附件、MCP 工具选择、处理/思考/工具链路展示
-- `features/files`：文件管理、上传状态、文件卡片、预览与删除
+- `features/chat`：对话工作区、输入框、消息渲染、附件、模型参数可视化配置、MCP 工具选择、官方原生工具开关、处理/思考/工具链路展示
+- `features/files`：文件管理、上传状态、文件卡片、预览、单个/批量删除和存储配额展示
 - `features/settings`：用户侧通用、偏好、订阅和账户设置
-- `features/admin`：后台账户、上游、模型、计费、日志、身份源、文件和 MCP 工具设置
+- `features/admin`：后台账户、上游、模型、计费、日志、身份源、登录、会话、文件、官方原生工具计费和 MCP 工具设置
 - `shared/api/`：API 请求封装与通用类型
 - `shared/auth/`：会话 token、登录态与鉴权辅助
 - `shared/hooks/`：跨业务复用 hooks
@@ -35,12 +35,19 @@ DEEIX Chat 前端是基于 Next.js App Router 的管理与对话界面，负责�
 - `/chat`：对话工作区
 - `/files`：文件管理
 - `/recent`：最近会话
-- `/settings`：用户设置入口
-- `/settings/chat`：通用与偏好设置
-- `/settings/subscription`：订阅与用量
-- `/settings/account`：账户与身份源
+- `/setting`：用户设置入口
+- `/setting/general`：通用偏好
+- `/setting/chat`：会话偏好
+- `/setting/subscription`：订阅与用量
+- `/setting/account`：账户与身份源
+- `/setting/about`：产品信息
 - `/admin`：后台管理入口
-- `/admin/settings/tools`：MCP 工具设置
+- `/admin/models`：模型、路由、能力 JSON、可视化参数控件和官方原生工具能力
+- `/admin/tools`：MCP 工具设置
+- `/admin/chat-files`：文件、提取、OCR、RAG 和用户存储配额设置
+- `/admin/conversation`：会话配置和参数透传策略
+- `/admin/login`：登录、注册、身份源和安全策略
+- `/admin/about`：版本信息和新版本检查
 
 ## API 契约
 
@@ -63,9 +70,13 @@ export type ApiEnvelope<T> = {
 
 Markdown 渲染统一使用聊天消息组件，支持基础 Markdown、代码块、表格、脚注、行内/块级公式、图片和链接外跳确认。
 
+模型能力 JSON 中的 `defaultOptions` 会写入用户侧参数 JSON；`optionControls` 只负责用户参数 Dialog 的可视化控件；`nativeToolKeys` 负责展示和提交管理员允许的官方原生工具。用户手写 JSON 时，前端保留用户输入，后端按模型能力和参数策略做最终治理。
+
+应用启动后会通过 `/api/v1/version` 获取 `buildID` 并写入本地缓存，随后低频检查版本变化。检测到新部署后，前端通过 toast 提示刷新，并提供刷新按钮。
+
 ## 本地启动
 
-先确保 PostgreSQL、Redis 和后端 API 可用。可以直接使用完整 Docker Compose 启动后端容器：
+先确保后端 API 可用。可以直接使用完整 Docker Compose 启动 PostgreSQL + Redis 版本：
 
 ```bash
 cd ..
@@ -77,6 +88,13 @@ docker compose -f docker-compose.full.yml up -d
 ```bash
 cd backend
 make run
+```
+
+如果只需要本地轻量模式，可以用 SQLite + 进程内缓存启动后端，不需要 PostgreSQL 和 Redis：
+
+```bash
+cd backend
+APP_ENV=dev DATABASE_DRIVER=sqlite CACHE_DRIVER=memory SQLITE_PATH=../data/deeix.db STORAGE_ROOT_DIR=../storage go run ./cmd/server
 ```
 
 启动前端：
@@ -125,8 +143,9 @@ pnpm start
 - 管理后台和用户侧页面复用基础 UI 组件，但业务组件保持边界清晰。
 - 图标优先使用 `lucide-react`。
 - 新增复杂 UI 时优先复用现有 Dialog、Sheet、Table、Form、Tabs、Switch 等组件风格。
-- 不在前端硬编码上游模型私有规则；模型请求参数以模型能力 JSON 和用户配置为准。
-- 文件、MCP 工具和消息链路展示只消费后端结构化状态，不在前端补业务状态。
+- 不在前端硬编码上游模型私有规则；模型请求参数以模型能力 JSON、用户配置和后端参数策略为准。
+- `optionControls`、`nativeToolKeys` 和图像流式开关只做配置展示与提交，最终请求治理由后端执行。
+- 文件、MCP 工具、官方原生工具和消息链路展示只消费后端结构化状态，不在前端补业务状态。
 - 用户侧和后台侧可以复用基础布局与表格工具，但业务组件不互相穿透。
 
 ## 提交前验证
