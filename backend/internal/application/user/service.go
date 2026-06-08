@@ -234,6 +234,20 @@ func (s *Service) UpdateUserStatus(ctx context.Context, userID uint, status stri
 	return s.repo.UpdateUserStatus(ctx, userID, status)
 }
 
+func (s *Service) SetUserSuspension(ctx context.Context, userID uint, reason string, detail string, suspendedAt *time.Time, suspendedBy *uint) error {
+	if err := s.repo.SetUserSuspension(ctx, userID, reason, detail, suspendedAt, suspendedBy); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Service) ListMultiAccountCandidates(ctx context.Context, limit int) ([]domainuser.MultiAccountCandidate, error) {
+	return s.repo.ListMultiAccountCandidates(ctx, limit)
+}
+
 // UpdateFields 更新用户字段。
 func (s *Service) UpdateFields(ctx context.Context, userID uint, input repository.UpdateUserFieldsInput) (*domainuser.User, error) {
 	item, err := s.repo.UpdateFields(ctx, userID, input)

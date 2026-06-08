@@ -12,6 +12,7 @@ import { isPasswordPolicyValid } from "@/shared/auth/account-policy";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { writeSessionSnapshot } from "@/shared/auth/session";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { getSuspendedAccountReason, isSuspendedAccountError } from "@/features/auth/lib/suspended-account-message";
 import {
   createProviderPKCE,
   DEFAULT_LOGIN_OPTIONS,
@@ -215,6 +216,15 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
           setTwoFactorEmailDebugCode("");
           setTwoFactorEmailCodeResendAt(0);
           toast.error(t("toasts.challengeExpired"));
+          return;
+        }
+        const suspendedReason = getSuspendedAccountReason(error);
+        if (suspendedReason) {
+          toast.error(t("toasts.accountSuspendedWithReason", { reason: suspendedReason }));
+          return;
+        }
+        if (isSuspendedAccountError(error)) {
+          toast.error(t("toasts.accountSuspended"));
           return;
         }
         toast.error(resolveErrorMessage(error, t("toasts.loginRetry")));

@@ -1,6 +1,7 @@
 {
   "auth": {
     "adminRequired": "Administrator permission is required.",
+    "accountSuspended": "Account suspended.",
     "authorizationCodeRequired": "Authorization code is required.",
     "emailAliasNotAllowed": "Email aliases are not allowed.",
     "emailAlreadyExists": "This email is already in use.",

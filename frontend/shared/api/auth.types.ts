@@ -8,6 +8,10 @@ export type UserDTO = {
   phone: string;
   role: string;
   status: string;
+  suspensionReason: string;
+  suspensionDetail: string;
+  suspendedAt: string | null;
+  suspendedBy: number | null;
   timezone: string;
   locale: string;
   profilePreferences: string;

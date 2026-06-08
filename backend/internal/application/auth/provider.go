@@ -1186,6 +1186,9 @@ func ensureProviderLoginUserActive(item *domainuser.User) error {
 	if item.Status == domainuser.StatusLocked {
 		return ErrAccountLocked
 	}
+	if item.Status == domainuser.StatusSuspended {
+		return newAccountSuspendedError(item)
+	}
 	if item.Status != domainuser.StatusActive {
 		return ErrInvalidCredentials
 	}

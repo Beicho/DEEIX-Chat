@@ -494,6 +494,22 @@ export function AccountsUsers({
     () => filteredItems.some(canManageUser),
     [canManageUser, filteredItems],
   );
+  const subscriptionFilterOptions = React.useMemo(() => {
+    const seen = new Set<string>();
+    const options = [{ label: t("table.allSubscriptions"), value: "" }];
+    const pushOption = (value: string, label?: string) => {
+      const normalized = value.trim();
+      if (!normalized || seen.has(normalized)) {
+        return;
+      }
+      seen.add(normalized);
+      options.push({ label: label?.trim() || normalized, value: normalized });
+    };
+    billingPlans.forEach((item) => pushOption(item.code, item.name || item.code));
+    items.forEach((item) => pushOption(item.subscriptionTier, item.subscriptionPlanName || item.subscriptionTier));
+    USER_TIER_OPTIONS.forEach((item) => pushOption(item));
+    return options;
+  }, [billingPlans, items, t]);
 
   function handleConfirmBulkAction() {
     switch (bulkConfirmAction) {
@@ -554,14 +570,7 @@ export function AccountsUsers({
                     label: t("fields.subscription"),
                     value: tierFilter,
                     onValueChange: setTierFilter,
-                    options: [
-                      { label: t("table.allSubscriptions"), value: "" },
-                      ...billingPlans.map((item) => ({ label: item.name || item.code, value: item.code })),
-                      ...USER_TIER_OPTIONS.filter((tier) => !billingPlans.some((plan) => plan.code === tier)).map((item) => ({
-                        label: item,
-                        value: item,
-                      })),
-                    ],
+                    options: subscriptionFilterOptions,
                   },
                 ]
               : []),

@@ -39,6 +39,12 @@ type LoginPageSettingsResponse struct {
 	DefaultNextPath string `json:"defaultNextPath"`
 }
 
+type BrandingSettingsResponse struct {
+	AppName     string `json:"appName"`
+	LogoURL     string `json:"logoURL"`
+	LogoDarkURL string `json:"logoDarkURL"`
+}
+
 type ModelOptionPolicyResponse struct {
 	Mode             string                         `json:"mode"`
 	AllowedPathsJSON string                         `json:"allowedPathsJSON"`

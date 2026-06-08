@@ -31,6 +31,8 @@
     "codeRequired": "请输入验证码或恢复码",
     "loginFailed": "登录失败，请检查账号密码",
     "loginRetry": "登录失败，请稍后重试",
+    "accountSuspended": "账号已暂停",
+    "accountSuspendedWithReason": "账号已暂停：{reason}",
     "challengeExpired": "二次验证已过期，请重新输入账号密码登录",
     "providerStartFailed": "无法启动第三方登录，请刷新页面后重试",
     "codeSendFailed": "验证码发送失败",
@@ -45,6 +47,8 @@
     "bindSessionExpired": "登录状态已失效，请重新登录后再绑定",
     "bindFailed": "身份源绑定失败",
     "loginFailed": "第三方登录失败",
+    "accountSuspended": "账号已暂停",
+    "accountSuspendedWithReason": "账号已暂停：{reason}",
     "loading": "登录中"
   }
 }

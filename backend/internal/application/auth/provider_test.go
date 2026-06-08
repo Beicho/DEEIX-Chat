@@ -288,10 +288,17 @@ func TestCompleteProviderBindAllowsSameAccountWithoutProviderEmailVerification(t
 	}
 }
 
-func TestResolveProviderUserRejectsInactiveBoundUserWithoutUpdatingIdentity(t *testing.T) {
+func TestResolveProviderUserRejectsSuspendedBoundUserWithReasonWithoutUpdatingIdentity(t *testing.T) {
+	now := time.Now()
 	repo := &providerLoginRepo{
 		usersByID: map[uint]*domainuser.User{
-			42: {ID: 42, Status: domainuser.StatusSuspended},
+			42: {
+				ID:               42,
+				Status:           domainuser.StatusSuspended,
+				SuspensionReason: "疑似同人多账号",
+				SuspensionDetail: "设备指纹重复",
+				SuspendedAt:      &now,
+			},
 		},
 		identities: []domainuser.UserIdentity{
 			{ID: 7, UserID: 42, ProviderID: 10, ProviderSubject: "sub-1"},
@@ -309,21 +316,69 @@ func TestResolveProviderUserRejectsInactiveBoundUserWithoutUpdatingIdentity(t *t
 	}
 
 	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "bound@example.com", "Bound User", "", true, `{"sub":"sub-1"}`, providerIntentLogin)
-	if err == nil || err.Error() != ErrInvalidCredentials.Error() {
-		t.Fatalf("expected inactive account rejection, got %v", err)
+	var suspendedErr *AccountSuspendedError
+	if !errors.As(err, &suspendedErr) {
+		t.Fatalf("expected suspended account error, got %v", err)
+	}
+	if suspendedErr.Reason != "疑似同人多账号" {
+		t.Fatalf("expected suspension reason, got %q", suspendedErr.Reason)
+	}
+	if suspendedErr.Detail != "设备指纹重复" {
+		t.Fatalf("expected suspension detail, got %q", suspendedErr.Detail)
+	}
+	if suspendedErr.SuspendedAt == nil || !suspendedErr.SuspendedAt.Equal(now) {
+		t.Fatalf("expected suspended timestamp, got %#v", suspendedErr.SuspendedAt)
 	}
 	if repo.updateIdentityLoginCount != 0 {
 		t.Fatalf("expected identity login not to be updated, got %d", repo.updateIdentityLoginCount)
 	}
 }
 
-func TestResolveProviderUserRejectsInactiveAutoLinkUserWithoutBinding(t *testing.T) {
+func TestLoginReturnsSuspendedAccountErrorWithReason(t *testing.T) {
+	now := time.Now()
+	repo := &providerLoginRepo{
+		usersByUsername: map[string]*domainuser.User{
+			"blocked": {
+				ID:               42,
+				Username:         "blocked",
+				Status:           domainuser.StatusSuspended,
+				SuspensionReason: "疑似同人多账号",
+				SuspensionDetail: "设备指纹重复",
+				SuspendedAt:      &now,
+			},
+		},
+		credentialsByUserID: map[uint]*domainuser.Credential{
+			42: {UserID: 42, PasswordEnabled: true, PasswordHash: "unused"},
+		},
+	}
+	service := NewService(config.Config{JWTSecret: "test-secret", UsernameLoginEnabled: true}, repo, nil)
+
+	_, err := service.Login(context.Background(), "blocked", "password", "req_1", requestmeta.SessionAuditContext{})
+	var suspendedErr *AccountSuspendedError
+	if !errors.As(err, &suspendedErr) {
+		t.Fatalf("expected suspended account error, got %v", err)
+	}
+	if suspendedErr.Reason != "疑似同人多账号" {
+		t.Fatalf("expected suspension reason, got %q", suspendedErr.Reason)
+	}
+	if suspendedErr.Detail != "设备指纹重复" {
+		t.Fatalf("expected suspension detail, got %q", suspendedErr.Detail)
+	}
+	if suspendedErr.SuspendedAt == nil || !suspendedErr.SuspendedAt.Equal(now) {
+		t.Fatalf("expected suspended timestamp, got %#v", suspendedErr.SuspendedAt)
+	}
+}
+
+func TestResolveProviderUserRejectsSuspendedAutoLinkUserWithReasonWithoutBinding(t *testing.T) {
 	now := time.Now()
 	existing := &domainuser.User{
-		ID:              42,
-		Email:           "suspended@example.com",
-		EmailVerifiedAt: &now,
-		Status:          domainuser.StatusSuspended,
+		ID:               42,
+		Email:            "suspended@example.com",
+		EmailVerifiedAt:  &now,
+		Status:           domainuser.StatusSuspended,
+		SuspensionReason: "疑似同人多账号",
+		SuspensionDetail: "设备指纹重复",
+		SuspendedAt:      &now,
 	}
 	repo := &providerLoginRepo{usersByEmail: map[string]*domainuser.User{existing.Email: existing}}
 	service := NewService(config.Config{JWTSecret: "test-secret", AutoLinkVerifiedEmail: true}, repo, nil)
@@ -338,8 +393,18 @@ func TestResolveProviderUserRejectsInactiveAutoLinkUserWithoutBinding(t *testing
 	}
 
 	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", existing.Email, "Suspended User", "", true, `{"sub":"sub-1"}`, providerIntentLogin)
-	if err == nil || err.Error() != ErrInvalidCredentials.Error() {
-		t.Fatalf("expected inactive account rejection, got %v", err)
+	var suspendedErr *AccountSuspendedError
+	if !errors.As(err, &suspendedErr) {
+		t.Fatalf("expected suspended account error, got %v", err)
+	}
+	if suspendedErr.Reason != "疑似同人多账号" {
+		t.Fatalf("expected suspension reason, got %q", suspendedErr.Reason)
+	}
+	if suspendedErr.Detail != "设备指纹重复" {
+		t.Fatalf("expected suspension detail, got %q", suspendedErr.Detail)
+	}
+	if suspendedErr.SuspendedAt == nil || !suspendedErr.SuspendedAt.Equal(now) {
+		t.Fatalf("expected suspended timestamp, got %#v", suspendedErr.SuspendedAt)
 	}
 	if len(repo.identities) != 0 {
 		t.Fatalf("expected no auto-link side effect, got %#v", repo.identities)
@@ -499,6 +564,7 @@ type providerLoginRepo struct {
 	createIdentityErr         error
 	duplicateUsernameAttempts int
 	usersByID                 map[uint]*domainuser.User
+	usersByUsername           map[string]*domainuser.User
 	usersByEmail              map[string]*domainuser.User
 	credentialsByUserID       map[uint]*domainuser.Credential
 	identities                []domainuser.UserIdentity
@@ -531,6 +597,17 @@ func (r *providerLoginRepo) GetByID(ctx context.Context, userID uint) (*domainus
 		return nil, repository.ErrNotFound
 	}
 	userItem, ok := r.usersByID[userID]
+	if !ok {
+		return nil, repository.ErrNotFound
+	}
+	return userItem, nil
+}
+
+func (r *providerLoginRepo) GetByUsername(ctx context.Context, username string) (*domainuser.User, error) {
+	if r.usersByUsername == nil {
+		return nil, repository.ErrNotFound
+	}
+	userItem, ok := r.usersByUsername[username]
 	if !ok {
 		return nil, repository.ErrNotFound
 	}

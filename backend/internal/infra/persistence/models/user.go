@@ -46,6 +46,10 @@ type User struct {
 	PhoneVerifiedAt       *time.Time `gorm:"comment:手机号验证时间"`
 	UsernameChangedAt     *time.Time `gorm:"comment:用户名自主修改时间"`
 	LastLoginAt           *time.Time `gorm:"comment:最后登录时间"`
+	SuspensionReason      string     `gorm:"size:255;not null;default:'';comment:封禁原因"`
+	SuspensionDetail      string     `gorm:"type:text;not null;default:'';comment:封禁补充说明"`
+	SuspendedAt           *time.Time `gorm:"index:idx_identity_users_suspended_at;comment:封禁时间"`
+	SuspendedBy           *uint      `gorm:"index:idx_identity_users_suspended_by;comment:封禁操作人用户ID"`
 }
 
 // TableName 指定表名。

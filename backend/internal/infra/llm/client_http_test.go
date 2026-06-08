@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -263,4 +264,95 @@ func TestOpenAIChatCompletionsStreamRetriesWhenAutoUsageOptionIsRejected(t *test
 	if len(includeUsageValues) != 2 || includeUsageValues[0] != true || includeUsageValues[1] != false {
 		t.Fatalf("expected retry to disable only auto stream usage, got %#v", includeUsageValues)
 	}
+}
+
+func TestGenerateRetriesTransientUpstreamErrorsThreeTimesAfterInitialAttempt(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("expected chat completions path, got %s", r.URL.Path)
+		}
+		if calls < 4 {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": map[string]interface{}{"message": "temporary upstream error"},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "chatcmpl_retry",
+			"choices": []map[string]interface{}{
+				{"message": map[string]interface{}{"role": "assistant", "content": "ok"}},
+			},
+			"usage": map[string]interface{}{"prompt_tokens": 3, "completion_tokens": 2},
+		})
+	}))
+	defer server.Close()
+
+	output, err := NewClient().Generate(context.Background(), RouteConfig{
+		Protocol:      AdapterOpenAIChatCompletions,
+		BaseURL:       server.URL,
+		UpstreamModel: "gpt-compatible",
+	}, GenerateInput{
+		Messages: []Message{{Role: "user", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got %v", err)
+	}
+	if calls != 4 {
+		t.Fatalf("expected one initial attempt plus three backend retries, got %d", calls)
+	}
+	if output.Text != "ok" {
+		t.Fatalf("expected retried output, got %#v", output.Text)
+	}
+}
+
+func TestGenerateStreamDoesNotRetryAfterEventEmitted(t *testing.T) {
+	client := NewClient()
+	adapter := &retryStreamAdapter{}
+	client.adapters[AdapterOpenAIResponses] = adapter
+
+	var events int
+	_, err := client.GenerateStream(context.Background(), RouteConfig{Protocol: AdapterOpenAIResponses}, GenerateInput{}, func(event GenerateStreamEvent) error {
+		if event.Delta != "" {
+			events++
+		}
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected transient stream error")
+	}
+	if adapter.streamCalls != 1 {
+		t.Fatalf("expected no retry after streamed event, got %d calls", adapter.streamCalls)
+	}
+	if events != 1 {
+		t.Fatalf("expected one delivered event, got %d", events)
+	}
+}
+
+type retryStreamAdapter struct {
+	streamCalls int
+}
+
+func (a *retryStreamAdapter) Name() string {
+	return "retry_stream_adapter"
+}
+
+func (a *retryStreamAdapter) Generate(context.Context, RouteConfig, GenerateInput) (*GenerateOutput, error) {
+	return nil, errors.New("not used")
+}
+
+func (a *retryStreamAdapter) GenerateStream(_ context.Context, _ RouteConfig, _ GenerateInput, onEvent func(GenerateStreamEvent) error) (*GenerateOutput, error) {
+	a.streamCalls++
+	if onEvent != nil {
+		if err := onEvent(GenerateStreamEvent{Delta: "partial"}); err != nil {
+			return nil, err
+		}
+	}
+	return nil, &UpstreamError{StatusCode: http.StatusBadGateway, Message: "temporary"}
+}
+
+func (a *retryStreamAdapter) ListModels(context.Context, RouteConfig) ([]ModelItem, error) {
+	return nil, errors.New("not used")
 }

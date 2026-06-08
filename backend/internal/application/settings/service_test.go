@@ -204,6 +204,25 @@ func TestValidateTurnstileRegistrationEnabledRequiresBool(t *testing.T) {
 	}
 }
 
+func TestBrandingSettingsAreValidDynamicSettings(t *testing.T) {
+	if !IsValidNamespace("branding") {
+		t.Fatal("expected branding namespace to be valid")
+	}
+	cases := []PatchItem{
+		{Namespace: "branding", Key: "app_name", Value: "Deeix Chat"},
+		{Namespace: "branding", Key: "logo_url", Value: "/logo.svg"},
+		{Namespace: "branding", Key: "logo_dark_url", Value: "https://cdn.example.test/logo-dark.svg"},
+	}
+	for _, item := range cases {
+		if err := validatePatchItem(item); err != nil {
+			t.Fatalf("expected %s:%s to pass, got %v", item.Namespace, item.Key, err)
+		}
+	}
+	if err := validatePatchItem(PatchItem{Namespace: "branding", Key: "logo_url", Value: "ftp://cdn.example.test/logo.svg"}); err == nil {
+		t.Fatal("expected unsupported logo URL scheme to fail")
+	}
+}
+
 func TestValidateModelOptionPolicySettings(t *testing.T) {
 	if err := validatePatchItem(PatchItem{Namespace: "chat", Key: "model_option_policy_mode", Value: "allowlist"}); err != nil {
 		t.Fatalf("expected allowlist mode to pass, got %v", err)

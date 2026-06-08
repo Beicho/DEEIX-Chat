@@ -280,6 +280,10 @@ type UserResponse struct {
 	Phone                   string     `json:"phone"`
 	Role                    string     `json:"role"`
 	Status                  string     `json:"status"`
+	SuspensionReason        string     `json:"suspensionReason"`
+	SuspensionDetail        string     `json:"suspensionDetail"`
+	SuspendedAt             *time.Time `json:"suspendedAt"`
+	SuspendedBy             *uint      `json:"suspendedBy"`
 	Timezone                string     `json:"timezone"`
 	Locale                  string     `json:"locale"`
 	ProfilePreferences      string     `json:"profilePreferences"`
@@ -470,6 +474,10 @@ func toUserResponse(v userview.UserView) UserResponse {
 		Phone:                   v.Phone,
 		Role:                    v.Role,
 		Status:                  v.Status,
+		SuspensionReason:        v.SuspensionReason,
+		SuspensionDetail:        v.SuspensionDetail,
+		SuspendedAt:             v.SuspendedAt,
+		SuspendedBy:             v.SuspendedBy,
 		Timezone:                v.Timezone,
 		Locale:                  v.Locale,
 		ProfilePreferences:      v.ProfilePreferences,

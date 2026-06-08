@@ -45,6 +45,10 @@ type UserView struct {
 	EmailBootstrapUsedAt    *time.Time
 	PhoneVerifiedAt         *time.Time
 	UsernameChangedAt       *time.Time
+	SuspensionReason        string
+	SuspensionDetail        string
+	SuspendedAt             *time.Time
+	SuspendedBy             *uint
 	PasswordEnabled         bool
 	PasswordSetAt           *time.Time
 	PasswordOrigin          string
@@ -90,6 +94,10 @@ func FromUser(item domainuser.User, subscription *SubscriptionState) UserView {
 		EmailBootstrapUsedAt:   item.EmailBootstrapUsedAt,
 		PhoneVerifiedAt:        item.PhoneVerifiedAt,
 		UsernameChangedAt:      item.UsernameChangedAt,
+		SuspensionReason:       item.SuspensionReason,
+		SuspensionDetail:       item.SuspensionDetail,
+		SuspendedAt:            item.SuspendedAt,
+		SuspendedBy:            item.SuspendedBy,
 		LastLoginAt:            item.LastLoginAt,
 		CreatedAt:              item.CreatedAt,
 		UpdatedAt:              item.UpdatedAt,

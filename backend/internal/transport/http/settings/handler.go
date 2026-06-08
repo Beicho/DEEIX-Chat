@@ -129,6 +129,38 @@ func (h *Handler) GetLoginPageSettings(c *gin.Context) {
 	})
 }
 
+func (h *Handler) GetBrandingSettings(c *gin.Context) {
+	items, err := h.service.ListByNamespace(c.Request.Context(), "branding")
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list branding settings failed")
+		return
+	}
+	values := map[string]string{
+		"app_name":      "DEEIX Chat",
+		"logo_url":      "/logo.svg",
+		"logo_dark_url": "/logo-white.svg",
+	}
+	for _, item := range items {
+		if _, ok := values[item.Key]; ok {
+			values[item.Key] = strings.TrimSpace(item.Value)
+		}
+	}
+	if values["app_name"] == "" {
+		values["app_name"] = "DEEIX Chat"
+	}
+	if values["logo_url"] == "" {
+		values["logo_url"] = "/logo.svg"
+	}
+	if values["logo_dark_url"] == "" {
+		values["logo_dark_url"] = "/logo-white.svg"
+	}
+	response.Success(c, BrandingSettingsResponse{
+		AppName:     values["app_name"],
+		LogoURL:     values["logo_url"],
+		LogoDarkURL: values["logo_dark_url"],
+	})
+}
+
 // GetModelOptionPolicy godoc
 // @Summary 查询模型 options 透传策略
 // @Tags settings

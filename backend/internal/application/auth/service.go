@@ -239,6 +239,8 @@ func (s *Service) Login(
 		reason := "invalid_credentials_or_inactive"
 		if errors.Is(err, ErrAccountLocked) {
 			reason = "account_locked"
+		} else if errors.Is(err, ErrAccountSuspended) {
+			reason = "account_suspended"
 		}
 		s.RecordAuthEvent(
 			ctx, 0, requestID, "login", "failure", reason,
@@ -325,6 +327,9 @@ func (s *Service) doLogin(
 
 	if item.Status == domainuser.StatusLocked {
 		return nil, ErrAccountLocked
+	}
+	if item.Status == domainuser.StatusSuspended {
+		return nil, newAccountSuspendedError(item)
 	}
 	if item.Status != domainuser.StatusActive {
 		return nil, ErrInvalidCredentials

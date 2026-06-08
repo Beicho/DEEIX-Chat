@@ -1,6 +1,7 @@
 {
   "auth": {
     "adminRequired": "需要管理员权限。",
+    "accountSuspended": "账号已暂停。",
     "authorizationCodeRequired": "缺少授权码。",
     "emailAliasNotAllowed": "不允许使用邮箱别名。",
     "emailAlreadyExists": "该邮箱已被使用。",

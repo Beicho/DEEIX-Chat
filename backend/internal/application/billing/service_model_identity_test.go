@@ -29,6 +29,14 @@ type billingRepositoryStub struct {
 	nativeToolPricingJSON      string
 	requestedPlatformModelName string
 	replacedSubscription       *domainbilling.Subscription
+	prepaidNanousd             int64
+	account                    *domainbilling.BillingAccount
+	plan                       *domainbilling.Plan
+	usedNanousd                int64
+	reservedAmountNanousd      int64
+	addedUsage                 *domainbilling.UsageLedger
+	settledUsage               *domainbilling.UsageLedger
+	settlementReservation      *domainbilling.UsageBalanceReservation
 }
 
 func (r *billingRepositoryStub) GetBillingMode(context.Context) (string, error) {
@@ -36,7 +44,7 @@ func (r *billingRepositoryStub) GetBillingMode(context.Context) (string, error) 
 }
 
 func (r *billingRepositoryStub) GetBillingPrepaidAmountNanousd(context.Context) (int64, error) {
-	return 0, nil
+	return r.prepaidNanousd, nil
 }
 
 func (r *billingRepositoryStub) GetNativeToolBillingEnabled(context.Context) (bool, error) {
@@ -70,6 +78,9 @@ func (r *billingRepositoryStub) GetPriceByID(_ context.Context, id uint) (*domai
 	return nil, repository.ErrNotFound
 }
 func (r *billingRepositoryStub) GetPlanByID(_ context.Context, id uint) (*domainbilling.Plan, error) {
+	if r.plan != nil && (r.plan.ID == id || id == 0) {
+		return r.plan, nil
+	}
 	for _, item := range r.plans {
 		if item.ID == id {
 			return &item, nil
@@ -86,6 +97,11 @@ func (r *billingRepositoryStub) ListPlansByIDs(_ context.Context, planIDs []uint
 		allowed[id] = struct{}{}
 	}
 	results := make([]domainbilling.Plan, 0, len(planIDs))
+	if r.plan != nil {
+		if _, ok := allowed[r.plan.ID]; ok {
+			results = append(results, *r.plan)
+		}
+	}
 	for _, item := range r.plans {
 		if _, ok := allowed[item.ID]; ok {
 			results = append(results, item)
@@ -93,22 +109,47 @@ func (r *billingRepositoryStub) ListPlansByIDs(_ context.Context, planIDs []uint
 	}
 	return results, nil
 }
-func (r *billingRepositoryStub) GetActivePlanByCode(context.Context, string) (*domainbilling.Plan, error) {
-	panic("not used")
+func (r *billingRepositoryStub) GetActivePlanByCode(_ context.Context, code string) (*domainbilling.Plan, error) {
+	if r.plan != nil && r.plan.Code == code {
+		return r.plan, nil
+	}
+	if code == "free" {
+		return &domainbilling.Plan{ID: 1, Code: "free", Name: "Free", IsActive: true}, nil
+	}
+	return nil, repository.ErrNotFound
 }
 func (r *billingRepositoryStub) UpdatePlanWithDefaultPrice(context.Context, *domainbilling.Plan, *domainbilling.Price) error {
 	panic("not used")
 }
 func (r *billingRepositoryStub) ListCurrentSubscriptionsByUserIDs(context.Context, []uint, time.Time) ([]domainbilling.Subscription, error) {
-	panic("not used")
+	if r.plan == nil {
+		return nil, nil
+	}
+	return []domainbilling.Subscription{{
+		UserID:               1,
+		PlanID:               r.plan.ID,
+		Status:               "active",
+		CurrentPeriodStartAt: time.Now().Add(-time.Hour),
+		CurrentPeriodEndAt:   ptrTime(time.Now().Add(time.Hour)),
+	}}, nil
 }
 func (r *billingRepositoryStub) ListSubscriptionEntitlementsByUserIDs(_ context.Context, userIDs []uint, now time.Time) ([]domainbilling.Subscription, error) {
 	allowed := make(map[uint]struct{}, len(userIDs))
 	for _, id := range userIDs {
 		allowed[id] = struct{}{}
 	}
-	results := make([]domainbilling.Subscription, 0, len(r.subscriptions))
-	for _, item := range r.subscriptions {
+	source := r.subscriptions
+	if len(source) == 0 && r.plan != nil {
+		source = []domainbilling.Subscription{{
+			UserID:               1,
+			PlanID:               r.plan.ID,
+			Status:               "active",
+			CurrentPeriodStartAt: now.Add(-time.Hour),
+			CurrentPeriodEndAt:   ptrTime(now.Add(time.Hour)),
+		}}
+	}
+	results := make([]domainbilling.Subscription, 0, len(source))
+	for _, item := range source {
 		if _, ok := allowed[item.UserID]; !ok {
 			continue
 		}
@@ -138,23 +179,34 @@ func (r *billingRepositoryStub) GetPaymentOrderByOrderNo(context.Context, string
 func (r *billingRepositoryStub) MarkPaymentOrderPaidAndGrantSubscription(context.Context, string, string, time.Time, *domainbilling.Subscription) (*domainbilling.PaymentOrder, bool, error) {
 	panic("not used")
 }
-func (r *billingRepositoryStub) AddUsage(context.Context, *domainbilling.UsageLedger) error {
-	panic("not used")
+func (r *billingRepositoryStub) AddUsage(_ context.Context, usage *domainbilling.UsageLedger) error {
+	r.addedUsage = usage
+	return nil
 }
 func (r *billingRepositoryStub) AddUsageAndDebitBalance(context.Context, *domainbilling.UsageLedger) error {
 	panic("not used")
 }
-func (r *billingRepositoryStub) AddUsageAndSettleBalance(context.Context, *domainbilling.UsageLedger, *domainbilling.UsageBalanceReservation) error {
-	panic("not used")
+func (r *billingRepositoryStub) AddUsageAndSettleBalance(_ context.Context, usage *domainbilling.UsageLedger, reservation *domainbilling.UsageBalanceReservation) error {
+	r.settledUsage = usage
+	r.settlementReservation = reservation
+	return nil
 }
 func (r *billingRepositoryStub) ReserveUsageBalance(context.Context, uint, int64, string) (*domainbilling.UsageBalanceReservation, error) {
-	panic("not used")
+	r.reservedAmountNanousd = r.prepaidNanousd
+	return &domainbilling.UsageBalanceReservation{
+		UserID:        1,
+		AmountNanousd: r.prepaidNanousd,
+		RefNo:         "run_1",
+	}, nil
 }
 func (r *billingRepositoryStub) ReleaseUsageBalanceReservation(context.Context, uint, string, string) error {
 	panic("not used")
 }
 func (r *billingRepositoryStub) GetOrCreateBillingAccount(context.Context, uint) (*domainbilling.BillingAccount, error) {
-	panic("not used")
+	if r.account == nil {
+		r.account = &domainbilling.BillingAccount{UserID: 1, Currency: "USD", Status: "active"}
+	}
+	return r.account, nil
 }
 func (r *billingRepositoryStub) ListBillingAccountsByUserIDs(context.Context, []uint) ([]domainbilling.BillingAccount, error) {
 	panic("not used")
@@ -205,7 +257,14 @@ func (r *billingRepositoryStub) ListDailyUsageByUser(context.Context, uint, time
 	panic("not used")
 }
 func (r *billingRepositoryStub) SumBillableNanousd(context.Context, uint, time.Time, time.Time) (int64, error) {
+	return r.usedNanousd, nil
+}
+func (r *billingRepositoryStub) GetAdminDashboardStats(context.Context, time.Time, time.Time, int) (*domainbilling.AdminDashboardStats, error) {
 	panic("not used")
+}
+
+func ptrTime(value time.Time) *time.Time {
+	return &value
 }
 
 func TestBuildUsageLedgerSnapshotsModelIdentity(t *testing.T) {
@@ -299,6 +358,88 @@ func TestBuildUsageLedgerSnapshotsModelIdentity(t *testing.T) {
 	}
 	if _, ok := serviceItem["billing_multiplier"]; ok {
 		t.Fatalf("did not expect service multiplier snapshot, got %#v", serviceItem["billing_multiplier"])
+	}
+}
+
+func TestPeriodBillingAllowsOverageWhenBalanceCanCoverPrepaidReserve(t *testing.T) {
+	repo := &billingRepositoryStub{
+		mode:           "period",
+		prepaidNanousd: 100,
+		account:        &domainbilling.BillingAccount{UserID: 1, Currency: "USD", BalanceNanousd: 200, Status: "active"},
+		plan:           &domainbilling.Plan{ID: 10, Code: "pro", PeriodCreditNanousd: 1_000},
+		usedNanousd:    1_000,
+		pricing: &domainbilling.ModelPricing{
+			PlatformModelName:      "gpt-5.5",
+			Currency:               "USD",
+			PricingMode:            domainbilling.PricingModeToken,
+			InputNanousdPerMTokens: 1_000_000_000,
+		},
+	}
+	service := NewService(repo)
+
+	if err := service.EnsureModelUsable(context.Background(), 1, "gpt-5.5", time.Now()); err != nil {
+		t.Fatalf("expected period overage to be allowed with balance, got %v", err)
+	}
+	reservation, err := service.ReserveUsageBalance(context.Background(), 1, "gpt-5.5", "run_1")
+	if err != nil {
+		t.Fatalf("expected overage reserve to succeed, got %v", err)
+	}
+	if reservation == nil || reservation.AmountNanousd != 100 {
+		t.Fatalf("expected prepaid overage reservation, got %#v", reservation)
+	}
+}
+
+func TestPeriodBillingDebitsOnlyUsageBeyondPeriodCredit(t *testing.T) {
+	repo := &billingRepositoryStub{
+		mode:        "period",
+		plan:        &domainbilling.Plan{ID: 10, Code: "pro", PeriodCreditNanousd: 1_000},
+		usedNanousd: 900,
+	}
+	service := NewService(repo)
+	usage := &domainbilling.UsageLedger{
+		UserID:        1,
+		BilledNanousd: 250,
+	}
+
+	if err := service.RecordUsageWithReservation(context.Background(), usage, nil); err != nil {
+		t.Fatalf("expected period overage settlement to succeed, got %v", err)
+	}
+	if repo.addedUsage != nil {
+		t.Fatalf("expected crossing-period usage to settle balance, got plain add %#v", repo.addedUsage)
+	}
+	if repo.settledUsage != usage {
+		t.Fatalf("expected original ledger to be recorded during settlement")
+	}
+	if repo.settlementReservation == nil {
+		t.Fatal("expected synthetic period-credit reservation")
+	}
+	if repo.settlementReservation.AmountNanousd != 100 {
+		t.Fatalf("expected 100 nanousd covered by period credit, got %d", repo.settlementReservation.AmountNanousd)
+	}
+}
+
+func TestPeriodBillingUsesRealReservationAfterCreditExceeded(t *testing.T) {
+	repo := &billingRepositoryStub{
+		mode:        "period",
+		plan:        &domainbilling.Plan{ID: 10, Code: "pro", PeriodCreditNanousd: 1_000},
+		usedNanousd: 1_000,
+	}
+	service := NewService(repo)
+	usage := &domainbilling.UsageLedger{
+		UserID:        1,
+		BilledNanousd: 250,
+	}
+	reservation := &domainbilling.UsageBalanceReservation{
+		UserID:        1,
+		AmountNanousd: 100,
+		RefNo:         "run_1",
+	}
+
+	if err := service.RecordUsageWithReservation(context.Background(), usage, reservation); err != nil {
+		t.Fatalf("expected period reservation settlement to succeed, got %v", err)
+	}
+	if repo.settlementReservation != reservation {
+		t.Fatalf("expected real reservation to be used, got %#v", repo.settlementReservation)
 	}
 }
 

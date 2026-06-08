@@ -298,6 +298,22 @@ func applyIdentityBaselineConstraints(db *gorm.DB) error {
 		`ALTER TABLE "identity_users"
 		ADD COLUMN IF NOT EXISTS "appearance_preferences" text NOT NULL DEFAULT ''`,
 		`COMMENT ON COLUMN "identity_users"."appearance_preferences" IS '外观偏好JSON'`,
+		`ALTER TABLE "identity_users"
+		ADD COLUMN IF NOT EXISTS "suspension_reason" varchar(255) NOT NULL DEFAULT ''`,
+		`COMMENT ON COLUMN "identity_users"."suspension_reason" IS '封禁原因'`,
+		`ALTER TABLE "identity_users"
+		ADD COLUMN IF NOT EXISTS "suspension_detail" text NOT NULL DEFAULT ''`,
+		`COMMENT ON COLUMN "identity_users"."suspension_detail" IS '封禁补充说明'`,
+		`ALTER TABLE "identity_users"
+		ADD COLUMN IF NOT EXISTS "suspended_at" timestamptz`,
+		`COMMENT ON COLUMN "identity_users"."suspended_at" IS '封禁时间'`,
+		`ALTER TABLE "identity_users"
+		ADD COLUMN IF NOT EXISTS "suspended_by" bigint`,
+		`COMMENT ON COLUMN "identity_users"."suspended_by" IS '封禁操作人用户ID'`,
+		`CREATE INDEX IF NOT EXISTS idx_identity_users_suspended_at
+		ON "identity_users" ("suspended_at")`,
+		`CREATE INDEX IF NOT EXISTS idx_identity_users_suspended_by
+		ON "identity_users" ("suspended_by")`,
 		`DROP INDEX IF EXISTS uk_identity_users_single_superadmin`,
 	}
 	for _, statement := range statements {

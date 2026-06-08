@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { getSuspendedAccountReason, isSuspendedAccountError } from "@/features/auth/lib/suspended-account-message";
 import { completeProviderBind, completeProviderLogin } from "@/shared/api/auth";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { writeSessionSnapshot } from "@/shared/auth/session";
@@ -29,6 +30,16 @@ export default function Page() {
   const router = useRouter();
   const [error, setError] = React.useState("");
   const handledRef = React.useRef(false);
+  const resolveCallbackError = React.useCallback((caught: unknown, fallback: string) => {
+    const suspendedReason = getSuspendedAccountReason(caught);
+    if (suspendedReason) {
+      return t("accountSuspendedWithReason", { reason: suspendedReason });
+    }
+    if (isSuspendedAccountError(caught)) {
+      return t("accountSuspended");
+    }
+    return resolveErrorMessage(caught, fallback);
+  }, [resolveErrorMessage, t]);
 
   React.useEffect(() => {
     if (handledRef.current) {
@@ -73,7 +84,7 @@ export default function Page() {
           router.replace(nextPath);
         })
         .catch((caught) => {
-          setError(resolveErrorMessage(caught, t("bindFailed")));
+          setError(resolveCallbackError(caught, t("bindFailed")));
         });
       return;
     }
@@ -93,9 +104,9 @@ export default function Page() {
         router.replace(nextPath);
       })
       .catch((caught) => {
-        setError(resolveErrorMessage(caught, t("loginFailed")));
+        setError(resolveCallbackError(caught, t("loginFailed")));
       });
-  }, [resolveErrorMessage, router, t]);
+  }, [resolveCallbackError, router, t]);
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4 text-sm text-muted-foreground">

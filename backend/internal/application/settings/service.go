@@ -136,14 +136,15 @@ func (s *Service) RuntimeValuesByNamespace(ctx context.Context, namespace string
 
 // validNamespaces 合法的 namespace 集合。
 var validNamespaces = map[string]bool{
-	"auth":    true,
-	"billing": true,
-	"chat":    true,
-	"storage": true,
-	"file":    true,
-	"extract": true,
-	"mcp":     true,
-	"circuit": true,
+	"auth":     true,
+	"billing":  true,
+	"branding": true,
+	"chat":     true,
+	"storage":  true,
+	"file":     true,
+	"extract":  true,
+	"mcp":      true,
+	"circuit":  true,
 }
 
 // IsValidNamespace 判断 namespace 是否允许被动态配置。
@@ -252,6 +253,16 @@ func validatePatchItem(item PatchItem) error {
 			return err
 		}
 		return validateOptionalHTTPURL(value, key)
+	case "branding:app_name":
+		if value == "" {
+			return fmt.Errorf("%s cannot be empty", key)
+		}
+		return validateStringMax(value, 80, key)
+	case "branding:logo_url", "branding:logo_dark_url":
+		if err := validateStringMax(value, 2048, key); err != nil {
+			return err
+		}
+		return validateOptionalBrandingAssetURL(value, key)
 	case "auth:login_page_title":
 		return validateStringMax(value, 80, key)
 	case "chat:model_option_policy_mode":
@@ -914,6 +925,20 @@ func validateOptionalHTTPURL(value string, key string) error {
 		return fmt.Errorf("%s must start with http:// or https://", key)
 	}
 	return nil
+}
+
+func validateOptionalBrandingAssetURL(value string, key string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		return nil
+	}
+	if strings.HasPrefix(value, "/") && !strings.HasPrefix(value, "//") {
+		return nil
+	}
+	return fmt.Errorf("%s must be a local path or http(s) URL", key)
 }
 
 func validateEmailDomainList(value string, key string) error {

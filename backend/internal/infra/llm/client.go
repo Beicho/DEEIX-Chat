@@ -35,6 +35,7 @@ const (
 	defaultReadTimeoutMS       = 120000 // 非流式/首字节超时 120s（含 LLM 推理）
 	defaultStreamIdleTimeoutMS = 60000  // 流式 chunk 间隔超时 60s
 	maxUpstreamBodyBytes       = 64 * 1024 * 1024
+	defaultUpstreamMaxAttempts = 4 // 1 次原始请求 + 3 次后端重试
 )
 
 // Client 负责跨厂商共享的 HTTP client、adapter 路由和上游调试能力。
@@ -648,6 +649,7 @@ func NewClientWithEnv(env string, ssrfProtectionEnabled bool) *Client {
 	}
 	client.adapters = map[string]transportAdapter{
 		AdapterOpenAIResponses:        &openAIResponsesAdapter{client: client},
+		AdapterOpenRouterResponses:    &openRouterResponsesAdapter{client: client},
 		AdapterOpenAIChatCompletions:  &openAIChatCompletionsAdapter{client: client},
 		AdapterOpenAIImageGenerations: &openAIImageGenerationsAdapter{client: client},
 		AdapterOpenAIImageEdits:       &openAIImageEditsAdapter{client: client},
@@ -705,7 +707,18 @@ func (c *Client) Generate(ctx context.Context, route RouteConfig, input Generate
 	if err != nil {
 		return nil, err
 	}
-	return adapter.Generate(ctx, route, input)
+	var lastErr error
+	for attempt := 1; attempt <= defaultUpstreamMaxAttempts; attempt++ {
+		output, generateErr := adapter.Generate(ctx, route, input)
+		if generateErr == nil || !shouldRetryUpstreamError(generateErr) || attempt == defaultUpstreamMaxAttempts {
+			return output, generateErr
+		}
+		lastErr = generateErr
+		if err = sleepBeforeUpstreamRetry(ctx, attempt); err != nil {
+			return nil, lastErr
+		}
+	}
+	return nil, lastErr
 }
 
 // GenerateStream 调用上游适配器并实时回传增量文本。
@@ -719,7 +732,26 @@ func (c *Client) GenerateStream(
 	if err != nil {
 		return nil, err
 	}
-	return adapter.GenerateStream(ctx, route, input, onEvent)
+	var lastErr error
+	for attempt := 1; attempt <= defaultUpstreamMaxAttempts; attempt++ {
+		eventDelivered := false
+		wrappedOnEvent := onEvent
+		if onEvent != nil {
+			wrappedOnEvent = func(event GenerateStreamEvent) error {
+				eventDelivered = true
+				return onEvent(event)
+			}
+		}
+		output, generateErr := adapter.GenerateStream(ctx, route, input, wrappedOnEvent)
+		if generateErr == nil || eventDelivered || !shouldRetryUpstreamError(generateErr) || attempt == defaultUpstreamMaxAttempts {
+			return output, generateErr
+		}
+		lastErr = generateErr
+		if err = sleepBeforeUpstreamRetry(ctx, attempt); err != nil {
+			return nil, lastErr
+		}
+	}
+	return nil, lastErr
 }
 
 // ListModels 调用上游 models 目录接口。
@@ -743,6 +775,46 @@ func (c *Client) ListModels(ctx context.Context, route RouteConfig) ([]ModelItem
 		return nil, fmt.Errorf("%w; openai-compatible models fallback failed: %v", err, fallbackErr)
 	}
 	return fallbackItems, nil
+}
+
+func shouldRetryUpstreamError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var upstreamErr *UpstreamError
+	if errors.As(err, &upstreamErr) {
+		if upstreamErr.StatusCode == http.StatusTooManyRequests {
+			return true
+		}
+		return upstreamErr.StatusCode == http.StatusRequestTimeout || upstreamErr.StatusCode >= http.StatusInternalServerError
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	if message == "" {
+		return false
+	}
+	return strings.Contains(message, "connection reset") ||
+		strings.Contains(message, "connection refused") ||
+		strings.Contains(message, "temporary") ||
+		strings.Contains(message, "timeout") ||
+		strings.Contains(message, "stream idle timeout")
+}
+
+func sleepBeforeUpstreamRetry(ctx context.Context, attempt int) error {
+	if attempt <= 0 {
+		attempt = 1
+	}
+	delay := time.Duration(attempt*150) * time.Millisecond
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func shouldFallbackToOpenAICompatibleModels(route RouteConfig) bool {

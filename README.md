@@ -15,6 +15,7 @@
 
 <p align="center">
   <a href="https://deeix.com"><img alt="Website" src="https://img.shields.io/badge/Website-deeix.com-black" /></a>
+  <a href="https://deeix.com/docs/deeix-chat/quickstart"><img alt="Guide" src="https://img.shields.io/badge/Guide-Quickstart-0f766e" /></a>
   <a href="https://t.me/deeix_chat"><img alt="Telegram" src="https://img.shields.io/badge/Telegram-deeix_chat-26A5E4?logo=telegram&logoColor=white" /></a>
   <a href="https://x.com/DEEIX_AI"><img alt="X" src="https://img.shields.io/badge/X-%40DEEIX_AI-black?logo=x&logoColor=white" /></a>
   <a href="https://www.apache.org/licenses/LICENSE-2.0"><img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue" /></a>
@@ -115,6 +116,8 @@ The backend keeps clear internal boundaries: `cmd/internal/cli` handles entrypoi
 
 ## Quick Start
 
+> Quick installation guide: [Quick Start](https://deeix.com/docs/deeix-chat/quickstart).
+
 ### Local Development
 
 Local development is intended for editing source code and running the frontend and backend separately. The default config connects to local PostgreSQL and Redis. If you only want a low-dependency trial, use the lightweight Docker installation below.
@@ -201,7 +204,7 @@ cp config.full.example.yaml config.yaml
 docker compose -f docker-compose.full.yml up -d
 ```
 
-`docker-compose.full.yml` sets `POSTGRES_DSN`, `REDIS_ADDR`, and `REDIS_PASSWORD` in compose `environment`, so those values override the database and Redis values in `config.yaml`.
+`docker-compose.full.yml` sets `POSTGRES_DSN`, `REDIS_ADDR`, `REDIS_USERNAME`, and `REDIS_PASSWORD` in compose `environment`, so those values override the database and Redis values in `config.yaml`.
 
 #### Configuration, Persistence, and Image
 
@@ -306,6 +309,8 @@ If a superadmin already exists, the service does not regenerate or print the ini
 
 ## Configuration
 
+> Full configuration guide: [Configuration](https://deeix.com/docs/deeix-chat/configuration).
+
 Backend configuration is split into static runtime configuration and runtime business settings. Static runtime configuration describes the infrastructure, security, and storage parameters required to start the service, and is provided through `config.yaml` and environment variables. Runtime business settings cover product capabilities such as authentication, conversations, models, files, and billing; they are stored in `system_settings` and maintained from the admin console. Environment variables override matching config-file values, which is useful for containerized deployments, separated deployments, and secret injection.
 
 At startup, the backend resolves the default config file from the working directory: starting from the repository root reads `config.yaml`, while starting from `backend/` reads `../config.yaml`. Docker deployments usually mount host `./config.yaml` as read-only `/app/config.yaml` inside the container. If the config file is stored elsewhere, set `CONFIG_FILE` to a path accessible from the running process or container.
@@ -348,6 +353,7 @@ Static configuration environment variables:
 | SQLite | `SQLITE_TEMP_STORE` | Temporary storage: `DEFAULT`, `FILE`, or `MEMORY`. |
 | Cache | `CACHE_DRIVER` | `redis` or `memory`; `memory` is single-process only. |
 | Redis | `REDIS_ADDR` | Redis address. |
+| Redis | `REDIS_USERNAME` | Redis ACL username; leave empty for password-only/default-user Redis. |
 | Redis | `REDIS_PASSWORD` | Redis password. |
 | Redis | `REDIS_DB` | Redis DB number. |
 | Storage | `STORAGE_BACKEND` | `local` or `s3`. |
@@ -375,6 +381,12 @@ Static configuration environment variables:
 
 Authentication, registration, conversation settings, model option policies, file processing, RAG, embedding, MCP, billing, payments, and announcements are runtime business settings, not static YAML configuration. Their defaults are seeded by the backend and maintained in the admin console.
 
+## Feature Guides
+
+- [User Guide](https://deeix.com/docs/deeix-chat/new-chat)
+- [Admin Guide](https://deeix.com/docs/deeix-chat/admin-accounts)
+- [Advanced Guide](https://deeix.com/docs/deeix-chat/advanced-capabilities-passthrough-tools)
+
 ## Security Notes
 
 - User passwords are hashed with bcrypt.
@@ -386,6 +398,11 @@ Authentication, registration, conversation settings, model option policies, file
 
 ## Documentation
 
+- [Quick Start](https://deeix.com/docs/deeix-chat/quickstart)
+- [Configuration](https://deeix.com/docs/deeix-chat/configuration)
+- [User Guide](https://deeix.com/docs/deeix-chat/new-chat)
+- [Admin Guide](https://deeix.com/docs/deeix-chat/admin-accounts)
+- [Advanced Guide](https://deeix.com/docs/deeix-chat/advanced-capabilities-passthrough-tools)
 - Backend guide: [backend/README.md](./backend/README.md)
 - Backend standards: [backend/docs/README.md](./backend/docs/README.md)
 - Frontend guide: [frontend/README.md](./frontend/README.md)

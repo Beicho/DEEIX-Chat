@@ -1,12 +1,20 @@
 package auth
 
-import "errors"
+import (
+	"errors"
+	"strings"
+	"time"
+
+	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
+)
 
 var (
 	// ErrInvalidCredentials 用户名或密码错误。
 	ErrInvalidCredentials = errors.New("invalid username or password")
 	// ErrAccountLocked 账户已被锁定。
 	ErrAccountLocked = errors.New("account locked")
+	// ErrAccountSuspended 账户已被管理员暂停。
+	ErrAccountSuspended = errors.New("account suspended")
 	// ErrInvalidTimeZone 用户时区格式非法。
 	ErrInvalidTimeZone = errors.New("invalid time zone")
 	// ErrInvalidLocale 用户语言区域非法。
@@ -52,6 +60,32 @@ var (
 	// ErrTwoFactorChallengeExpired 登录二次验证挑战已过期。
 	ErrTwoFactorChallengeExpired = errors.New("two factor challenge expired")
 )
+
+// AccountSuspendedError carries the public suspension reason shown to the blocked user.
+type AccountSuspendedError struct {
+	Reason      string
+	Detail      string
+	SuspendedAt *time.Time
+}
+
+func (e *AccountSuspendedError) Error() string {
+	return ErrAccountSuspended.Error()
+}
+
+func (e *AccountSuspendedError) Unwrap() error {
+	return ErrAccountSuspended
+}
+
+func newAccountSuspendedError(item *domainuser.User) *AccountSuspendedError {
+	if item == nil {
+		return &AccountSuspendedError{}
+	}
+	return &AccountSuspendedError{
+		Reason:      strings.TrimSpace(item.SuspensionReason),
+		Detail:      strings.TrimSpace(item.SuspensionDetail),
+		SuspendedAt: item.SuspendedAt,
+	}
+}
 
 // IdentityProviderDeleteConflictError 携带身份源删除冲突的受影响用户数量。
 type IdentityProviderDeleteConflictError struct {

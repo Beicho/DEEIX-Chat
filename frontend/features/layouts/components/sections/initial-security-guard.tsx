@@ -17,7 +17,15 @@ import {
   readLocalAppearancePreferences,
   serializeAppearancePreferences,
 } from "@/features/settings/utils/appearance-preferences";
-import { cancelCurrentTwoFactorSetup, completeOnboarding, confirmCurrentTwoFactorSetup, patchMe, patchUsername, startCurrentTwoFactorSetup } from "@/shared/api/auth";
+import {
+  cancelCurrentTwoFactorSetup,
+  completeOnboarding,
+  confirmCurrentTwoFactorSetup,
+  isPasswordReuseNotAllowedError,
+  patchMe,
+  patchUsername,
+  startCurrentTwoFactorSetup,
+} from "@/shared/api/auth";
 import type { TwoFactorSetupStartData, UserDTO } from "@/shared/api/auth.types";
 import {
   DISPLAY_NAME_MAX_LENGTH,
@@ -547,6 +555,9 @@ export function InitialSecurityGuard() {
       }
       toast.success(t("toasts.complete"));
     } catch (error) {
+      if (isPasswordReuseNotAllowedError(error)) {
+        setStep(2);
+      }
       toast.error(t("toasts.completeFailed"), {
         description: resolveErrorMessage(error, tCommonErrors("unknown")),
       });

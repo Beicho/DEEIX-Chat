@@ -381,10 +381,12 @@ export function useAdminUsersPage({
         }
 
         onSetUsers((current) => patchByID<UserDTO, number>(current, item.id, (user) => user.id, payload));
+        const inlineReason =
+          payload.status === "suspended" ? t("editor.defaultSuspensionReason") : "admin_status_update";
         const response = await patchAdminUser(token, item.id, {
           role: payload.role as AdminUserRole | undefined,
           status: payload.status as AdminUserStatus | undefined,
-          reason: "inline_admin_table",
+          reason: field === "status" ? inlineReason : "admin_role_update",
         });
 
         onSetUsers((current) => replaceByID(current, item.id, (user) => user.id, response.user));
@@ -592,8 +594,13 @@ export function useAdminUsersPage({
         }
       }
     }
-    if (editPayload.status !== editDialogTarget.status && editPayload.reason.trim()) {
-      patchPayload.reason = editPayload.reason.trim();
+    if (editPayload.status !== editDialogTarget.status) {
+      const reason = editPayload.reason.trim();
+      if (reason) {
+        patchPayload.reason = reason;
+      } else if (editPayload.status === "suspended") {
+        patchPayload.reason = t("editor.defaultSuspensionReason");
+      }
     }
 
     const billingBalanceChanged =
@@ -865,11 +872,13 @@ export function useAdminUsersPage({
       onSetUsers((current) =>
         current.map((item) => (targetIDs.has(item.id) ? { ...item, status: nextStatus } : item)),
       );
+      const bulkReason =
+        nextStatus === "suspended" ? t("editor.defaultSuspensionReason") : "admin_bulk_status_update";
       const results = await Promise.allSettled(
         targets.map((item) =>
           patchAdminUser(token, item.id, {
             status: nextStatus,
-            reason: "bulk_update_status",
+            reason: bulkReason,
           }),
         ),
       );
