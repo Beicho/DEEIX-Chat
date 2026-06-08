@@ -126,6 +126,9 @@ const SETTINGS_FIELD_LABELS: Record<AppLocale, Record<string, string>> = {
     "billing:stripe_secret_key": "Stripe secret key",
     "billing:stripe_webhook_secret": "Stripe webhook secret",
     "billing:usd_to_cny_rate": "USD to CNY rate",
+    "branding:app_name": "System name",
+    "branding:logo_dark_url": "Dark logo",
+    "branding:logo_url": "Light logo",
     "chat:model_option_allowed_paths": "Model option allowlist",
     "chat:default_system_prompt": "Global default system prompt",
     "chat:model_option_denied_paths": "Model option denylist",
@@ -174,6 +177,9 @@ const SETTINGS_FIELD_LABELS: Record<AppLocale, Record<string, string>> = {
     "billing:stripe_secret_key": "Stripe Secret Key",
     "billing:stripe_webhook_secret": "Stripe Webhook Secret",
     "billing:usd_to_cny_rate": "美元人民币汇率",
+    "branding:app_name": "系统名称",
+    "branding:logo_dark_url": "深色 Logo",
+    "branding:logo_url": "浅色 Logo",
     "chat:model_option_allowed_paths": "模型参数白名单",
     "chat:default_system_prompt": "全局默认系统提示词",
     "chat:model_option_denied_paths": "模型参数黑名单",
@@ -335,6 +341,8 @@ function resolveSettingsReason(locale: AppLocale, label: string, reason: string)
         return `${label}不能为空。`;
       case "must be a local path":
         return `${label}必须是站内路径，例如 /chat。`;
+      case "must be a local path or http(s) URL":
+        return `${label}必须是站内路径或 http(s) 地址。`;
       case "must be bool":
         return `${label}必须是 true 或 false。`;
       case "must start with http:// or https://":
@@ -363,6 +371,9 @@ function resolveSettingsReason(locale: AppLocale, label: string, reason: string)
   const optionalMin = normalized.match(/^must be empty or >= (.+)$/);
   if (optionalMin) {
     return `${label} must be empty or at least ${optionalMin[1]}.`;
+  }
+  if (normalized === "must be a local path or http(s) URL") {
+    return `${label} must be a local path or http(s) URL.`;
   }
 
   return `${label}: ${normalized}.`;

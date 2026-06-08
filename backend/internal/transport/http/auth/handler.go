@@ -154,6 +154,9 @@ func (h *Handler) StartEmailRegistration(c *gin.Context) {
 		middleware.ResolveSessionAuditContext(c),
 	)
 	if err != nil {
+		if writeAccountSuspendedError(c, err) {
+			return
+		}
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
@@ -187,6 +190,9 @@ func (h *Handler) CompleteEmailRegistration(c *gin.Context) {
 		middleware.ResolveSessionAuditContext(c),
 	)
 	if err != nil {
+		if writeAccountSuspendedError(c, err) {
+			return
+		}
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
@@ -502,6 +508,9 @@ func (h *Handler) CompleteProviderLogin(c *gin.Context) {
 		middleware.ResolveSessionAuditContext(c),
 	)
 	if err != nil {
+		if writeAccountSuspendedError(c, err) {
+			return
+		}
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
@@ -538,6 +547,9 @@ func (h *Handler) Login(c *gin.Context) {
 		auditCtx,
 	)
 	if err != nil {
+		if writeAccountSuspendedError(c, err) {
+			return
+		}
 		if errors.Is(err, appauth.ErrInvalidCredentials) {
 			response.Error(c, http.StatusUnauthorized, "invalid username or password")
 			return
@@ -565,6 +577,19 @@ func (h *Handler) Login(c *gin.Context) {
 
 	h.writeRefreshTokenCookie(c, result)
 	response.Success(c, toLoginResponse(result))
+}
+
+func writeAccountSuspendedError(c *gin.Context, err error) bool {
+	var suspendedErr *appauth.AccountSuspendedError
+	if !errors.As(err, &suspendedErr) {
+		return false
+	}
+	response.ErrorWithDetails(c, http.StatusForbidden, "auth.account_suspended", "account suspended", gin.H{
+		"reason":      suspendedErr.Reason,
+		"detail":      suspendedErr.Detail,
+		"suspendedAt": suspendedErr.SuspendedAt,
+	})
+	return true
 }
 
 func (h *Handler) VerifyTwoFactorLogin(c *gin.Context) {

@@ -10,6 +10,7 @@ const (
 	defaultAllowedMIMETypes = "image/jpeg,image/png,image/webp,image/gif,text/plain,text/markdown,text/csv,text/yaml,application/json,application/yaml,application/x-yaml,application/toml,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
 	defaultRAGModel         = "sentence-transformers/all-MiniLM-L6-v2"
 	defaultLoginPageTitle   = "Sign in to DEEIX Chat"
+	defaultAppName          = "DEEIX Chat"
 )
 
 // defaultSettings 返回所有动态配置的默认种子数据。
@@ -41,6 +42,11 @@ func defaultSettings() []domainsettings.SystemSetting {
 		{Namespace: "auth", Key: "turnstile_registration_enabled", Value: "false", ValueType: "bool", Description: "邮箱注册是否启用 Cloudflare Turnstile 人机验证"},
 		{Namespace: "auth", Key: "turnstile_site_key", Value: "", ValueType: "string", Description: "Cloudflare Turnstile Site Key"},
 		{Namespace: "auth", Key: "turnstile_secret_key", Value: "", ValueType: "string", Description: "Cloudflare Turnstile Secret Key"},
+
+		// 品牌配置
+		{Namespace: "branding", Key: "app_name", Value: defaultAppName, ValueType: "string", Description: "系统名称"},
+		{Namespace: "branding", Key: "logo_url", Value: "/logo.svg", ValueType: "string", Description: "浅色主题 Logo 地址"},
+		{Namespace: "branding", Key: "logo_dark_url", Value: "/logo-white.svg", ValueType: "string", Description: "深色主题 Logo 地址"},
 
 		// 计费配置
 		{Namespace: "billing", Key: "mode", Value: "self", ValueType: "string", Description: "计费方式：self=自用模式，period=周期计费，usage=按量计费"},

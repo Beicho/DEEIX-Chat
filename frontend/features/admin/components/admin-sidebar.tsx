@@ -36,12 +36,15 @@ export function AdminSidebar({
   const sectionLabel = React.useCallback(
     (id: AdminSection, fallback: string) => {
       const keyByID: Record<AdminSection, string> = {
+        dashboard: "sections.dashboard",
         accounts: "sections.accounts",
+        security: "sections.security",
         channels: "sections.channels",
         models: "sections.models",
         "tool-settings": "sections.toolSettings",
         billing: "sections.billing",
         announcements: "sections.announcements",
+        branding: "sections.branding",
         logs: "sections.logs",
         "login-settings": "sections.loginSettings",
         "conversation-settings": "sections.conversationSettings",

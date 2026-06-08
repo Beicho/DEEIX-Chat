@@ -26,6 +26,31 @@ func NewHandler(service *appadmin.Service) *Handler {
 	return &Handler{service: service}
 }
 
+// GetDashboard 查询管理员首页指标。
+func (h *Handler) GetDashboard(c *gin.Context) {
+	stats, err := h.service.GetDashboardStats(c.Request.Context(), time.Now())
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "get dashboard failed")
+		return
+	}
+	response.Success(c, DashboardDataResponse{Dashboard: toDashboardResponse(stats)})
+}
+
+func (h *Handler) ListMultiAccountCandidates(c *gin.Context) {
+	limit := 50
+	if raw := c.Query("limit"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	candidates, err := h.service.ListMultiAccountCandidates(c.Request.Context(), limit)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list multi account candidates failed")
+		return
+	}
+	response.Success(c, MultiAccountCandidatesDataResponse{Candidates: toMultiAccountCandidateResponses(candidates)})
+}
+
 // ListUsers godoc
 // @Summary 管理员查询用户
 // @Description 管理员分页查看所有用户，实现账户隔离管理

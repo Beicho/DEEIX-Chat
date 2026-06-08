@@ -1,10 +1,13 @@
 export const ADMIN_SECTIONS = [
+  { id: "dashboard", label: "Dashboard", href: "/dashboard" },
   { id: "accounts", label: "Accounts", href: "/users" },
+  { id: "security", label: "Security", href: "/security" },
   { id: "channels", label: "Upstreams", href: "/channels" },
   { id: "models", label: "Models", href: "/models" },
   { id: "tool-settings", label: "Tools", href: "/tools" },
   { id: "billing", label: "Billing", href: "/billing" },
   { id: "announcements", label: "Announcements", href: "/announcements" },
+  { id: "branding", label: "Branding", href: "/branding" },
   { id: "logs", label: "Logs", href: "/logs" },
   { id: "login-settings", label: "Login & auth", href: "/login" },
   { id: "conversation-settings", label: "Conversation", href: "/conversation" },
@@ -18,5 +21,5 @@ export function resolveAdminSection(section?: string | null): AdminSection {
   if (ADMIN_SECTIONS.some((item) => item.id === section)) {
     return section as AdminSection;
   }
-  return "accounts";
+  return "dashboard";
 }

@@ -4,6 +4,8 @@ import "github.com/gin-gonic/gin"
 
 // RegisterRoutes 注册后台管理路由（由管理员中间件保护）。
 func (m *Module) RegisterRoutes(adminGroup *gin.RouterGroup) {
+	adminGroup.GET("/dashboard", m.Handler.GetDashboard)
+	adminGroup.GET("/security/multi-accounts", m.Handler.ListMultiAccountCandidates)
 	adminGroup.POST("/users", m.Handler.CreateUser)
 	adminGroup.GET("/users", m.Handler.ListUsers)
 	adminGroup.PATCH("/users/:id", m.Handler.PatchUser)

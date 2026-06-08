@@ -42,6 +42,8 @@ type userService interface {
 	GetByID(ctx context.Context, userID uint) (*domainuser.User, error)
 	RevokeAllSessions(ctx context.Context, userID uint, reason string) error
 	UpdateUserStatus(ctx context.Context, userID uint, status string) error
+	SetUserSuspension(ctx context.Context, userID uint, reason string, detail string, suspendedAt *time.Time, suspendedBy *uint) error
+	ListMultiAccountCandidates(ctx context.Context, limit int) ([]domainuser.MultiAccountCandidate, error)
 	UpdateFields(ctx context.Context, userID uint, input repository.UpdateUserFieldsInput) (*domainuser.User, error)
 	ResetLoginFailure(ctx context.Context, userID uint) error
 	ResetPasswordByAdmin(ctx context.Context, userID uint, newPassword string, mustResetPassword bool) error
@@ -88,6 +90,7 @@ type systemEventService interface {
 
 type usageLogService interface {
 	ListUsageLogs(ctx context.Context, page int, pageSize int, filter billing.UsageLogListFilter) ([]domainbilling.UsageLedger, int64, error)
+	GetAdminDashboardStats(ctx context.Context, now time.Time) (*domainbilling.AdminDashboardStats, error)
 }
 
 type authSecurityService interface {
@@ -365,6 +368,24 @@ func (s *Service) ListUsageLogs(ctx context.Context, page int, pageSize int, fil
 	return s.usageLogService.ListUsageLogs(ctx, page, pageSize, filter)
 }
 
+// GetDashboardStats 查询管理员首页聚合指标。
+func (s *Service) GetDashboardStats(ctx context.Context, now time.Time) (*domainbilling.AdminDashboardStats, error) {
+	if s.usageLogService == nil {
+		return &domainbilling.AdminDashboardStats{}, nil
+	}
+	return s.usageLogService.GetAdminDashboardStats(ctx, now)
+}
+
+func (s *Service) ListMultiAccountCandidates(ctx context.Context, limit int) ([]domainuser.MultiAccountCandidate, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.userService.ListMultiAccountCandidates(ctx, limit)
+}
+
 // ListSystemEvents 查询系统事件分页列表。
 func (s *Service) ListSystemEvents(ctx context.Context, page int, pageSize int, filter systemeventapp.ListFilter) ([]domainsystemevent.Event, int64, error) {
 	if s.systemEventService == nil {
@@ -501,6 +522,9 @@ func (s *Service) UpdateUserStatusByAdmin(
 	}
 
 	if err = s.userService.UpdateUserStatus(ctx, targetUserID, nextStatus); err != nil {
+		return nil, err
+	}
+	if err = s.persistSuspensionState(ctx, targetUserID, actorUserID, nextStatus, reason); err != nil {
 		return nil, err
 	}
 
@@ -813,6 +837,9 @@ func (s *Service) PatchUserByAdmin(
 			if err = s.userService.UpdateUserStatus(ctx, targetUserID, nextStatus); err != nil {
 				return nil, err
 			}
+			if err = s.persistSuspensionState(ctx, targetUserID, actorUserID, nextStatus, req.Reason); err != nil {
+				return nil, err
+			}
 			if nextStatus == domainuser.StatusActive {
 				if err = s.userService.ResetLoginFailure(ctx, targetUserID); err != nil {
 					return nil, err
@@ -865,6 +892,19 @@ func (s *Service) PatchUserByAdmin(
 	)
 
 	return s.userService.GetByID(ctx, targetUserID)
+}
+
+func (s *Service) persistSuspensionState(ctx context.Context, targetUserID uint, actorUserID uint, status string, reason string) error {
+	if status == domainuser.StatusSuspended {
+		now := time.Now()
+		actor := actorUserID
+		suspensionReason := strings.TrimSpace(reason)
+		if suspensionReason == "" {
+			suspensionReason = "管理员暂停账号"
+		}
+		return s.userService.SetUserSuspension(ctx, targetUserID, suspensionReason, "", &now, &actor)
+	}
+	return s.userService.SetUserSuspension(ctx, targetUserID, "", "", nil, nil)
 }
 
 func normalizeAdminLocale(raw string) (string, error) {

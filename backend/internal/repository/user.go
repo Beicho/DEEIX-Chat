@@ -24,6 +24,10 @@ type UpdateUserFieldsInput struct {
 	ProfilePreferences    *string
 	AppearancePreferences *string
 	OnboardingCompletedAt **time.Time
+	SuspensionReason      *string
+	SuspensionDetail      *string
+	SuspendedAt           **time.Time
+	SuspendedBy           **uint
 }
 
 // UpdateUserTwoFactorInput 定义用户二次验证配置更新字段。
@@ -175,7 +179,11 @@ func (input UpdateUserFieldsInput) IsZero() bool {
 		input.Locale == nil &&
 		input.ProfilePreferences == nil &&
 		input.AppearancePreferences == nil &&
-		input.OnboardingCompletedAt == nil
+		input.OnboardingCompletedAt == nil &&
+		input.SuspensionReason == nil &&
+		input.SuspensionDetail == nil &&
+		input.SuspendedAt == nil &&
+		input.SuspendedBy == nil
 }
 
 // UserRepository 定义用户域依赖的持久化能力。
@@ -215,6 +223,8 @@ type UserRepository interface {
 	MarkLoginFailure(ctx context.Context, userID uint, lockThreshold int, lockUntil time.Time) (*domainuser.Credential, error)
 	ResetLoginFailure(ctx context.Context, userID uint) error
 	UpdateUserStatus(ctx context.Context, userID uint, status string) error
+	SetUserSuspension(ctx context.Context, userID uint, reason string, detail string, suspendedAt *time.Time, suspendedBy *uint) error
+	ListMultiAccountCandidates(ctx context.Context, limit int) ([]domainuser.MultiAccountCandidate, error)
 	UpdatePassword(ctx context.Context, userID uint, passwordHash string, passwordOrigin string, mustResetPassword bool) error
 	ResetPasswordByAdmin(ctx context.Context, userID uint, passwordHash string, mustResetPassword bool) error
 	MarkBootstrapSuperAdminPasswordResetRequired(ctx context.Context, username string) error

@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -147,6 +148,116 @@ func (r *Repo) UpdateFields(ctx context.Context, userID uint, input repository.U
 	return r.updateUserFields(ctx, userID, input)
 }
 
+func (r *Repo) SetUserSuspension(ctx context.Context, userID uint, reason string, detail string, suspendedAt *time.Time, suspendedBy *uint) error {
+	input := repository.UpdateUserFieldsInput{
+		SuspensionReason: &reason,
+		SuspensionDetail: &detail,
+		SuspendedAt:      &suspendedAt,
+		SuspendedBy:      &suspendedBy,
+	}
+	_, err := r.updateUserFields(ctx, userID, input)
+	return err
+}
+
+// ListMultiAccountCandidates returns runtime browser-fingerprint clusters when those tables exist.
+func (r *Repo) ListMultiAccountCandidates(ctx context.Context, limit int) ([]domainuser.MultiAccountCandidate, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	var tableName string
+	if err := r.db.WithContext(ctx).Raw(`SELECT COALESCE(to_regclass('public.fingerprint_associations')::text, '')`).Scan(&tableName).Error; err != nil {
+		return nil, translateError(err)
+	}
+	if strings.TrimSpace(tableName) == "" {
+		return []domainuser.MultiAccountCandidate{}, nil
+	}
+
+	type row struct {
+		AssociationID   uint
+		FingerprintID   string
+		UserIDsJSON     string
+		UsersJSON       string
+		ConfidenceScore float64
+		RiskLevel       string
+		DetectedAt      time.Time
+		IgnoredAt       *time.Time
+		Reason          string
+	}
+	rows := []row{}
+	query := `
+		SELECT
+			fa.id AS association_id,
+			fa.fingerprint_id,
+			fa.user_ids_json,
+			fa.confidence_score,
+			fa.risk_level,
+			fa.detected_at,
+			fa.ignored_at,
+			COALESCE(fa.reason, '') AS reason,
+			COALESCE(
+				json_agg(
+					json_build_object(
+						'id', u.id,
+						'username', u.username,
+						'displayName', COALESCE(u.display_name, ''),
+						'email', COALESCE(u.email, ''),
+						'status', u.status
+					)
+					ORDER BY u.id
+				) FILTER (WHERE u.id IS NOT NULL),
+				'[]'::json
+			)::text AS users_json
+		FROM fingerprint_associations fa
+		LEFT JOIN LATERAL jsonb_array_elements_text(
+			CASE
+				WHEN jsonb_typeof(fa.user_ids_json::jsonb) = 'array' THEN fa.user_ids_json::jsonb
+				ELSE '[]'::jsonb
+			END
+		) AS user_ids(user_id_text) ON true
+		LEFT JOIN identity_users u
+			ON u.id = CASE
+				WHEN user_ids.user_id_text ~ '^[0-9]+$' THEN user_ids.user_id_text::bigint
+				ELSE NULL
+			END
+			AND u.deleted_at IS NULL
+		WHERE fa.deleted_at IS NULL
+			AND fa.ignored_at IS NULL
+		GROUP BY fa.id, fa.fingerprint_id, fa.user_ids_json, fa.confidence_score, fa.risk_level, fa.detected_at, fa.ignored_at, fa.reason
+		HAVING count(u.id) >= 2
+		ORDER BY fa.confidence_score DESC, count(u.id) DESC, fa.detected_at DESC
+		LIMIT ?`
+	if err := r.db.WithContext(ctx).Raw(query, limit).Scan(&rows).Error; err != nil {
+		return nil, translateError(err)
+	}
+
+	results := make([]domainuser.MultiAccountCandidate, 0, len(rows))
+	for _, item := range rows {
+		var userIDs []uint
+		if err := json.Unmarshal([]byte(item.UserIDsJSON), &userIDs); err != nil {
+			userIDs = nil
+		}
+		var users []domainuser.MultiAccountUserSummary
+		if err := json.Unmarshal([]byte(item.UsersJSON), &users); err != nil {
+			users = nil
+		}
+		results = append(results, domainuser.MultiAccountCandidate{
+			AssociationID:   item.AssociationID,
+			FingerprintID:   item.FingerprintID,
+			ConfidenceScore: item.ConfidenceScore,
+			RiskLevel:       item.RiskLevel,
+			DetectedAt:      item.DetectedAt,
+			IgnoredAt:       item.IgnoredAt,
+			Reason:          item.Reason,
+			UserIDs:         userIDs,
+			Users:           users,
+		})
+	}
+	return results, nil
+}
+
 func (r *Repo) updateUserFields(ctx context.Context, userID uint, input repository.UpdateUserFieldsInput) (*domainuser.User, error) {
 	updates := userFieldUpdates(input)
 	if len(updates) == 0 {
@@ -265,6 +376,18 @@ func userFieldUpdates(input repository.UpdateUserFieldsInput) map[string]interfa
 	}
 	if input.OnboardingCompletedAt != nil {
 		updates["onboarding_completed_at"] = *input.OnboardingCompletedAt
+	}
+	if input.SuspensionReason != nil {
+		updates["suspension_reason"] = *input.SuspensionReason
+	}
+	if input.SuspensionDetail != nil {
+		updates["suspension_detail"] = *input.SuspensionDetail
+	}
+	if input.SuspendedAt != nil {
+		updates["suspended_at"] = *input.SuspendedAt
+	}
+	if input.SuspendedBy != nil {
+		updates["suspended_by"] = *input.SuspendedBy
 	}
 	return updates
 }
@@ -1111,6 +1234,10 @@ func toDomainUser(item model.User) *domainuser.User {
 		PhoneVerifiedAt:       item.PhoneVerifiedAt,
 		UsernameChangedAt:     item.UsernameChangedAt,
 		LastLoginAt:           item.LastLoginAt,
+		SuspensionReason:      item.SuspensionReason,
+		SuspensionDetail:      item.SuspensionDetail,
+		SuspendedAt:           item.SuspendedAt,
+		SuspendedBy:           item.SuspendedBy,
 		CreatedAt:             item.CreatedAt,
 		UpdatedAt:             item.UpdatedAt,
 	}
@@ -1617,6 +1744,10 @@ func toModelUser(item *domainuser.User) *model.User {
 		PhoneVerifiedAt:       item.PhoneVerifiedAt,
 		UsernameChangedAt:     item.UsernameChangedAt,
 		LastLoginAt:           item.LastLoginAt,
+		SuspensionReason:      item.SuspensionReason,
+		SuspensionDetail:      item.SuspensionDetail,
+		SuspendedAt:           item.SuspendedAt,
+		SuspendedBy:           item.SuspendedBy,
 	}
 }
 

@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,10 +176,71 @@ func TestPatchUserByAdminMapsRepositoryLastSuperAdminGuard(t *testing.T) {
 	}
 }
 
+func TestUpdateUserStatusByAdminPersistsSuspensionReason(t *testing.T) {
+	users := newAdminUserServiceFake(map[uint]domainuser.User{
+		1: {ID: 1, Role: domainuser.RoleSuperAdmin, Status: domainuser.StatusActive},
+		2: {ID: 2, Role: domainuser.RoleUser, Status: domainuser.StatusActive},
+	})
+	service := NewService(users, auditServiceFake{})
+
+	updated, err := service.UpdateUserStatusByAdmin(
+		context.Background(),
+		"req_1",
+		1,
+		2,
+		domainuser.StatusSuspended,
+		"疑似同人多账号",
+		"127.0.0.1",
+		"test",
+	)
+	if err != nil {
+		t.Fatalf("expected suspension update to succeed, got %v", err)
+	}
+	if updated.Status != domainuser.StatusSuspended {
+		t.Fatalf("expected suspended status, got %q", updated.Status)
+	}
+	if updated.SuspensionReason != "疑似同人多账号" {
+		t.Fatalf("expected persisted suspension reason, got %q", updated.SuspensionReason)
+	}
+	if updated.SuspendedAt == nil {
+		t.Fatal("expected suspended timestamp")
+	}
+	if updated.SuspendedBy == nil || *updated.SuspendedBy != uint(1) {
+		t.Fatalf("expected suspended by actor 1, got %#v", updated.SuspendedBy)
+	}
+}
+
+func TestListMultiAccountCandidatesDelegatesToUserService(t *testing.T) {
+	detectedAt := time.Now()
+	users := newAdminUserServiceFake(nil)
+	users.multiAccountCandidates = []domainuser.MultiAccountCandidate{{
+		AssociationID:   29,
+		FingerprintID:   "fp_1",
+		ConfidenceScore: 1,
+		RiskLevel:       "high",
+		DetectedAt:      detectedAt,
+		UserIDs:         []uint{490, 535},
+		Users: []domainuser.MultiAccountUserSummary{
+			{ID: 490, Username: "liedream", Status: domainuser.StatusActive},
+			{ID: 535, Username: "eins", Status: domainuser.StatusActive},
+		},
+	}}
+	service := NewService(users, auditServiceFake{})
+
+	candidates, err := service.ListMultiAccountCandidates(context.Background(), 20)
+	if err != nil {
+		t.Fatalf("expected candidates to load, got %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].AssociationID != 29 || len(candidates[0].Users) != 2 {
+		t.Fatalf("unexpected candidates: %#v", candidates)
+	}
+}
+
 type adminUserServiceFake struct {
-	users           map[uint]domainuser.User
-	updateFieldsErr error
-	superAdminCount *int64
+	users                  map[uint]domainuser.User
+	updateFieldsErr        error
+	superAdminCount        *int64
+	multiAccountCandidates []domainuser.MultiAccountCandidate
 }
 
 func newAdminUserServiceFake(users map[uint]domainuser.User) *adminUserServiceFake {
@@ -245,6 +307,19 @@ func (s *adminUserServiceFake) UpdateUserStatus(_ context.Context, userID uint, 
 	return nil
 }
 
+func (s *adminUserServiceFake) SetUserSuspension(_ context.Context, userID uint, reason string, detail string, suspendedAt *time.Time, suspendedBy *uint) error {
+	item, ok := s.users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	item.SuspensionReason = strings.TrimSpace(reason)
+	item.SuspensionDetail = strings.TrimSpace(detail)
+	item.SuspendedAt = suspendedAt
+	item.SuspendedBy = suspendedBy
+	s.users[userID] = item
+	return nil
+}
+
 func (s *adminUserServiceFake) UpdateFields(_ context.Context, userID uint, input repository.UpdateUserFieldsInput) (*domainuser.User, error) {
 	if s.updateFieldsErr != nil {
 		return nil, s.updateFieldsErr
@@ -284,6 +359,10 @@ func (s *adminUserServiceFake) RecordAuthEvent(context.Context, uint, string, st
 
 func (s *adminUserServiceFake) ListAuthEvents(context.Context, uint, string, string, int, int) ([]domainuser.AuthEvent, int64, error) {
 	return nil, 0, nil
+}
+
+func (s *adminUserServiceFake) ListMultiAccountCandidates(context.Context, int) ([]domainuser.MultiAccountCandidate, error) {
+	return s.multiAccountCandidates, nil
 }
 
 type auditServiceFake struct{}

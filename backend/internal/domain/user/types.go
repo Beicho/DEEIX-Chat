@@ -50,8 +50,34 @@ type User struct {
 	PhoneVerifiedAt       *time.Time
 	UsernameChangedAt     *time.Time
 	LastLoginAt           *time.Time
+	SuspensionReason      string
+	SuspensionDetail      string
+	SuspendedAt           *time.Time
+	SuspendedBy           *uint
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+}
+
+// MultiAccountUserSummary 是多账号候选聚类里的用户摘要。
+type MultiAccountUserSummary struct {
+	ID          uint
+	Username    string
+	DisplayName string
+	Email       string
+	Status      string
+}
+
+// MultiAccountCandidate 描述同一设备指纹命中的用户聚类。
+type MultiAccountCandidate struct {
+	AssociationID   uint
+	FingerprintID   string
+	ConfidenceScore float64
+	RiskLevel       string
+	DetectedAt      time.Time
+	IgnoredAt       *time.Time
+	Reason          string
+	UserIDs         []uint
+	Users           []MultiAccountUserSummary
 }
 
 // Credential 表示用户登录凭据。

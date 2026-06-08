@@ -361,3 +361,41 @@ type UsageDailyModelSummary struct {
 	AvgLatencyMS      int64
 	BilledNanousd     int64
 }
+
+// AdminDashboardStats is the aggregate billing snapshot shown in the admin dashboard.
+type AdminDashboardStats struct {
+	Usage       AdminDashboardUsageStats
+	Sales       AdminDashboardSalesStats
+	TopModels   []AdminDashboardModelStats
+	GeneratedAt time.Time
+	PeriodStart time.Time
+	PeriodEnd   time.Time
+}
+
+// AdminDashboardUsageStats summarizes usage ledgers in the selected period.
+type AdminDashboardUsageStats struct {
+	RecordCount     int64
+	ActiveUserCount int64
+	CallCount       int64
+	TokenCount      int64
+	DurationSeconds int64
+	BilledNanousd   int64
+}
+
+// AdminDashboardSalesStats summarizes paid payment orders in the selected period.
+type AdminDashboardSalesStats struct {
+	PaidOrderCount  int64
+	BaseAmountCents int64
+	CreditNanousd   int64
+}
+
+// AdminDashboardModelStats summarizes usage by platform model.
+type AdminDashboardModelStats struct {
+	PlatformModelName string
+	RecordCount       int64
+	ActiveUserCount   int64
+	CallCount         int64
+	TokenCount        int64
+	DurationSeconds   int64
+	BilledNanousd     int64
+}

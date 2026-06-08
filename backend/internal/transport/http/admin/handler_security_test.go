@@ -98,6 +98,10 @@ func (s *handlerUserServiceFake) UpdateUserStatus(context.Context, uint, string)
 	return nil
 }
 
+func (s *handlerUserServiceFake) SetUserSuspension(context.Context, uint, string, string, *time.Time, *uint) error {
+	return nil
+}
+
 func (s *handlerUserServiceFake) UpdateFields(context.Context, uint, repository.UpdateUserFieldsInput) (*domainuser.User, error) {
 	return nil, nil
 }
@@ -120,6 +124,10 @@ func (s *handlerUserServiceFake) RecordAuthEvent(context.Context, uint, string, 
 
 func (s *handlerUserServiceFake) ListAuthEvents(context.Context, uint, string, string, int, int) ([]domainuser.AuthEvent, int64, error) {
 	return nil, 0, nil
+}
+
+func (s *handlerUserServiceFake) ListMultiAccountCandidates(context.Context, int) ([]domainuser.MultiAccountCandidate, error) {
+	return nil, nil
 }
 
 type handlerAuditServiceFake struct{}

@@ -1448,6 +1448,66 @@ func (r *Repo) ListUsageLogs(ctx context.Context, filter repository.UsageLogList
 	return results, total, nil
 }
 
+// GetAdminDashboardStats returns usage and payment aggregates for the admin dashboard.
+func (r *Repo) GetAdminDashboardStats(ctx context.Context, startAt time.Time, endAt time.Time, limit int) (*domainbilling.AdminDashboardStats, error) {
+	if limit <= 0 {
+		limit = 8
+	}
+	stats := &domainbilling.AdminDashboardStats{}
+	usageSQL := `
+		SELECT
+			COALESCE(count(*), 0) AS record_count,
+			COALESCE(count(DISTINCT user_id), 0) AS active_user_count,
+			COALESCE(sum(call_count), 0) AS call_count,
+			COALESCE(sum(input_tokens + cache_read_tokens + cache_write_tokens + cache_write_5m_tokens + cache_write_1h_tokens + output_tokens + reasoning_tokens), 0) AS token_count,
+			COALESCE(sum(duration_seconds), 0) AS duration_seconds,
+			COALESCE(sum(billed_nanousd), 0) AS billed_nanousd
+		FROM billing_usage_ledgers
+		WHERE deleted_at IS NULL
+		  AND usage_date >= CAST(? AS date)
+		  AND usage_date < CAST(? AS date)`
+	if err := r.db.WithContext(ctx).Raw(usageSQL, startAt, endAt).Scan(&stats.Usage).Error; err != nil {
+		return nil, translateError(err)
+	}
+
+	salesSQL := `
+		SELECT
+			COALESCE(count(*), 0) AS paid_order_count,
+			COALESCE(sum(base_amount_cents), 0) AS base_amount_cents,
+			COALESCE(sum(credit_nanousd), 0) AS credit_nanousd
+		FROM billing_payment_orders
+		WHERE deleted_at IS NULL
+		  AND status = 'paid'
+		  AND paid_at >= ?
+		  AND paid_at < ?`
+	if err := r.db.WithContext(ctx).Raw(salesSQL, startAt, endAt).Scan(&stats.Sales).Error; err != nil {
+		return nil, translateError(err)
+	}
+
+	modelSQL := `
+		SELECT
+			platform_model_name,
+			COALESCE(count(*), 0) AS record_count,
+			COALESCE(count(DISTINCT user_id), 0) AS active_user_count,
+			COALESCE(sum(call_count), 0) AS call_count,
+			COALESCE(sum(input_tokens + cache_read_tokens + cache_write_tokens + cache_write_5m_tokens + cache_write_1h_tokens + output_tokens + reasoning_tokens), 0) AS token_count,
+			COALESCE(sum(duration_seconds), 0) AS duration_seconds,
+			COALESCE(sum(billed_nanousd), 0) AS billed_nanousd
+		FROM billing_usage_ledgers
+		WHERE deleted_at IS NULL
+		  AND usage_date >= CAST(? AS date)
+		  AND usage_date < CAST(? AS date)
+		GROUP BY platform_model_name
+		ORDER BY COALESCE(sum(call_count), 0) DESC,
+		         COALESCE(sum(input_tokens + cache_read_tokens + cache_write_tokens + cache_write_5m_tokens + cache_write_1h_tokens + output_tokens + reasoning_tokens), 0) DESC,
+		         platform_model_name ASC
+		LIMIT ?`
+	if err := r.db.WithContext(ctx).Raw(modelSQL, startAt, endAt, limit).Scan(&stats.TopModels).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return stats, nil
+}
+
 // ListMonthlyUsageByUser 按月份聚合用户用量。
 func (r *Repo) ListMonthlyUsageByUser(ctx context.Context, userID uint, limit int) ([]domainbilling.UsageMonthlySummary, error) {
 	if limit <= 0 {

@@ -31,6 +31,8 @@
     "codeRequired": "Enter a verification code or recovery code.",
     "loginFailed": "Sign-in failed. Check your account and password.",
     "loginRetry": "Sign-in failed. Please try again later.",
+    "accountSuspended": "Account suspended",
+    "accountSuspendedWithReason": "Account suspended: {reason}",
     "challengeExpired": "Two-factor verification expired. Sign in again.",
     "providerStartFailed": "Unable to start third-party sign-in. Refresh the page and try again.",
     "codeSendFailed": "Failed to send verification code.",
@@ -45,6 +47,8 @@
     "bindSessionExpired": "Your session expired. Please sign in again before binding this identity provider.",
     "bindFailed": "Failed to bind identity provider",
     "loginFailed": "Third-party sign-in failed",
+    "accountSuspended": "Account suspended",
+    "accountSuspendedWithReason": "Account suspended: {reason}",
     "loading": "Signing in"
   }
 }

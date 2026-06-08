@@ -1,3 +1,4 @@
+import { apiRequest } from "@/shared/api/http-client";
 import { authedRequest } from "@/shared/api/authed-client";
 import type { ModelOptionPolicy, NativeToolDefinition } from "@/shared/lib/model-option-policy";
 
@@ -11,6 +12,16 @@ type ModelOptionPolicyResponse = {
 export type MCPPolicy = {
   maxSelectedToolsPerMessage: number;
 };
+
+export type BrandingSettings = {
+  appName: string;
+  logoURL: string;
+  logoDarkURL: string;
+};
+
+export async function getBrandingSettings(): Promise<BrandingSettings> {
+  return apiRequest<BrandingSettings>("/api/v1/settings/branding");
+}
 
 export async function getModelOptionPolicy(accessToken: string): Promise<ModelOptionPolicy> {
   const data = await authedRequest<ModelOptionPolicyResponse>(

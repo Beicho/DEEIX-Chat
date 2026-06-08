@@ -46,6 +46,68 @@ export type AdminUserData = {
   user: UserDTO;
 };
 
+export type AdminDashboardUsageDTO = {
+  recordCount: number;
+  activeUserCount: number;
+  callCount: number;
+  tokenCount: number;
+  durationSeconds: number;
+  billedNanousd: number;
+};
+
+export type AdminDashboardSalesDTO = {
+  paidOrderCount: number;
+  baseAmountCents: number;
+  creditNanousd: number;
+};
+
+export type AdminDashboardModelDTO = {
+  platformModelName: string;
+  recordCount: number;
+  activeUserCount: number;
+  callCount: number;
+  tokenCount: number;
+  durationSeconds: number;
+  billedNanousd: number;
+};
+
+export type AdminDashboardDTO = {
+  usage: AdminDashboardUsageDTO;
+  sales: AdminDashboardSalesDTO;
+  topModels: AdminDashboardModelDTO[];
+  generatedAt: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+};
+
+export type AdminDashboardData = {
+  dashboard: AdminDashboardDTO;
+};
+
+export type AdminMultiAccountUserDTO = {
+  id: number;
+  username: string;
+  displayName: string;
+  email: string;
+  status: string;
+};
+
+export type AdminMultiAccountCandidateDTO = {
+  associationID: number;
+  fingerprintID: string;
+  confidenceScore: number;
+  riskLevel: string;
+  detectedAt: string;
+  ignoredAt: string | null;
+  reason: string;
+  userIDs: number[];
+  users: AdminMultiAccountUserDTO[];
+};
+
+export type AdminMultiAccountCandidatesData = {
+  candidates: AdminMultiAccountCandidateDTO[];
+};
+
 export type RevokeAdminUserSessionsData = {
   revoked: boolean;
 };

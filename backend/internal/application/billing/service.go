@@ -909,7 +909,7 @@ func (s *Service) RecordUsage(ctx context.Context, usage *domainbilling.UsageLed
 	return s.RecordUsageWithReservation(ctx, usage, nil)
 }
 
-// RecordUsageWithReservation 记录用量，并在按量模式下结算预扣差额。
+// RecordUsageWithReservation 记录用量，并在按量/周期超额模式下结算预扣差额。
 func (s *Service) RecordUsageWithReservation(ctx context.Context, usage *domainbilling.UsageLedger, reservation *domainbilling.UsageBalanceReservation) error {
 	mode, err := s.repo.GetBillingMode(ctx)
 	if err != nil {
@@ -924,16 +924,31 @@ func (s *Service) RecordUsageWithReservation(ctx context.Context, usage *domainb
 		}
 		return nil
 	}
+	if mode == "period" {
+		settlement, settlementErr := s.periodUsageSettlementReservation(ctx, usage, time.Now())
+		if settlementErr != nil {
+			return settlementErr
+		}
+		if settlement != nil {
+			if err := s.repo.AddUsageAndSettleBalance(ctx, usage, settlement); err != nil {
+				if errors.Is(err, repository.ErrInsufficientBalance) {
+					return ErrUsageBalanceInsufficient
+				}
+				return err
+			}
+			return nil
+		}
+	}
 	return s.repo.AddUsage(ctx, usage)
 }
 
-// ReserveUsageBalance 在按量模式下按配置金额预扣余额；非按量或免费模型不预扣。
+// ReserveUsageBalance 在按量或周期超额模式下按配置金额预扣余额；免费模型不预扣。
 func (s *Service) ReserveUsageBalance(ctx context.Context, userID uint, platformModelName string, refNo string) (*domainbilling.UsageBalanceReservation, error) {
 	mode, err := s.repo.GetBillingMode(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if mode != "usage" {
+	if mode != "usage" && mode != "period" {
 		return nil, nil
 	}
 	pricing, err := s.getResolvedModelPricing(ctx, platformModelName)
@@ -945,6 +960,15 @@ func (s *Service) ReserveUsageBalance(ctx context.Context, userID uint, platform
 	}
 	if pricing.IsFree {
 		return nil, nil
+	}
+	if mode == "period" {
+		overage, overageErr := s.periodCreditExceeded(ctx, userID, time.Now())
+		if overageErr != nil {
+			return nil, overageErr
+		}
+		if !overage {
+			return nil, nil
+		}
 	}
 	prepaidNanousd, err := s.repo.GetBillingPrepaidAmountNanousd(ctx)
 	if err != nil {
@@ -1018,14 +1042,77 @@ func (s *Service) EnsureModelUsable(ctx context.Context, userID uint, platformMo
 		return err
 	}
 	if plan.PeriodCreditNanousd <= 0 {
-		return ErrPeriodCreditExceeded
+		return s.ensureUsageBalanceCanCoverPrepaid(ctx, userID)
 	}
 	usedNanousd, err := s.repo.SumBillableNanousd(ctx, userID, startAt, endAt)
 	if err != nil {
 		return err
 	}
 	if usedNanousd >= plan.PeriodCreditNanousd {
-		return ErrPeriodCreditExceeded
+		return s.ensureUsageBalanceCanCoverPrepaid(ctx, userID)
+	}
+	return nil
+}
+
+func (s *Service) periodCreditExceeded(ctx context.Context, userID uint, now time.Time) (bool, error) {
+	plan, startAt, endAt, err := s.currentPeriodPlan(ctx, userID, now)
+	if err != nil {
+		return false, err
+	}
+	if plan.PeriodCreditNanousd <= 0 {
+		return true, nil
+	}
+	usedNanousd, err := s.repo.SumBillableNanousd(ctx, userID, startAt, endAt)
+	if err != nil {
+		return false, err
+	}
+	return usedNanousd >= plan.PeriodCreditNanousd, nil
+}
+
+func (s *Service) periodUsageSettlementReservation(ctx context.Context, usage *domainbilling.UsageLedger, now time.Time) (*domainbilling.UsageBalanceReservation, error) {
+	if usage == nil || usage.IsFreeModel || usage.BilledNanousd <= 0 {
+		return nil, nil
+	}
+	plan, startAt, endAt, err := s.currentPeriodPlan(ctx, usage.UserID, now)
+	if err != nil {
+		return nil, err
+	}
+	coveredByPeriod := int64(0)
+	if plan.PeriodCreditNanousd > 0 {
+		usedNanousd, sumErr := s.repo.SumBillableNanousd(ctx, usage.UserID, startAt, endAt)
+		if sumErr != nil {
+			return nil, sumErr
+		}
+		coveredByPeriod = plan.PeriodCreditNanousd - usedNanousd
+		if coveredByPeriod < 0 {
+			coveredByPeriod = 0
+		}
+		if coveredByPeriod >= usage.BilledNanousd {
+			return nil, nil
+		}
+	}
+	return &domainbilling.UsageBalanceReservation{
+		UserID:        usage.UserID,
+		AmountNanousd: coveredByPeriod,
+		RefNo:         "period_credit",
+	}, nil
+}
+
+func (s *Service) ensureUsageBalanceCanCoverPrepaid(ctx context.Context, userID uint) error {
+	account, err := s.repo.GetOrCreateBillingAccount(ctx, userID)
+	if err != nil {
+		return err
+	}
+	prepaidNanousd, err := s.repo.GetBillingPrepaidAmountNanousd(ctx)
+	if err != nil {
+		return err
+	}
+	requiredBalance := int64(1)
+	if prepaidNanousd > requiredBalance {
+		requiredBalance = prepaidNanousd
+	}
+	if account.BalanceNanousd < requiredBalance {
+		return ErrUsageBalanceInsufficient
 	}
 	return nil
 }
@@ -2004,6 +2091,27 @@ func (s *Service) ListUsageLogs(ctx context.Context, page int, pageSize int, fil
 		CreatedTo:         filter.CreatedTo,
 		Sort:              filter.Sort,
 	}, offset, limit)
+}
+
+// GetAdminDashboardStats returns today's usage and sales aggregates.
+func (s *Service) GetAdminDashboardStats(ctx context.Context, now time.Time) (*domainbilling.AdminDashboardStats, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	now = now.UTC()
+	startAt := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	endAt := startAt.Add(24 * time.Hour)
+	stats, err := s.repo.GetAdminDashboardStats(ctx, startAt, endAt, 8)
+	if err != nil {
+		return nil, err
+	}
+	if stats == nil {
+		stats = &domainbilling.AdminDashboardStats{}
+	}
+	stats.GeneratedAt = now
+	stats.PeriodStart = startAt
+	stats.PeriodEnd = endAt
+	return stats, nil
 }
 
 func normalizePage(page int, pageSize int) (int, int) {

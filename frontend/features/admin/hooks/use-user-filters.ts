@@ -40,7 +40,7 @@ export function useUserFilters(items: UserDTO[]): UseUserFiltersState {
         item.publicID.toLowerCase().includes(keyword);
       const matchesRole = !deferredRoleFilter || item.role === deferredRoleFilter;
       const matchesStatus = !deferredStatusFilter || item.status === deferredStatusFilter;
-      const matchesTier = !deferredTierFilter || item.subscriptionTier === deferredTierFilter;
+      const matchesTier = !deferredTierFilter || item.subscriptionTier.trim() === deferredTierFilter.trim();
       return matchesQuery && matchesRole && matchesStatus && matchesTier;
     });
 

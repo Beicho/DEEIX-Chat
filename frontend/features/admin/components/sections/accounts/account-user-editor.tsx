@@ -656,6 +656,12 @@ export function EditUserSheet({
                 value={editDialogTarget?.twoFactorEnabled ? t("editor.twoFactorEnabled", { count: editDialogTarget.twoFactorRecoveryCount }) : t("editor.twoFactorDisabled")}
               />
               <ReadOnlyField label={t("fields.lastLogin")} value={formatSheetDateTime(editDialogTarget?.lastLoginAt, locale)} />
+              {editDialogTarget?.status === "suspended" ? (
+                <>
+                  <ReadOnlyField label={t("editor.suspensionReason")} value={resolveDetailValue(editDialogTarget.suspensionReason)} />
+                  <ReadOnlyField label={t("editor.suspendedAt")} value={formatSheetDateTime(editDialogTarget.suspendedAt, locale)} />
+                </>
+              ) : null}
             </div>
           </SheetSection>
 
