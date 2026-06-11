@@ -83,22 +83,22 @@ export function resolveFileProcessingBadge(
       };
     case "embedding":
       return {
-        label: translateFileProcessing(translate, "embedding", "Vectorizing"),
+        label: translateFileProcessing(translate, "embedding", "Indexing"),
         tone: "info",
-        detail: translateFileProcessing(translate, "embeddingDetail", "Text extraction is complete. Semantic vector index is being generated."),
+        detail: translateFileProcessing(translate, "embeddingDetail", "Text extraction is complete. A file index is being prepared."),
       };
     case "ready":
       if (file.embedStatus === "ready" || file.ragReady) {
         return {
           label: translateFileProcessing(translate, "ready", "Ready"),
           tone: "success",
-          detail: translateFileProcessing(translate, "readyRagDetail", "File is ready and supports full-context injection and smart retrieval (RAG)."),
+          detail: translateFileProcessing(translate, "readyRagDetail", "File is ready for direct reading and smart retrieval."),
         };
       }
       return {
         label: translateFileProcessing(translate, "ready", "Ready"),
         tone: "success",
-        detail: translateFileProcessing(translate, "readyFullContextDetail", "File processing is complete and can be used in full-context mode."),
+        detail: translateFileProcessing(translate, "readyFullContextDetail", "File processing is complete and can be used in direct reading mode."),
       };
   }
 
@@ -164,13 +164,13 @@ export function resolveExtractStatusLabel(extractStatus: string | null | undefin
 export function resolveFileProcessingToneClass(tone: FileProcessingBadge["tone"]): string {
   switch (tone) {
     case "success":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+      return "border-primary/30 bg-primary/10 text-primary";
     case "info":
-      return "border-sky-200 bg-sky-50 text-sky-700";
+      return "border-border bg-muted/60 text-foreground";
     case "warning":
-      return "border-amber-200 bg-amber-50 text-amber-700";
+      return "border-border bg-muted/80 text-foreground";
     case "danger":
-      return "border-rose-200 bg-rose-50 text-rose-700";
+      return "border-destructive/30 bg-destructive/10 text-destructive";
     default:
       return "border-border bg-muted/60 text-muted-foreground";
   }

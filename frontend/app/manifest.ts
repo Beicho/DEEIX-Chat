@@ -1,23 +1,27 @@
 import type { MetadataRoute } from "next";
 
+import { normalizeAppLocale } from "@/i18n/config";
 import { pwaAsset } from "@/shared/pwa/assets";
 
 export const dynamic = "force-static";
 
 export default function manifest(): MetadataRoute.Manifest {
+  const locale = normalizeAppLocale(process.env.NEXT_PUBLIC_BUILD_LOCALE);
+  const isChinese = locale === "zh-CN";
+
   return {
-    name: "DEEIX Chat",
+    name: isChinese ? "DEEIX Chat 多模型对话" : "DEEIX Chat",
     short_name: "DEEIX",
-    description: "DEEIX Chat is a multi-model AI conversation workspace.",
+    description: isChinese
+      ? "DEEIX Chat 是一个多模型 AI 对话工作台。"
+      : "DEEIX Chat is a multi-model AI conversation workspace.",
     id: "/",
     start_url: "/chat",
     scope: "/",
     display: "standalone",
-    background_color: "#ffffff",
-    theme_color: "#0f172a",
     orientation: "any",
     categories: ["productivity", "business", "utilities"],
-    lang: "en",
+    lang: locale,
     icons: [
       {
         src: pwaAsset("/pwa/icon-192.png"),

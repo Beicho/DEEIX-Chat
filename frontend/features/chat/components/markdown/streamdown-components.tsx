@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ImagePreviewOverlay } from "@/features/files/components/preview/image-preview-overlay";
 import {
   downloadMarkdownImageSource,
   loadProtectedMarkdownImageBlobURL,
@@ -969,20 +970,12 @@ export function MarkdownImage({ alt, className, onError, onLoad, src, ...props }
           </Tooltip>
         </span>
       ) : null}
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="w-fit max-w-[96vw] border-0 bg-transparent p-0 shadow-none sm:max-w-[96vw] [&>button]:border [&>button]:border-border/70 [&>button]:bg-background/90 [&>button]:text-foreground [&>button]:shadow-sm">
-          <DialogTitle className="sr-only">{alt?.trim() || t("previewImage")}</DialogTitle>
-          <DialogDescription className="sr-only">{t("previewImage")}</DialogDescription>
-          {displaySrc ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              alt={alt}
-              className="block max-h-[92vh] max-w-[96vw] rounded-lg border border-border/50 bg-background/5 object-contain shadow-2xl"
-              src={displaySrc}
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      <ImagePreviewOverlay
+        open={previewOpen}
+        source={displaySrc}
+        alt={alt}
+        onOpenChange={setPreviewOpen}
+      />
     </span>
   );
 }

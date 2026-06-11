@@ -14,6 +14,7 @@ import type {
   ChatInlineAlert,
   MessageAttachment,
 } from "@/features/chat/types/messages";
+import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { MarkdownImage, type MarkdownArtifactActions } from "@/features/chat/components/markdown/streamdown-components";
 import { StreamdownRender } from "@/features/chat/components/markdown/streamdown-render";
 import {
@@ -86,7 +87,7 @@ type ChatMessageBotProps = {
   item: ChatAreaMessage;
   busy: boolean;
   reaction: AssistantReaction;
-  onRetryAssistantMessage: (message: ChatAreaMessage) => Promise<void> | void;
+  onRetryAssistantMessage: (message: ChatAreaMessage, platformModelName?: string) => Promise<void> | void;
   onContinueAssistantMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
@@ -101,6 +102,12 @@ type ChatMessageBotProps = {
   attachmentContentLoader?: (file: PreviewDialogFile) => Promise<FileContentResult>;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   artifactActions?: MarkdownArtifactActions;
+  speechSupported?: boolean;
+  speechActive?: boolean;
+  speechPaused?: boolean;
+  onToggleSpeech?: () => void;
+  retryModelOptions?: ChatModelOption[];
+  selectedPlatformModelName?: string;
   showBranchNavigator?: boolean;
 };
 
@@ -123,14 +130,20 @@ export function ChatMessageBot({
   attachmentContentLoader,
   onEditImageAttachment,
   artifactActions,
+  speechSupported = false,
+  speechActive = false,
+  speechPaused = false,
+  onToggleSpeech,
+  retryModelOptions = [],
+  selectedPlatformModelName = "",
   showBranchNavigator = true,
 }: ChatMessageBotProps) {
   const tCommon = useTranslations("common.actions");
   const submitT = useTranslations("chat.submit");
   const [isEditing, setIsEditing] = React.useState(false);
   const [editingValue, setEditingValue] = React.useState(item.content);
-  const onRetry = React.useCallback(() => {
-    void onRetryAssistantMessage(item);
+  const onRetry = React.useCallback((platformModelName?: string) => {
+    void onRetryAssistantMessage(item, platformModelName);
   }, [item, onRetryAssistantMessage]);
   const onContinue = React.useCallback(() => {
     void onContinueAssistantMessage?.(item);
@@ -343,6 +356,12 @@ export function ChatMessageBot({
         onEdit={() => setIsEditing(true)}
         onCopy={onCopy}
         onReact={(value) => onReactAssistantMessage(item.publicID, value)}
+        speechSupported={speechSupported}
+        speechActive={speechActive}
+        speechPaused={speechPaused}
+        onToggleSpeech={onToggleSpeech}
+        retryModelOptions={retryModelOptions}
+        selectedPlatformModelName={selectedPlatformModelName}
         showModelInfo={showModelInfo}
         showLatency={showLatency}
         showTokenUsage={showTokenUsage}

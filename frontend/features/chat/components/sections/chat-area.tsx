@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { motion } from "motion/react";
-import { ArrowDownToLine } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
+import { ArrowDownToLine, ChevronDown, ChevronUp, Copy, Loader2, Quote, Search, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
@@ -21,7 +21,17 @@ import { StreamdownRender } from "@/features/chat/components/markdown/streamdown
 import type { OpenCodeArtifactInput } from "@/features/chat/model/chat-artifacts";
 import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ConversationShareExportIconDropdown } from "@/shared/components/conversation-share-export-menu";
+import { useAppLocale } from "@/i18n/app-i18n-provider";
+import { useMessageSpeech } from "@/features/chat/hooks/use-message-speech";
+import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
+import {
+  findConversationMatches,
+  nextConversationMatchIndex,
+} from "@/features/chat/model/conversation-find-utils";
+import { writeClipboardText } from "@/shared/lib/clipboard";
 import { cn } from "@/lib/utils";
 
 function CompactDivider({ summaryPreview }: { summaryPreview: string }) {
@@ -33,7 +43,7 @@ function CompactDivider({ summaryPreview }: { summaryPreview: string }) {
         <div className="h-px flex-1 bg-border/50" />
         <button
           type="button"
-          className="shrink-0 cursor-pointer text-[11px] text-muted-foreground/60 hover:text-muted-foreground"
+          className="min-h-11 shrink-0 cursor-pointer px-2 text-[11px] text-muted-foreground/60 hover:text-muted-foreground md:min-h-0 md:px-0"
           onClick={() => setExpanded((v) => !v)}
         >
           {t("contextCompressed")}
@@ -72,8 +82,11 @@ type ChatAreaProps = {
   onScroll: () => void;
   onScrollToLatest: () => void;
   showScrollToLatestButton: boolean;
+  hasOlderMessages?: boolean;
+  loadingOlderMessages?: boolean;
+  onLoadOlderMessages?: () => boolean | Promise<boolean>;
   onRetryUserMessage: (message: ChatAreaMessage) => Promise<void> | void;
-  onRetryAssistantMessage: (message: ChatAreaMessage) => Promise<void> | void;
+  onRetryAssistantMessage: (message: ChatAreaMessage, platformModelName?: string) => Promise<void> | void;
   onContinueAssistantMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
@@ -86,13 +99,24 @@ type ChatAreaProps = {
   onShare?: () => void;
   shareActive?: boolean;
   onExport?: () => void | Promise<void>;
+  onExportMarkdown?: () => void | Promise<void>;
+  onCopyMarkdown?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
+  onQuoteSelection?: (text: string) => void;
+  modelOptions?: ChatModelOption[];
+  selectedPlatformModelName?: string;
   markdownRender?: boolean;
   showModelInfo?: boolean;
   showLatency?: boolean;
   showTokenUsage?: boolean;
   showBillingCost?: boolean;
   splitRightInset?: boolean;
+};
+
+type SelectionToolbarState = {
+  text: string;
+  top: number;
+  left: number;
 };
 
 function useStableEvent<Args extends unknown[], Return>(callback: (...args: Args) => Return) {
@@ -102,6 +126,141 @@ function useStableEvent<Args extends unknown[], Return>(callback: (...args: Args
   }, [callback]);
 
   return React.useCallback((...args: Args) => callbackRef.current(...args), []);
+}
+
+function ConversationFindBar({
+  query,
+  matchCount,
+  activeIndex,
+  hasOlderMessages,
+  loadingOlderMessages,
+  onQueryChange,
+  onStep,
+  onLoadOlder,
+  onClose,
+}: {
+  query: string;
+  matchCount: number;
+  activeIndex: number;
+  hasOlderMessages: boolean;
+  loadingOlderMessages: boolean;
+  onQueryChange: (query: string) => void;
+  onStep: (direction: "previous" | "next") => void;
+  onLoadOlder: () => void;
+  onClose: () => void;
+}) {
+  const t = useTranslations("chat.find");
+  const trimmedQuery = query.trim();
+  const countLabel = trimmedQuery
+    ? matchCount > 0 && activeIndex >= 0
+      ? t("matchCount", { current: activeIndex + 1, total: matchCount })
+      : t("noMatches")
+    : t("idle");
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1 rounded-xl border border-border/70 bg-background/95 p-1 shadow-xs">
+      <Search className="ml-2 size-4 shrink-0 text-muted-foreground" strokeWidth={1.8} />
+      <Input
+        value={query}
+        placeholder={t("placeholder")}
+        className="h-8 border-0 px-1 shadow-none focus-visible:ring-0"
+        autoFocus
+        onChange={(event) => onQueryChange(event.target.value)}
+      />
+      <span className="hidden shrink-0 px-1 text-[11px] text-muted-foreground sm:inline">
+        {countLabel}
+      </span>
+      {hasOlderMessages ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 px-2"
+          disabled={loadingOlderMessages}
+          onClick={onLoadOlder}
+        >
+          {loadingOlderMessages ? <Loader2 className="size-3.5 animate-spin" /> : null}
+          <span className="hidden sm:inline">{t("loadOlder")}</span>
+          <span className="sm:hidden">{t("loadOlderShort")}</span>
+        </Button>
+      ) : null}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-8"
+        disabled={matchCount === 0}
+        aria-label={t("previous")}
+        onClick={() => onStep("previous")}
+      >
+        <ChevronUp className="size-4" strokeWidth={1.8} />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-8"
+        disabled={matchCount === 0}
+        aria-label={t("next")}
+        onClick={() => onStep("next")}
+      >
+        <ChevronDown className="size-4" strokeWidth={1.8} />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-8"
+        aria-label={t("close")}
+        onClick={onClose}
+      >
+        <X className="size-4" strokeWidth={1.8} />
+      </Button>
+    </div>
+  );
+}
+
+function SelectionQuoteToolbar({
+  state,
+  onQuote,
+  onCopy,
+}: {
+  state: SelectionToolbarState;
+  onQuote: () => void;
+  onCopy: () => void;
+}) {
+  const t = useTranslations("chat.selection");
+
+  return (
+    <div
+      data-selection-toolbar="true"
+      className="fixed z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border/70 bg-popover p-1 text-popover-foreground shadow-lg"
+      style={{ top: state.top, left: state.left }}
+      onMouseDown={(event) => event.preventDefault()}
+      onTouchStart={(event) => event.preventDefault()}
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="min-h-11 rounded-full px-3 text-xs md:min-h-8"
+        onClick={onQuote}
+      >
+        <Quote className="size-3.5" strokeWidth={1.8} />
+        {t("quote")}
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="min-h-11 rounded-full px-3 text-xs md:min-h-8"
+        onClick={onCopy}
+      >
+        <Copy className="size-3.5" strokeWidth={1.8} />
+        {t("copy")}
+      </Button>
+    </div>
+  );
 }
 
 const ChatMessageRow = React.memo(function ChatMessageRow({
@@ -117,6 +276,12 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onCycleMessageBranch,
   onReactAssistantMessage,
   onOpenCodeArtifact,
+  activeSpeechMessageKey,
+  speechPaused,
+  speechSupported,
+  onToggleMessageSpeech,
+  retryModelOptions,
+  selectedPlatformModelName,
   markdownRender,
   showModelInfo,
   showLatency,
@@ -127,7 +292,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   busy: boolean;
   reaction: AssistantReaction;
   onRetryUserMessage: (message: ChatAreaMessage) => Promise<void> | void;
-  onRetryAssistantMessage: (message: ChatAreaMessage) => Promise<void> | void;
+  onRetryAssistantMessage: (message: ChatAreaMessage, platformModelName?: string) => Promise<void> | void;
   onContinueAssistantMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
@@ -135,6 +300,12 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
   onOpenCodeArtifact?: (message: ChatAreaMessage, artifact: OpenCodeArtifactInput) => void;
+  activeSpeechMessageKey: string | null;
+  speechPaused: boolean;
+  speechSupported: boolean;
+  onToggleMessageSpeech: (message: ChatAreaMessage) => void;
+  retryModelOptions: ChatModelOption[];
+  selectedPlatformModelName: string;
   markdownRender: boolean;
   showModelInfo: boolean;
   showLatency: boolean;
@@ -190,6 +361,12 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onCopy={() => void onCopy()}
         onEditImageAttachment={onEditImageAttachment}
         artifactActions={artifactActions}
+        speechSupported={speechSupported}
+        speechActive={activeSpeechMessageKey === item.key}
+        speechPaused={speechPaused}
+        onToggleSpeech={() => onToggleMessageSpeech(item)}
+        retryModelOptions={retryModelOptions}
+        selectedPlatformModelName={selectedPlatformModelName}
         markdownRender={markdownRender}
         showModelInfo={showModelInfo}
         showLatency={showLatency}
@@ -219,6 +396,11 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   previous.showLatency === next.showLatency &&
   previous.showTokenUsage === next.showTokenUsage &&
   previous.showBillingCost === next.showBillingCost &&
+  previous.activeSpeechMessageKey === next.activeSpeechMessageKey &&
+  previous.speechPaused === next.speechPaused &&
+  previous.speechSupported === next.speechSupported &&
+  previous.retryModelOptions === next.retryModelOptions &&
+  previous.selectedPlatformModelName === next.selectedPlatformModelName &&
   previous.onEditImageAttachment === next.onEditImageAttachment &&
   previous.onOpenCodeArtifact === next.onOpenCodeArtifact &&
   areChatAreaMessagesRenderEqual(previous.item, next.item)
@@ -236,6 +418,9 @@ export function ChatArea({
   onScroll,
   onScrollToLatest,
   showScrollToLatestButton,
+  hasOlderMessages = false,
+  loadingOlderMessages = false,
+  onLoadOlderMessages,
   onRetryUserMessage,
   onRetryAssistantMessage,
   onContinueAssistantMessage,
@@ -250,7 +435,12 @@ export function ChatArea({
   onShare,
   shareActive = false,
   onExport,
+  onExportMarkdown,
+  onCopyMarkdown,
   onDelete,
+  onQuoteSelection,
+  modelOptions = [],
+  selectedPlatformModelName = "",
   markdownRender = true,
   showModelInfo = true,
   showLatency = true,
@@ -259,7 +449,10 @@ export function ChatArea({
   splitRightInset = false,
 }: ChatAreaProps) {
   const t = useTranslations("chat");
+  const tSelection = useTranslations("chat.selection");
+  const { locale } = useAppLocale();
   const { getReaction, onReactAssistantMessage } = useMessageFeedback(messages);
+  const messageSpeech = useMessageSpeech(locale);
   const stableOnRetryUserMessage = useStableEvent(onRetryUserMessage);
   const stableOnRetryAssistantMessage = useStableEvent(onRetryAssistantMessage);
   const stableOnContinueAssistantMessage = useStableEvent(onContinueAssistantMessage ?? (() => undefined));
@@ -273,32 +466,165 @@ export function ChatArea({
   const editImageAttachmentHandler = onEditImageAttachment ? stableOnEditImageAttachment : undefined;
   const shareLabel = shareActive ? t("manageShare") : t("shareConversation");
   const shareExportLabel = t("labelMenu.shareAndExport");
+  const prefersReducedMotion = useReducedMotion();
+  const [findOpen, setFindOpen] = React.useState(false);
+  const [findQuery, setFindQuery] = React.useState("");
+  const [activeFindIndex, setActiveFindIndex] = React.useState(-1);
+  const [selectionToolbar, setSelectionToolbar] = React.useState<SelectionToolbarState | null>(null);
+  const findMatches = React.useMemo(
+    () => findConversationMatches(messages.map((item) => ({ key: item.key, content: item.content })), findQuery),
+    [findQuery, messages],
+  );
+  const activeFindMatch = activeFindIndex >= 0 ? findMatches[activeFindIndex] : undefined;
+
+  React.useEffect(() => {
+    setActiveFindIndex(findMatches.length > 0 ? 0 : -1);
+  }, [findMatches.length, findQuery]);
+
+  React.useEffect(() => {
+    if (!activeFindMatch || !messageContentRef.current) {
+      return;
+    }
+    const selector = `[data-chat-message-key="${CSS.escape(activeFindMatch.messageKey)}"]`;
+    const target = messageContentRef.current.querySelector<HTMLElement>(selector);
+    target?.scrollIntoView({ block: "center", behavior: prefersReducedMotion ? "auto" : "smooth" });
+  }, [activeFindMatch, messageContentRef, prefersReducedMotion]);
+
+  const stepFindMatch = React.useCallback(
+    (direction: "previous" | "next") => {
+      setActiveFindIndex((current) => nextConversationMatchIndex(current, findMatches.length, direction));
+    },
+    [findMatches.length],
+  );
+  const loadOlderForFind = React.useCallback(() => {
+    void onLoadOlderMessages?.();
+  }, [onLoadOlderMessages]);
+
+  const updateSelectionToolbar = React.useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const root = messageContentRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.isCollapsed || selection.rangeCount === 0) {
+      setSelectionToolbar(null);
+      return;
+    }
+
+    const selectedText = selection.toString().trim();
+    const range = selection.getRangeAt(0);
+    const container =
+      range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+        ? range.commonAncestorContainer
+        : range.commonAncestorContainer.parentElement;
+    if (!selectedText || !(container instanceof Node) || !root.contains(container)) {
+      setSelectionToolbar(null);
+      return;
+    }
+
+    const rect = range.getBoundingClientRect();
+    if (!rect.width && !rect.height) {
+      setSelectionToolbar(null);
+      return;
+    }
+
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+    const centerX = rect.left + rect.width / 2;
+    setSelectionToolbar({
+      text: selectedText,
+      left: Math.min(Math.max(centerX, 96), Math.max(viewportWidth - 96, 96)),
+      top: Math.max(rect.top - 52, 8),
+    });
+  }, [messageContentRef]);
+
+  const scheduleSelectionToolbarUpdate = React.useCallback(() => {
+    window.setTimeout(updateSelectionToolbar, 0);
+  }, [updateSelectionToolbar]);
+
+  const quoteSelection = React.useCallback(() => {
+    if (!selectionToolbar) {
+      return;
+    }
+    onQuoteSelection?.(selectionToolbar.text);
+    setSelectionToolbar(null);
+    window.getSelection()?.removeAllRanges();
+  }, [onQuoteSelection, selectionToolbar]);
+
+  const copySelection = React.useCallback(async () => {
+    if (!selectionToolbar) {
+      return;
+    }
+    try {
+      await writeClipboardText(selectionToolbar.text);
+      toast.success(tSelection("copied"));
+      setSelectionToolbar(null);
+    } catch {
+      toast.error(tSelection("copyFailed"));
+    }
+  }, [selectionToolbar, tSelection]);
 
   return (
     <>
       <div className={cn("px-3 py-2.5 md:pl-0", splitRightInset ? "md:pr-4" : "md:pr-0")}>
         <div className="flex w-full items-center justify-between gap-3">
-          <ChatLabel
-            title={title}
-            starred={starred}
-            onToggleStar={canOperateConversation ? onToggleStar : undefined}
-            onRename={canOperateConversation ? onRename : undefined}
-            projectMenu={canOperateConversation ? projectMenu : undefined}
-            onShare={canOperateConversation ? onShare : undefined}
-            shareActive={shareActive}
-            onExport={canOperateConversation ? onExport : undefined}
-            onDelete={canOperateConversation ? onDelete : undefined}
-          />
-          {canOperateConversation ? (
-            <ConversationShareExportIconDropdown
-              label={shareExportLabel}
-              shareLabel={shareLabel}
-              exportLabel={t("labelMenu.exportJSON")}
-              active={shareActive}
-              onShare={onShare}
-              onExport={onExport}
+          {findOpen ? (
+            <ConversationFindBar
+              query={findQuery}
+              matchCount={findMatches.length}
+              activeIndex={activeFindIndex}
+              hasOlderMessages={hasOlderMessages}
+              loadingOlderMessages={loadingOlderMessages}
+              onQueryChange={setFindQuery}
+              onStep={stepFindMatch}
+              onLoadOlder={loadOlderForFind}
+              onClose={() => {
+                setFindOpen(false);
+                setFindQuery("");
+              }}
             />
-          ) : null}
+          ) : (
+            <>
+              <ChatLabel
+                title={title}
+                starred={starred}
+                onToggleStar={canOperateConversation ? onToggleStar : undefined}
+                onRename={canOperateConversation ? onRename : undefined}
+                projectMenu={canOperateConversation ? projectMenu : undefined}
+                onShare={canOperateConversation ? onShare : undefined}
+                shareActive={shareActive}
+                onExport={canOperateConversation ? onExport : undefined}
+                onExportMarkdown={canOperateConversation ? onExportMarkdown : undefined}
+                onCopyMarkdown={canOperateConversation ? onCopyMarkdown : undefined}
+                onDelete={canOperateConversation ? onDelete : undefined}
+              />
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-11 rounded-full md:size-8"
+                  aria-label={t("find.open")}
+                  onClick={() => setFindOpen(true)}
+                >
+                  <Search className="size-4" strokeWidth={1.8} />
+                </Button>
+                {canOperateConversation ? (
+                  <ConversationShareExportIconDropdown
+                    label={shareExportLabel}
+                    shareLabel={shareLabel}
+                    exportLabel={t("labelMenu.exportJSON")}
+                    exportMarkdownLabel={t("labelMenu.exportMarkdown")}
+                    copyMarkdownLabel={t("labelMenu.copyMarkdown")}
+                    active={shareActive}
+                    onShare={onShare}
+                    onExport={onExport}
+                    onExportMarkdown={onExportMarkdown}
+                    onCopyMarkdown={onCopyMarkdown}
+                  />
+                ) : null}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -306,7 +632,14 @@ export function ChatArea({
         <div
           ref={messageViewportRef}
           className="h-full min-h-0 overflow-y-auto px-3 pb-8 pt-2 [overflow-anchor:none] md:px-6"
+          aria-busy={busy}
+          aria-live="polite"
+          aria-relevant="additions text"
+          role="log"
           onScroll={onScroll}
+          onKeyUp={scheduleSelectionToolbarUpdate}
+          onMouseUp={scheduleSelectionToolbarUpdate}
+          onTouchEnd={scheduleSelectionToolbarUpdate}
         >
           <div
             ref={messageContentRef}
@@ -321,7 +654,7 @@ export function ChatArea({
                   : previousItem.role === "assistant" && item.role === "user"
                     ? "mt-6 md:mt-12"
                     : "mt-4";
-              const shouldAnimateLayout = !item.isPending && !item.isStreaming;
+              const shouldAnimateLayout = !prefersReducedMotion && !item.isPending && !item.isStreaming;
 
               const row = (
                 <ChatMessageRow
@@ -337,6 +670,12 @@ export function ChatArea({
                   onCycleMessageBranch={stableOnCycleMessageBranch}
                   onReactAssistantMessage={stableOnReactAssistantMessage}
                   onOpenCodeArtifact={onOpenCodeArtifact}
+                  activeSpeechMessageKey={messageSpeech.activeMessageKey}
+                  speechPaused={messageSpeech.paused}
+                  speechSupported={messageSpeech.supported}
+                  onToggleMessageSpeech={messageSpeech.toggleMessageSpeech}
+                  retryModelOptions={modelOptions}
+                  selectedPlatformModelName={selectedPlatformModelName}
                   markdownRender={markdownRender}
                   showModelInfo={showModelInfo}
                   showLatency={showLatency}
@@ -351,7 +690,15 @@ export function ChatArea({
 
               if (!shouldAnimateLayout) {
                 return (
-                  <div key={item.key} className={spacingClass}>
+                  <div
+                    key={item.key}
+                    data-chat-message-key={item.key}
+                    data-find-active={activeFindMatch?.messageKey === item.key ? "true" : undefined}
+                    className={cn(
+                      spacingClass,
+                      "rounded-xl transition-[background-color,box-shadow] duration-200 data-[find-active=true]:bg-primary/5 data-[find-active=true]:ring-2 data-[find-active=true]:ring-primary/20",
+                    )}
+                  >
                     {compactDivider}
                     {row}
                   </div>
@@ -361,8 +708,13 @@ export function ChatArea({
               return (
                 <motion.div
                   key={item.key}
+                  data-chat-message-key={item.key}
+                  data-find-active={activeFindMatch?.messageKey === item.key ? "true" : undefined}
                   layout="position"
-                  className={spacingClass}
+                  className={cn(
+                    spacingClass,
+                    "rounded-xl transition-[background-color,box-shadow] duration-200 data-[find-active=true]:bg-primary/5 data-[find-active=true]:ring-2 data-[find-active=true]:ring-primary/20",
+                  )}
                   transition={MESSAGE_SWITCH_TRANSITION}
                   style={{ willChange: "transform" }}
                 >
@@ -378,13 +730,21 @@ export function ChatArea({
         {showScrollToLatestButton ? (
           <button
             type="button"
-            className="absolute bottom-4 left-1/2 z-20 inline-flex size-8 -translate-x-1/2 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground shadow-md transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="absolute bottom-4 left-1/2 z-20 inline-flex size-11 -translate-x-1/2 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground shadow-md transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:size-8"
             aria-label={t("messages.scrollToBottom")}
             title={t("messages.scrollToBottom")}
             onClick={onScrollToLatest}
           >
             <ArrowDownToLine className="size-4" strokeWidth={1.8} />
           </button>
+        ) : null}
+
+        {selectionToolbar ? (
+          <SelectionQuoteToolbar
+            state={selectionToolbar}
+            onQuote={quoteSelection}
+            onCopy={() => void copySelection()}
+          />
         ) : null}
       </div>
     </>

@@ -8,7 +8,7 @@
   "navigation": "Settings navigation",
   "aboutPage": {
     "title": "About",
-    "description": "DEEIX Chat is a model access and conversation operations platform for multi-user AI applications. It unifies the model catalog, multi-provider routing, parameter governance, files and RAG, MCP tools, usage billing, identity security, audit, and operational settings in a single control plane.",
+    "description": "DEEIX Chat is a model access and conversation operations platform for multi-user AI applications. It unifies the model catalog, multi-source routing, parameter governance, file handling, connectors, usage billing, identity security, audit, and operational settings in a single control plane.",
     "details": "Product information",
     "product": "Product",
     "version": "Version",
@@ -191,7 +191,7 @@
         "verify": "Verify",
         "continue": "Continue",
         "back": "Back",
-        "debugCode": "Development code: {code}",
+        "debugCode": "Verification code: {code}",
         "copiedLabel": "{label} copied",
         "copyFailed": "Copy failed",
         "copyManually": "Please select the content manually."
@@ -392,13 +392,13 @@
       "modeTitle": "File processing mode",
       "mode": {
         "auto": "Auto",
-        "fullContext": "Full context",
-        "rag": "Vector retrieval"
+        "fullContext": "Direct reading",
+        "rag": "Smart retrieval"
       },
       "modeDescription": {
-        "auto": "Current: Auto. The system chooses full-context injection or RAG based on file size, type, context budget, and retrieval capability.",
-        "fullContext": "Current: Full context. Later turns try to include conversation file content directly, which works best for precise analysis of small files.",
-        "rag": "Current: RAG. Later turns retrieve relevant file chunks first, then fall back to full-context injection when retrieval is unavailable."
+        "auto": "Current: Auto. The system chooses direct reading or smart retrieval based on file size, type, and conversation length.",
+        "fullContext": "Current: Direct reading. Later turns try to read conversation file content directly, which works best for precise analysis of small files.",
+        "rag": "Current: Smart retrieval. Later turns retrieve relevant file sections first, then fall back to direct reading when retrieval is unavailable."
       }
     },
     "memory": {
@@ -526,7 +526,7 @@
       "claudeCacheWriteMixedNote": "Claude cache write uses configured pricing at {multiplier}.",
       "claudeCacheWriteNote": "Claude {timeout} cache write uses configured pricing at {multiplier}.",
       "claudeFastModeNote": "Claude Fast Mode bills input, output, and cache usage at {multiplier}.",
-      "openaiServiceTierNote": "OpenAI service_tier={tier} bills at {multiplier}.",
+      "openaiServiceTierNote": "OpenAI service tier {tier} bills at {multiplier}.",
       "baseService": "Base service",
       "input": "Input",
       "output": "Output",
@@ -594,7 +594,7 @@
     "redemption": {
       "open": "Redeem",
       "title": "Redemption code",
-      "description": "Enter the redemption code provided by an administrator.",
+      "description": "Enter the redemption code you received.",
       "code": "Redemption code",
       "confirm": "Redeem"
     },
@@ -609,9 +609,9 @@
       "invalidTopUpAmount": "Invalid top-up amount",
       "invalidTopUpAmountDescription": "Enter a USD amount greater than 0.",
       "planUnavailable": "Plan unavailable",
-      "planUnavailableDescription": "This plan has no available price. Ask an administrator to check the billing configuration.",
+      "planUnavailableDescription": "This plan has no available price. Try again later.",
       "paymentDisabled": "Payment provider is disabled",
-      "paymentDisabledDescription": "Configure a payment provider in the admin console before subscribing to a paid plan.",
+      "paymentDisabledDescription": "Payments are temporarily unavailable. Try again later.",
       "freeSwitchBlocked": "Active subscription entitlement",
       "freeSwitchBlockedDescription": "You cannot switch to Free before paid entitlements expire. Renew or choose another paid plan instead.",
       "noPlanSelected": "No plan selected",

@@ -53,6 +53,7 @@
     "searchEmpty": "No matching results",
     "sidebarTitle": "Sidebar",
     "mobileSidebarDescription": "Displays the mobile sidebar.",
+    "skipToContent": "Skip to main content",
     "openSidebar": "Open sidebar",
     "toggleSidebar": "Toggle sidebar",
     "settings": "Settings",
@@ -128,5 +129,8 @@
   "appVersion": {
     "title": "New version available",
     "description": "Refresh the page to use the latest version."
+  },
+  "network": {
+    "offline": "You are offline. Some actions will continue after the connection returns."
   }
 }

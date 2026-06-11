@@ -3,7 +3,9 @@ package httpx
 import (
 	"context"
 	"fmt"
+	"html"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -59,6 +61,10 @@ type Modules struct {
 	Settings     *settingshttp.Module
 	UserSettings *usersettingshttp.Module
 	StartupLog   func(*zap.Logger)
+}
+
+type frontendShareMetadataProvider interface {
+	GetPublicShareMetadata(ctx context.Context, shareID string) (title string, description string, err error)
 }
 
 // NewEngine 创建并注册 API 路由。
@@ -183,12 +189,12 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.StartupLog != nil {
 		modules.StartupLog(log)
 	}
-	registerFrontendStatic(engine, snapshot.FrontendDistDir, log)
+	registerFrontendStatic(engine, snapshot.FrontendDistDir, log, modules.Conversation)
 
 	return engine, nil
 }
 
-func registerFrontendStatic(engine *gin.Engine, distDir string, log *zap.Logger) {
+func registerFrontendStatic(engine *gin.Engine, distDir string, log *zap.Logger, shareMetadata frontendShareMetadataProvider) {
 	root := strings.TrimSpace(distDir)
 	if root == "" {
 		return
@@ -221,27 +227,193 @@ func registerFrontendStatic(engine *gin.Engine, distDir string, log *zap.Logger)
 			return
 		}
 
-		if filePath, ok := resolveFrontendStaticFile(absoluteRoot, requestPath); ok {
+		frontendRoots := resolveFrontendRoots(absoluteRoot, c.Request)
+		if filePath, ok := resolveFrontendStaticFile(frontendRoots, requestPath); ok {
 			applyFrontendCacheHeaders(c, requestPath)
 			c.File(filePath)
 			return
 		}
 
-		if filePath, ok := resolveFrontendPageFile(absoluteRoot, requestPath); ok {
+		if shareID := frontendShareIDFromRequest(c.Request, requestPath); shareID != "" {
+			if filePath, ok := resolveFrontendSharePageFile(frontendRoots); ok {
+				c.Header("Cache-Control", "no-cache")
+				applyFrontendLocaleVary(c)
+				serveFrontendSharePage(c, filePath, shareID, shareMetadata)
+				return
+			}
+		}
+
+		if filePath, ok := resolveFrontendPageFile(frontendRoots, requestPath); ok {
 			c.Header("Cache-Control", "no-cache")
+			applyFrontendLocaleVary(c)
 			c.File(filePath)
 			return
 		}
 
-		notFoundPath := filepath.Join(absoluteRoot, "404.html")
-		if isRegularFile(notFoundPath) {
-			c.Status(http.StatusNotFound)
-			c.File(notFoundPath)
-			return
+		for _, root := range frontendRoots {
+			notFoundPath := filepath.Join(root, "404.html")
+			if isRegularFile(notFoundPath) {
+				c.Status(http.StatusNotFound)
+				applyFrontendLocaleVary(c)
+				c.File(notFoundPath)
+				return
+			}
 		}
 
 		response.ErrorWithCode(c, http.StatusNotFound, response.CodeResourceNotFound, "not found")
 	})
+}
+
+func frontendShareIDFromRequest(request *http.Request, requestPath string) string {
+	if request == nil {
+		return ""
+	}
+	if requestPath == "/share" {
+		return strings.TrimSpace(request.URL.Query().Get("conversation_id"))
+	}
+	if !strings.HasPrefix(requestPath, "/share/") {
+		return ""
+	}
+	raw := strings.TrimPrefix(requestPath, "/share/")
+	if raw == "" || strings.Contains(raw, "/") {
+		return ""
+	}
+	decoded, err := url.PathUnescape(raw)
+	if err != nil {
+		return strings.TrimSpace(raw)
+	}
+	return strings.TrimSpace(decoded)
+}
+
+func resolveFrontendSharePageFile(roots []string) (string, bool) {
+	for _, root := range roots {
+		candidates := []string{
+			filepath.Join(root, "share.html"),
+			filepath.Join(root, "share", "index.html"),
+		}
+		for _, candidate := range candidates {
+			if strings.HasPrefix(candidate, root) && isRegularFile(candidate) {
+				return candidate, true
+			}
+		}
+	}
+	return "", false
+}
+
+func serveFrontendSharePage(c *gin.Context, filePath string, shareID string, provider frontendShareMetadataProvider) {
+	body, err := os.ReadFile(filePath)
+	if err != nil {
+		c.File(filePath)
+		return
+	}
+	pageHTML := string(body)
+	if provider != nil {
+		title, description, metadataErr := provider.GetPublicShareMetadata(c.Request.Context(), shareID)
+		if metadataErr == nil {
+			pageHTML = injectFrontendShareMetadata(pageHTML, frontendShareMetadata{
+				Title:       title,
+				Description: description,
+				Canonical:   frontendShareCanonicalURL(c.Request, shareID),
+				Image:       frontendAbsoluteURL(c.Request, "/DEEIX-Chat.jpg"),
+			})
+		}
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(pageHTML))
+}
+
+type frontendShareMetadata struct {
+	Title       string
+	Description string
+	Canonical   string
+	Image       string
+}
+
+func injectFrontendShareMetadata(pageHTML string, metadata frontendShareMetadata) string {
+	title := strings.TrimSpace(metadata.Title)
+	if title == "" {
+		title = "Shared conversation"
+	}
+	if !strings.Contains(title, "DEEIX Chat") {
+		title = title + " · DEEIX Chat"
+	}
+	description := strings.TrimSpace(metadata.Description)
+	if description == "" {
+		description = "Shared conversation on DEEIX Chat."
+	}
+	tags := []string{
+		`<title>` + html.EscapeString(title) + `</title>`,
+		`<meta name="description" content="` + html.EscapeString(description) + `">`,
+		`<meta property="og:type" content="article">`,
+		`<meta property="og:site_name" content="DEEIX Chat">`,
+		`<meta property="og:title" content="` + html.EscapeString(title) + `">`,
+		`<meta property="og:description" content="` + html.EscapeString(description) + `">`,
+		`<meta name="twitter:card" content="summary_large_image">`,
+		`<meta name="twitter:title" content="` + html.EscapeString(title) + `">`,
+		`<meta name="twitter:description" content="` + html.EscapeString(description) + `">`,
+	}
+	if canonical := strings.TrimSpace(metadata.Canonical); canonical != "" {
+		escaped := html.EscapeString(canonical)
+		tags = append(tags,
+			`<link rel="canonical" href="`+escaped+`">`,
+			`<meta property="og:url" content="`+escaped+`">`,
+		)
+	}
+	if image := strings.TrimSpace(metadata.Image); image != "" {
+		escaped := html.EscapeString(image)
+		tags = append(tags,
+			`<meta property="og:image" content="`+escaped+`">`,
+			`<meta name="twitter:image" content="`+escaped+`">`,
+		)
+	}
+
+	injection := strings.Join(tags, "\n")
+	if strings.Contains(pageHTML, "<head>") {
+		return strings.Replace(pageHTML, "<head>", "<head>\n"+injection+"\n", 1)
+	}
+	if strings.Contains(pageHTML, "<html") {
+		head := "<head>\n" + injection + "\n</head>"
+		index := strings.Index(pageHTML, ">")
+		if index >= 0 {
+			return pageHTML[:index+1] + head + pageHTML[index+1:]
+		}
+	}
+	return injection + "\n" + pageHTML
+}
+
+func frontendShareCanonicalURL(request *http.Request, shareID string) string {
+	return frontendAbsoluteURL(request, "/share/"+url.PathEscape(strings.TrimSpace(shareID)))
+}
+
+func frontendAbsoluteURL(request *http.Request, requestPath string) string {
+	if request == nil {
+		return requestPath
+	}
+	host := firstHeaderValue(request.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = request.Host
+	}
+	if host == "" {
+		return requestPath
+	}
+	scheme := firstHeaderValue(request.Header.Get("X-Forwarded-Proto"))
+	if scheme == "" && request.URL != nil {
+		scheme = request.URL.Scheme
+	}
+	if scheme == "" {
+		if request.TLS != nil {
+			scheme = "https"
+		} else {
+			scheme = "http"
+		}
+	}
+	return scheme + "://" + host + requestPath
+}
+
+func firstHeaderValue(value string) string {
+	if value == "" {
+		return ""
+	}
+	return strings.TrimSpace(strings.Split(value, ",")[0])
 }
 
 func swaggerEnabled(env string) bool {
@@ -269,34 +441,120 @@ func isBackendOnlyPath(requestPath string) bool {
 		requestPath == "/readyz"
 }
 
-func resolveFrontendStaticFile(root string, requestPath string) (string, bool) {
+func resolveFrontendRoots(root string, request *http.Request) []string {
+	locale := resolveFrontendLocale(request)
+	roots := []string{}
+	if locale != "" {
+		localeRoot := filepath.Join(root, locale)
+		if info, err := os.Stat(localeRoot); err == nil && info.IsDir() {
+			roots = append(roots, localeRoot)
+		}
+	}
+	if locale != "zh-CN" {
+		defaultRoot := filepath.Join(root, "zh-CN")
+		if info, err := os.Stat(defaultRoot); err == nil && info.IsDir() {
+			roots = append(roots, defaultRoot)
+		}
+	}
+	roots = append(roots, root)
+	return roots
+}
+
+func resolveFrontendLocale(request *http.Request) string {
+	if request != nil {
+		if cookie, err := request.Cookie("deeix_chat_locale"); err == nil {
+			if locale := normalizeFrontendLocale(cookie.Value); locale != "" {
+				return locale
+			}
+		}
+		for _, part := range strings.Split(request.Header.Get("Accept-Language"), ",") {
+			language := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
+			if locale := normalizeFrontendLocale(language); locale != "" {
+				return locale
+			}
+		}
+	}
+	return "zh-CN"
+}
+
+func normalizeFrontendLocale(value string) string {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "_", "-"))
+	switch {
+	case normalized == "zh" || strings.HasPrefix(normalized, "zh-"):
+		return "zh-CN"
+	case normalized == "en" || strings.HasPrefix(normalized, "en-"):
+		return "en-US"
+	default:
+		return ""
+	}
+}
+
+func applyFrontendLocaleVary(c *gin.Context) {
+	c.Header("Vary", appendVaryHeader(c.Writer.Header().Get("Vary"), "Cookie", "Accept-Language"))
+}
+
+func appendVaryHeader(current string, values ...string) string {
+	seen := make(map[string]bool)
+	parts := make([]string, 0, len(values)+1)
+	for _, item := range strings.Split(current, ",") {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		parts = append(parts, trimmed)
+	}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		parts = append(parts, trimmed)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func resolveFrontendStaticFile(roots []string, requestPath string) (string, bool) {
 	if requestPath == "/" {
 		return "", false
 	}
-	candidate := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(requestPath, "/")))
-	if !strings.HasPrefix(candidate, root) {
-		return "", false
-	}
-	if isRegularFile(candidate) {
-		return candidate, true
+	for _, root := range roots {
+		candidate := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(requestPath, "/")))
+		if !strings.HasPrefix(candidate, root) {
+			continue
+		}
+		if isRegularFile(candidate) {
+			return candidate, true
+		}
 	}
 	return "", false
 }
 
-func resolveFrontendPageFile(root string, requestPath string) (string, bool) {
-	candidates := []string{filepath.Join(root, "index.html")}
-	if requestPath != "/" {
-		cleanPath := filepath.FromSlash(strings.TrimPrefix(requestPath, "/"))
-		candidates = []string{
-			filepath.Join(root, cleanPath+".html"),
-			filepath.Join(root, cleanPath, "index.html"),
-			filepath.Join(root, "index.html"),
+func resolveFrontendPageFile(roots []string, requestPath string) (string, bool) {
+	for _, root := range roots {
+		candidates := []string{filepath.Join(root, "index.html")}
+		if requestPath != "/" {
+			cleanPath := filepath.FromSlash(strings.TrimPrefix(requestPath, "/"))
+			candidates = []string{
+				filepath.Join(root, cleanPath+".html"),
+				filepath.Join(root, cleanPath, "index.html"),
+				filepath.Join(root, "index.html"),
+			}
 		}
-	}
 
-	for _, candidate := range candidates {
-		if strings.HasPrefix(candidate, root) && isRegularFile(candidate) {
-			return candidate, true
+		for _, candidate := range candidates {
+			if strings.HasPrefix(candidate, root) && isRegularFile(candidate) {
+				return candidate, true
+			}
 		}
 	}
 	return "", false

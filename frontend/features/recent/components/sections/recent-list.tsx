@@ -103,6 +103,8 @@ function RecentConversationRow({
   onRevokeShare,
   onSetProject,
   onExport,
+  onExportMarkdown,
+  onCopyMarkdown,
   onDelete,
 }: {
   item: ConversationDTO;
@@ -123,6 +125,8 @@ function RecentConversationRow({
   onRevokeShare: (publicID: string) => void | Promise<void>;
   onSetProject: (publicID: string, projectID?: string) => void | Promise<void>;
   onExport: (item: ConversationDTO) => void | Promise<void>;
+  onExportMarkdown: (item: ConversationDTO) => void | Promise<void>;
+  onCopyMarkdown: (item: ConversationDTO) => void | Promise<void>;
   onDelete: (item: ConversationDTO) => void;
 }) {
   const t = useTranslations("recent");
@@ -181,7 +185,7 @@ function RecentConversationRow({
           <div
             role="button"
             tabIndex={0}
-            className="min-w-0 flex-1 cursor-pointer"
+            className="min-h-11 min-w-0 flex-1 cursor-pointer"
             onClick={() => onToggleSelected(item.publicID)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
@@ -205,7 +209,7 @@ function RecentConversationRow({
             </div>
           </div>
         ) : (
-          <Link href={`/chat?conversation_id=${item.publicID}`} prefetch={false} className="min-w-0 flex-1">
+          <Link href={`/chat?conversation_id=${item.publicID}`} prefetch={false} className="min-h-11 min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <AnimatedText
                 text={title}
@@ -228,7 +232,7 @@ function RecentConversationRow({
             <button
               id={`recent-page-item-menu-trigger-${item.publicID}`}
               className={cn(
-                "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-all duration-200 hover:bg-accent hover:text-foreground",
+                "flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-100 transition-all duration-200 hover:bg-accent hover:text-foreground md:size-8 md:opacity-0",
                 highlighted && "opacity-100",
               )}
               onClick={(event) => {
@@ -279,8 +283,12 @@ function RecentConversationRow({
               label={t("row.shareAndExport")}
               shareLabel={shared ? t("row.manageShare") : t("row.share")}
               exportLabel={t("row.exportJSON")}
+              exportMarkdownLabel={t("row.exportMarkdown")}
+              copyMarkdownLabel={t("row.copyMarkdown")}
               onShare={() => onShare(item)}
               onExport={() => onExport(item)}
+              onExportMarkdown={() => onExportMarkdown(item)}
+              onCopyMarkdown={() => onCopyMarkdown(item)}
               onCloseMenu={() => setMenuOpen(false)}
             />
             <DropdownMenuItem
@@ -333,6 +341,8 @@ type RecentListProps = {
   onRevokeShare: (publicID: string) => void | Promise<void>;
   onSetProject: (publicID: string, projectID?: string) => void | Promise<void>;
   onExport: (item: ConversationDTO) => void | Promise<void>;
+  onExportMarkdown: (item: ConversationDTO) => void | Promise<void>;
+  onCopyMarkdown: (item: ConversationDTO) => void | Promise<void>;
   onDelete: (item: ConversationDTO) => void;
   onRetryLoadMore: () => void | Promise<void>;
 };
@@ -421,6 +431,8 @@ export function RecentList({
   onRevokeShare,
   onSetProject,
   onExport,
+  onExportMarkdown,
+  onCopyMarkdown,
   onDelete,
   onRetryLoadMore,
 }: RecentListProps) {
@@ -499,6 +511,8 @@ export function RecentList({
                     onRevokeShare={onRevokeShare}
                     onSetProject={onSetProject}
                     onExport={onExport}
+                    onExportMarkdown={onExportMarkdown}
+                    onCopyMarkdown={onCopyMarkdown}
                     onDelete={onDelete}
                   />
                 );

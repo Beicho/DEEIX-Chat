@@ -2,10 +2,32 @@ package conversation
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 )
+
+func TestBuildShareMetadataDescriptionUsesFirstUserMessage(t *testing.T) {
+	messages := []model.Message{
+		{ID: 1, Role: "system", Content: "hidden"},
+		{ID: 2, Role: "user", Content: "# Hello\n\nThis is **visible** text."},
+		{ID: 3, Role: "assistant", Content: "assistant reply"},
+	}
+
+	got := buildShareMetadataDescription(messages, "fallback")
+	want := "Hello This is visible text."
+	if got != want {
+		t.Fatalf("description mismatch: got %q, want %q", got, want)
+	}
+}
+
+func TestBuildShareMetadataDescriptionTruncatesLongAssistantFallback(t *testing.T) {
+	got := buildShareMetadataDescription([]model.Message{{Role: "assistant", Content: strings.Repeat("x", 220)}}, "fallback")
+	if len([]rune(got)) != 160 {
+		t.Fatalf("expected 160 runes, got %d: %q", len([]rune(got)), got)
+	}
+}
 
 func TestSharedMessagesIncludeFileUsesSnapshotAttachments(t *testing.T) {
 	messages := []model.Message{

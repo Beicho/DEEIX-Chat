@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Download, Share2 } from "lucide-react";
+import { ClipboardCopy, Download, FileText, Share2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,8 +19,12 @@ import { cn } from "@/lib/utils";
 type ConversationShareExportActionsProps = {
   shareLabel: string;
   exportLabel: string;
+  exportMarkdownLabel?: string;
+  copyMarkdownLabel?: string;
   onShare?: () => void;
   onExport?: () => void | Promise<void>;
+  onExportMarkdown?: () => void | Promise<void>;
+  onCopyMarkdown?: () => void | Promise<void>;
 };
 
 type ConversationShareExportMenuItemsProps = ConversationShareExportActionsProps & {
@@ -30,8 +34,12 @@ type ConversationShareExportMenuItemsProps = ConversationShareExportActionsProps
 export function ConversationShareExportMenuItems({
   shareLabel,
   exportLabel,
+  exportMarkdownLabel,
+  copyMarkdownLabel,
   onShare,
   onExport,
+  onExportMarkdown,
+  onCopyMarkdown,
   onCloseMenu,
 }: ConversationShareExportMenuItemsProps) {
   return (
@@ -64,6 +72,38 @@ export function ConversationShareExportMenuItems({
         <DropdownMenuItemIcon icon={Download} />
         {exportLabel}
       </DropdownMenuItem>
+      {exportMarkdownLabel ? (
+        <DropdownMenuItem
+          disabled={!onExportMarkdown}
+          onSelect={(event) => {
+            event.preventDefault();
+            if (!onExportMarkdown) {
+              return;
+            }
+            onCloseMenu?.();
+            void onExportMarkdown();
+          }}
+        >
+          <DropdownMenuItemIcon icon={FileText} />
+          {exportMarkdownLabel}
+        </DropdownMenuItem>
+      ) : null}
+      {copyMarkdownLabel ? (
+        <DropdownMenuItem
+          disabled={!onCopyMarkdown}
+          onSelect={(event) => {
+            event.preventDefault();
+            if (!onCopyMarkdown) {
+              return;
+            }
+            onCloseMenu?.();
+            void onCopyMarkdown();
+          }}
+        >
+          <DropdownMenuItemIcon icon={ClipboardCopy} />
+          {copyMarkdownLabel}
+        </DropdownMenuItem>
+      ) : null}
     </>
   );
 }
@@ -78,10 +118,14 @@ export function ConversationShareExportIconDropdown({
   label,
   shareLabel,
   exportLabel,
+  exportMarkdownLabel,
+  copyMarkdownLabel,
   active = false,
   className,
   onShare,
   onExport,
+  onExportMarkdown,
+  onCopyMarkdown,
 }: ConversationShareExportIconDropdownProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -93,11 +137,11 @@ export function ConversationShareExportIconDropdown({
           variant="ghost"
           size="icon"
           className={cn(
-            "size-8 shrink-0 rounded-lg text-muted-foreground shadow-none hover:bg-muted hover:text-foreground",
+            "size-11 shrink-0 rounded-lg text-muted-foreground shadow-none hover:bg-muted hover:text-foreground md:size-8",
             active && "text-foreground",
             className,
           )}
-          disabled={!onShare && !onExport}
+          disabled={!onShare && !onExport && !onExportMarkdown && !onCopyMarkdown}
           aria-label={label}
           title={label}
         >
@@ -108,8 +152,12 @@ export function ConversationShareExportIconDropdown({
         <ConversationShareExportMenuItems
           shareLabel={shareLabel}
           exportLabel={exportLabel}
+          exportMarkdownLabel={exportMarkdownLabel}
+          copyMarkdownLabel={copyMarkdownLabel}
           onShare={onShare}
           onExport={onExport}
+          onExportMarkdown={onExportMarkdown}
+          onCopyMarkdown={onCopyMarkdown}
           onCloseMenu={() => setOpen(false)}
         />
       </DropdownMenuContent>
@@ -121,13 +169,17 @@ export function ConversationShareExportSubmenu({
   label,
   shareLabel,
   exportLabel,
+  exportMarkdownLabel,
+  copyMarkdownLabel,
   onShare,
   onExport,
+  onExportMarkdown,
+  onCopyMarkdown,
   onCloseMenu,
 }: { label: string } & ConversationShareExportMenuItemsProps) {
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger disabled={!onShare && !onExport}>
+      <DropdownMenuSubTrigger disabled={!onShare && !onExport && !onExportMarkdown && !onCopyMarkdown}>
         <DropdownMenuItemIcon icon={Share2} />
         {label}
       </DropdownMenuSubTrigger>
@@ -135,8 +187,12 @@ export function ConversationShareExportSubmenu({
         <ConversationShareExportMenuItems
           shareLabel={shareLabel}
           exportLabel={exportLabel}
+          exportMarkdownLabel={exportMarkdownLabel}
+          copyMarkdownLabel={copyMarkdownLabel}
           onShare={onShare}
           onExport={onExport}
+          onExportMarkdown={onExportMarkdown}
+          onCopyMarkdown={onCopyMarkdown}
           onCloseMenu={onCloseMenu}
         />
       </DropdownMenuSubContent>

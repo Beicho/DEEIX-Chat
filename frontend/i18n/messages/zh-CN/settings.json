@@ -8,7 +8,7 @@
   "navigation": "设置导航",
   "aboutPage": {
     "title": "关于",
-    "description": "DEEIX Chat 是面向多用户 AI 应用的模型接入与对话运营平台。它将模型目录、多上游路由、参数治理、文件与 RAG、MCP 工具、用量计费、身份安全、审计与运维配置整合到同一套控制面。",
+    "description": "DEEIX Chat 是面向多用户 AI 应用的模型接入与对话运营平台。它将模型目录、多来源路由、参数治理、文件处理、扩展工具、用量计费、身份安全、审计与运维配置整合到同一套控制面。",
     "details": "产品信息",
     "product": "产品",
     "version": "版本",
@@ -60,7 +60,7 @@
       "deniedTitle": "通知权限被拒绝",
       "deniedDescription": "请在浏览器的站点权限设置里允许通知后再开启。",
       "enabledTitle": "已开启浏览器通知",
-      "enabledDescription": "当回复在后台完成时，你会收到系统通知。",
+      "enabledDescription": "当回复完成时，你会收到系统通知。",
       "defaultHelp": "开启后会调用浏览器通知权限，通过系统通知提醒你。",
       "unsupportedHelp": "当前浏览器不支持系统通知。",
       "deniedHelp": "浏览器已阻止通知，请在浏览器设置中手动允许。",
@@ -191,7 +191,7 @@
         "verify": "验证",
         "continue": "继续",
         "back": "返回",
-        "debugCode": "开发验证码：{code}",
+        "debugCode": "验证码：{code}",
         "copiedLabel": "{label}已复制",
         "copyFailed": "复制失败",
         "copyManually": "请手动选择内容复制。"
@@ -392,13 +392,13 @@
       "modeTitle": "文件处理模式",
       "mode": {
         "auto": "自动",
-        "fullContext": "全文注入",
-        "rag": "向量检索"
+        "fullContext": "完整读取",
+        "rag": "智能检索"
       },
       "modeDescription": {
-        "auto": "当前：自动 — 系统根据文件大小、类型、上下文预算与检索能力自动选择全文注入或 RAG（推荐）。",
-        "fullContext": "当前：全文注入 — 后续每轮尽量将会话文件内容放入上下文，适合小文件精确分析。",
-        "rag": "当前：RAG — 后续每轮优先检索会话文件相关片段；检索不可用时回退全文注入。"
+        "auto": "当前：自动 — 系统根据文件大小、类型和对话长度自动选择完整读取或智能检索（推荐）。",
+        "fullContext": "当前：完整读取 — 后续每轮尽量读取会话文件内容，适合小文件精确分析。",
+        "rag": "当前：智能检索 — 后续每轮优先查找会话文件相关片段；暂不可用时回退完整读取。"
       }
     },
     "memory": {
@@ -522,11 +522,11 @@
       "cacheWrite1h": "缓存(写 1h)",
       "cacheWrite5m1h": "缓存(写 5m/1h)",
       "cacheWritePricingLabel": "缓存(写 5m)",
-      "cacheWritePricingNote": "Claude 缓存读按后台配置；缓存写 5m 按后台配置价 1.25x，1h 按 2x；Fast Mode 会基于此再 6x。",
-      "claudeCacheWriteMixedNote": "Claude 缓存写按后台配置价 {multiplier} 计费。",
-      "claudeCacheWriteNote": "Claude {timeout} 缓存写按后台配置价 {multiplier} 计费。",
+      "cacheWritePricingNote": "Claude 缓存读写按系统定价；缓存写 5m 按 1.25x，1h 按 2x；Fast Mode 会基于此再 6x。",
+      "claudeCacheWriteMixedNote": "Claude 缓存写按系统定价 {multiplier} 计费。",
+      "claudeCacheWriteNote": "Claude {timeout} 缓存写按系统定价 {multiplier} 计费。",
       "claudeFastModeNote": "Claude Fast Mode：输入、输出和缓存费用按 {multiplier} 计费。",
-      "openaiServiceTierNote": "OpenAI service_tier={tier}：按 {multiplier} 计费。",
+      "openaiServiceTierNote": "OpenAI 服务档位 {tier}：按 {multiplier} 计费。",
       "baseService": "基础服务",
       "input": "输入",
       "output": "输出",
@@ -594,7 +594,7 @@
     "redemption": {
       "open": "兑换",
       "title": "兑换码",
-      "description": "输入管理员提供的兑换码。",
+      "description": "输入你收到的兑换码。",
       "code": "兑换码",
       "confirm": "兑换"
     },
@@ -609,9 +609,9 @@
       "invalidTopUpAmount": "充值金额无效",
       "invalidTopUpAmountDescription": "请输入大于 0 的美元金额。",
       "planUnavailable": "套餐不可用",
-      "planUnavailableDescription": "当前套餐没有可用价格，请联系管理员检查计费配置。",
+      "planUnavailableDescription": "当前套餐没有可用价格，请稍后再试。",
       "paymentDisabled": "支付渠道未开启",
-      "paymentDisabledDescription": "需要先在后台完成支付配置，才能订阅付费套餐。",
+      "paymentDisabledDescription": "支付暂不可用，请稍后再试。",
       "freeSwitchBlocked": "当前有有效订阅权益",
       "freeSwitchBlockedDescription": "付费权益到期前不能切换到免费方案，可选择续费或订阅其他付费方案。",
       "noPlanSelected": "未选择套餐",

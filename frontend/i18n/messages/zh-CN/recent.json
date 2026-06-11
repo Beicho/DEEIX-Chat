@@ -61,6 +61,10 @@
   "shareClosed": "分享已关闭",
   "exported": "已导出对话 JSON",
   "exportFailed": "导出对话失败",
+  "exportMarkdownSuccess": "已导出对话 Markdown",
+  "exportMarkdownFailed": "导出 Markdown 失败",
+  "copyMarkdownSuccess": "已复制对话全文",
+  "copyMarkdownFailed": "复制对话全文失败",
   "conversationCount": "{count} 个",
   "deleteConversationLabel": "「{title}」",
   "selectedConversationCountLabel": "{count} 个会话",
@@ -77,6 +81,8 @@
     "unarchive": "取消归档",
     "archive": "归档",
     "exportJSON": "导出 JSON",
+    "exportMarkdown": "导出 Markdown",
+    "copyMarkdown": "复制全文",
     "delete": "删除"
   },
   "emptyState": {

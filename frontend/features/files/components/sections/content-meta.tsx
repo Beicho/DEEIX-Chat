@@ -24,6 +24,27 @@ function MetaRow({ label, value, mono = false }: { label: string; value: string;
   );
 }
 
+function resolveDisplayFileType(
+  category: string,
+  translateFilter: (key: string) => string,
+  fallback: string,
+): string {
+  switch (category.trim().toLowerCase()) {
+    case "image":
+      return translateFilter("image");
+    case "pdf":
+      return translateFilter("pdf");
+    case "word":
+      return translateFilter("document");
+    case "excel":
+      return translateFilter("spreadsheet");
+    case "text":
+      return translateFilter("document");
+    default:
+      return fallback;
+  }
+}
+
 type ContentMetaProps = {
   file: FileObjectDTO;
   container: HTMLElement | null;
@@ -31,6 +52,7 @@ type ContentMetaProps = {
 
 export function ContentMeta({ file, container }: ContentMetaProps) {
   const t = useTranslations("files.meta");
+  const tFilters = useTranslations("files.filters");
   const tStatus = useTranslations("files.status");
   const { locale } = useAppLocale();
   const processingBadge = resolveFileProcessingBadge({
@@ -72,7 +94,7 @@ export function ContentMeta({ file, container }: ContentMetaProps) {
           <dl>
             <MetaRow label={t("id")} value={file.fileID} mono />
             <MetaRow label={t("category")} value={file.fileCategory || t("unknown")} />
-            <MetaRow label={t("detectedMime")} value={file.detectedMIME || file.mimeType || t("unknown")} />
+            <MetaRow label={t("detectedMime")} value={resolveDisplayFileType(file.fileCategory, tFilters, t("unknown"))} />
             <MetaRow label={t("processingStatus")} value={processingBadge.label} />
             <MetaRow label={t("extractStatus")} value={resolveExtractStatusLabel(file.extractStatus, (key, values) => tStatus(key, values))} />
             <MetaRow label={t("embedStatus")} value={resolveEmbedStatusLabel(file.embedStatus, (key, values) => tStatus(key, values))} />

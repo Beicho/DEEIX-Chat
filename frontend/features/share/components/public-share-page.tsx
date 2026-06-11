@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
@@ -33,6 +33,7 @@ import { useOptionalAuthSession } from "@/shared/auth/auth-session-context";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { resolveShareCanonicalPath } from "@/features/share/model/share-metadata";
 
 function formatSharedAt(value: string, locale: string): string {
   const date = new Date(value);
@@ -196,15 +197,33 @@ export function PublicSharePage() {
   const { locale } = useAppLocale();
   const resolveErrorMessage = useLocalizedErrorMessage();
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const authSession = useOptionalAuthSession();
-  const shareID = searchParams.get("conversation_id")?.trim() || "";
+  const pathShareID = React.useMemo(() => {
+    const match = pathname?.match(/^\/share\/([^/?#]+)$/);
+    if (!match?.[1]) {
+      return "";
+    }
+    try {
+      return decodeURIComponent(match[1]).trim();
+    } catch {
+      return match[1].trim();
+    }
+  }, [pathname]);
+  const shareID = pathShareID || searchParams.get("conversation_id")?.trim() || "";
   const [data, setData] = React.useState<PublicSharedConversationDTO | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [errorMsg, setErrorMsg] = React.useState("");
   const [branchSelections, setBranchSelections] = React.useState<Record<string, string>>({});
   const [resolvedAccessToken, setResolvedAccessToken] = React.useState("");
   const [cloning, setCloning] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!pathShareID && shareID) {
+      router.replace(resolveShareCanonicalPath(shareID));
+    }
+  }, [pathShareID, router, shareID]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -316,12 +335,10 @@ export function PublicSharePage() {
   );
   const accessToken = authSession?.accessToken || resolvedAccessToken;
   const loginNextPath = React.useMemo(() => {
-    const params = new URLSearchParams();
     if (shareID) {
-      params.set("conversation_id", shareID);
+      return `/login?next=${encodeURIComponent(resolveShareCanonicalPath(shareID))}`;
     }
-    const nextPath = params.toString() ? `/share?${params.toString()}` : "/share";
-    return `/login?next=${encodeURIComponent(nextPath)}`;
+    return `/login?next=${encodeURIComponent("/share")}`;
   }, [shareID]);
 
   const handleContinueConversation = React.useCallback(async () => {

@@ -24,6 +24,12 @@ function resolveCardMeta(att: MessageAttachment): string {
   return formatBytes(att.sizeBytes);
 }
 
+function isImageAttachment(att: MessageAttachment): boolean {
+  const mimeType = att.mimeType.trim().toLowerCase();
+  const detectedMime = att.detectedMime?.trim().toLowerCase() ?? "";
+  return att.kind === "image" || att.fileCategory === "image" || mimeType.startsWith("image/") || detectedMime.startsWith("image/");
+}
+
 // ─── single card ─────────────────────────────────────────────────────────────
 
 function AttachmentCard({
@@ -36,19 +42,33 @@ function AttachmentCard({
   const ext = resolveFileExt(att.fileName);
   const meta = resolveCardMeta(att);
   const fileIcon = resolveFileIcon(att);
+  const imagePreview = isImageAttachment(att) && att.previewURL ? att.previewURL : "";
 
   return (
     <div
-      className="group relative h-14 w-56 shrink-0 rounded-lg border border-border/50 bg-background/95 text-left shadow-[0_1px_2px_rgba(0,0,0,0.025)] transition-colors hover:border-border hover:bg-accent/30"
+      className="group relative min-h-14 w-56 shrink-0 rounded-lg border border-border/50 bg-background/95 text-left shadow-xs transition-colors hover:border-border hover:bg-accent/30"
     >
       <button
         type="button"
         onClick={onClick}
-        className="flex h-full w-full items-center gap-2.5 rounded-lg px-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-full min-h-14 w-full items-center gap-2.5 rounded-lg px-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <div className="flex size-6 shrink-0 items-center justify-center">
-          {React.createElement(fileIcon, { className: "size-5 text-muted-foreground", strokeWidth: 1.6 })}
-        </div>
+        {imagePreview ? (
+          <div className="size-10 shrink-0 overflow-hidden rounded-md border border-border/60 bg-muted">
+            {/* eslint-disable-next-line @next/next/no-img-element -- Chat attachments are user uploads served by the app file pipeline. */}
+            <img
+              src={imagePreview}
+              alt={att.fileName}
+              loading="lazy"
+              decoding="async"
+              className="size-full object-cover"
+            />
+          </div>
+        ) : (
+          <div className="flex size-6 shrink-0 items-center justify-center">
+            {React.createElement(fileIcon, { className: "size-5 text-muted-foreground", strokeWidth: 1.6 })}
+          </div>
+        )}
         <div className="flex min-w-0 flex-1 flex-col justify-center">
           <p className="truncate text-[12px] font-medium leading-4 text-foreground/90" title={att.fileName}>
             {att.fileName}

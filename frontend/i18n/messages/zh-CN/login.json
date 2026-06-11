@@ -23,7 +23,7 @@
   "sending": "发送中",
   "resend": "重发",
   "resendIn": "{seconds}s 后重发",
-  "debugCode": "开发验证码：{code}",
+  "debugCode": "验证码：{code}",
   "providerLogin": "使用 {provider} 登录",
   "alreadyHaveAccount": "已有账号？",
   "noAccount": "没有账号？",

@@ -7,6 +7,7 @@ import Image from "next/image";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
+import { ImagePreviewOverlay } from "@/features/files/components/preview/image-preview-overlay";
 import { cn } from "@/lib/utils";
 
 type PreviewMediaProps = {
@@ -71,7 +72,6 @@ function resolveAudioLabel(contentType?: string, name?: string): string {
 export function PreviewMedia({ kind, source, alt, contentType, toolbarContainer }: PreviewMediaProps) {
   const t = useTranslations("files.previewErrors");
   const mediaRef = React.useRef<HTMLAudioElement | HTMLVideoElement | null>(null);
-  const imagePreviewRef = React.useRef<HTMLDivElement | null>(null);
   const imageScrollRegionRef = React.useRef<HTMLDivElement | null>(null);
   const videoPreviewRef = React.useRef<HTMLDivElement | null>(null);
   const previousVolumeRef = React.useRef(1);
@@ -80,7 +80,7 @@ export function PreviewMedia({ kind, source, alt, contentType, toolbarContainer 
   const [duration, setDuration] = React.useState(0);
   const [currentTime, setCurrentTime] = React.useState(0);
   const [imageZoom, setImageZoom] = React.useState(IMAGE_DEFAULT_ZOOM);
-  const [imageIsFullscreen, setImageIsFullscreen] = React.useState(false);
+  const [imageOverlayOpen, setImageOverlayOpen] = React.useState(false);
   const [videoIsFullscreen, setVideoIsFullscreen] = React.useState(false);
   const [imageSize, setImageSize] = React.useState<{ width: number; height: number }>(IMAGE_FALLBACK_SIZE);
   const [imageViewport, setImageViewport] = React.useState<{ width: number; height: number }>({ width: 0, height: 0 });
@@ -90,21 +90,6 @@ export function PreviewMedia({ kind, source, alt, contentType, toolbarContainer 
   const audioLabel = React.useMemo(() => resolveAudioLabel(contentType, alt), [alt, contentType]);
   const videoTitle = React.useMemo(() => resolveMediaTitle(alt, t("untitledAudio")), [alt, t]);
   const videoLabel = React.useMemo(() => resolveAudioLabel(contentType, alt), [alt, contentType]);
-
-  React.useEffect(() => {
-    if (kind !== "image") {
-      return undefined;
-    }
-
-    const handleFullscreenChange = () => {
-      setImageIsFullscreen(document.fullscreenElement === imagePreviewRef.current);
-    };
-
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => {
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
-    };
-  }, [kind]);
 
   React.useEffect(() => {
     if (kind !== "video") {
@@ -352,20 +337,6 @@ export function PreviewMedia({ kind, source, alt, contentType, toolbarContainer 
     });
   }, [imageViewport.height, imageViewport.width, kind, scaledImageHeight, scaledImageWidth, source]);
 
-  const toggleImageFullscreen = React.useCallback(async () => {
-    const element = imagePreviewRef.current;
-    if (!element) {
-      return;
-    }
-
-    if (document.fullscreenElement === element) {
-      await document.exitFullscreen();
-      return;
-    }
-
-    await element.requestFullscreen();
-  }, []);
-
   const toggleVideoFullscreen = React.useCallback(async () => {
     const element = videoPreviewRef.current;
     if (!element) {
@@ -403,8 +374,8 @@ export function PreviewMedia({ kind, source, alt, contentType, toolbarContainer 
       >
         <Plus className="size-3.5" />
       </Button>
-      <Button type="button" variant="ghost" size="icon" className="size-7 rounded-full" onClick={() => void toggleImageFullscreen()}>
-        {imageIsFullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+      <Button type="button" variant="ghost" size="icon" className="size-7 rounded-full" onClick={() => setImageOverlayOpen(true)}>
+        <Maximize2 className="size-3.5" />
       </Button>
     </div>
   );
@@ -412,7 +383,7 @@ export function PreviewMedia({ kind, source, alt, contentType, toolbarContainer 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
       {kind === "image" ? (
-        <div ref={imagePreviewRef} className="flex min-h-0 flex-1 flex-col bg-background">
+        <div className="flex min-h-0 flex-1 flex-col bg-background">
           {toolbarContainer ? createPortal(imageToolbar, toolbarContainer) : (
             <div className="flex shrink-0 items-center justify-end gap-1.5 px-1 py-2">{imageToolbar}</div>
           )}
@@ -625,6 +596,13 @@ export function PreviewMedia({ kind, source, alt, contentType, toolbarContainer 
               </div>
             </div>
           </div>
+          <ImagePreviewOverlay
+            open={imageOverlayOpen}
+            source={source}
+            alt={alt}
+            contentType={contentType}
+            onOpenChange={setImageOverlayOpen}
+          />
         </div>
       ) : (
         <div className="flex min-h-full flex-1 items-center justify-center px-4 py-5">

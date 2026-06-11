@@ -3,9 +3,12 @@ import { Geist, Geist_Mono } from "next/font/google";
 
 import { ChatFontProvider } from "@/features/layouts/components/providers/chat-font-provider";
 import { AppVersionGuard } from "@/features/layouts/components/providers/app-version-guard";
+import { OfflineStatusBanner } from "@/features/layouts/components/providers/offline-status-banner";
 import { FontSizeProvider } from "@/features/layouts/components/providers/font-size-provider";
 import { WorkspaceShell } from "@/features/layouts/components/sections/workspace-shell";
 import { AppI18nProvider } from "@/i18n/app-i18n-provider";
+import { normalizeAppLocale, type AppLocale } from "@/i18n/config";
+import { loadLocaleMessages } from "@/i18n/messages";
 import { BrandingProvider } from "@/shared/components/branding-provider";
 import { DevtoolsBrandBanner } from "@/shared/components/devtools-brand-banner";
 import { ThemeProvider } from "@/shared/components/theme-provider";
@@ -58,27 +61,31 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  themeColor: "#0f172a",
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
 };
 
-export default function RootLayout({
+const buildLocale: AppLocale = normalizeAppLocale(process.env.NEXT_PUBLIC_BUILD_LOCALE);
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const initialMessages = await loadLocaleMessages(buildLocale);
+
   return (
-    <html lang="en" className="h-full" suppressHydrationWarning>
+    <html lang={buildLocale} className="h-full" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} h-full min-h-svh overflow-hidden antialiased`}
       >
-        <AppI18nProvider>
+        <AppI18nProvider initialLocale={buildLocale} initialMessages={initialMessages}>
           <ThemeProvider>
             <BrandingProvider>
               <FontSizeProvider>
                 <ChatFontProvider>
                   <WorkspaceShell>{children}</WorkspaceShell>
+                  <OfflineStatusBanner />
                   <AppVersionGuard />
                   <PWAServiceWorkerRegister />
                   <Toaster />

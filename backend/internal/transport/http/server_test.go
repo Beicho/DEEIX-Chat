@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -48,7 +49,7 @@ func TestFrontendStaticFallbackServesExportedPage(t *testing.T) {
 	}
 
 	engine := gin.New()
-	registerFrontendStatic(engine, root, nil)
+	registerFrontendStatic(engine, root, nil, nil)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/chat?conversation_id=demo", nil)
@@ -65,6 +66,152 @@ func TestFrontendStaticFallbackServesExportedPage(t *testing.T) {
 	}
 }
 
+type fakeShareMetadataProvider struct {
+	title       string
+	description string
+}
+
+func (f fakeShareMetadataProvider) GetPublicShareMetadata(_ context.Context, _ string) (string, string, error) {
+	return f.title, f.description, nil
+}
+
+func TestFrontendSharePathServesExportedSharePageWithOpenGraphMetadata(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	root := t.TempDir()
+	const shareHTML = `<!doctype html><html><head><title>DEEIX Chat</title><meta name="description" content="Default"></head><body>share app</body></html>`
+	if err := os.WriteFile(filepath.Join(root, "share.html"), []byte(shareHTML), 0o644); err != nil {
+		t.Fatalf("write share page: %v", err)
+	}
+
+	engine := gin.New()
+	registerFrontendStatic(engine, root, nil, fakeShareMetadataProvider{
+		title:       "Team plan",
+		description: `Use "alpha" < beta & ship.`,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://chat.example/share/abc123", nil)
+	engine.ServeHTTP(recorder, request)
+
+	body := recorder.Body.String()
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if !strings.Contains(body, "share app") {
+		t.Fatalf("expected share app body, got %q", body)
+	}
+	if !strings.Contains(body, `<meta property="og:title" content="Team plan · DEEIX Chat">`) {
+		t.Fatalf("expected injected og:title, got %q", body)
+	}
+	if !strings.Contains(body, `<meta name="description" content="Use &#34;alpha&#34; &lt; beta &amp; ship.">`) {
+		t.Fatalf("expected escaped description, got %q", body)
+	}
+	if !strings.Contains(body, `<meta property="og:url" content="https://chat.example/share/abc123">`) {
+		t.Fatalf("expected canonical og:url, got %q", body)
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("expected share page no-cache, got %q", got)
+	}
+}
+
+func TestFrontendShareQueryServesExportedSharePageWithCanonicalOpenGraphURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "share.html"), []byte(`<!doctype html><html><head></head><body>share app</body></html>`), 0o644); err != nil {
+		t.Fatalf("write share page: %v", err)
+	}
+
+	engine := gin.New()
+	registerFrontendStatic(engine, root, nil, fakeShareMetadataProvider{
+		title:       "Legacy link",
+		description: "Legacy description",
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://chat.example/share?conversation_id=legacy-id", nil)
+	engine.ServeHTTP(recorder, request)
+
+	body := recorder.Body.String()
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if !strings.Contains(body, `<link rel="canonical" href="https://chat.example/share/legacy-id">`) {
+		t.Fatalf("expected canonical path for legacy query share link, got %q", body)
+	}
+}
+
+func TestFrontendStaticFallbackUsesAcceptLanguageLocaleDirectory(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	root := t.TempDir()
+	zhDir := filepath.Join(root, "zh-CN")
+	enDir := filepath.Join(root, "en-US")
+	if err := os.MkdirAll(zhDir, 0o755); err != nil {
+		t.Fatalf("create zh dir: %v", err)
+	}
+	if err := os.MkdirAll(enDir, 0o755); err != nil {
+		t.Fatalf("create en dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(zhDir, "chat.html"), []byte("zh chat"), 0o644); err != nil {
+		t.Fatalf("write zh chat: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(enDir, "chat.html"), []byte("en chat"), 0o644); err != nil {
+		t.Fatalf("write en chat: %v", err)
+	}
+
+	engine := gin.New()
+	registerFrontendStatic(engine, root, nil, nil)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/chat", nil)
+	request.Header.Set("Accept-Language", "en-US,en;q=0.8,zh-CN;q=0.5")
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if strings.TrimSpace(recorder.Body.String()) != "en chat" {
+		t.Fatalf("expected en chat page, got %q", recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Vary"); !strings.Contains(got, "Accept-Language") {
+		t.Fatalf("expected Vary to include Accept-Language, got %q", got)
+	}
+}
+
+func TestFrontendStaticFallbackCookieLocaleBeatsAcceptLanguage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	root := t.TempDir()
+	zhDir := filepath.Join(root, "zh-CN")
+	enDir := filepath.Join(root, "en-US")
+	if err := os.MkdirAll(zhDir, 0o755); err != nil {
+		t.Fatalf("create zh dir: %v", err)
+	}
+	if err := os.MkdirAll(enDir, 0o755); err != nil {
+		t.Fatalf("create en dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(zhDir, "index.html"), []byte("zh index"), 0o644); err != nil {
+		t.Fatalf("write zh index: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(enDir, "index.html"), []byte("en index"), 0o644); err != nil {
+		t.Fatalf("write en index: %v", err)
+	}
+
+	engine := gin.New()
+	registerFrontendStatic(engine, root, nil, nil)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.AddCookie(&http.Cookie{Name: "deeix_chat_locale", Value: "zh-CN"})
+	request.Header.Set("Accept-Language", "en-US,en;q=0.8")
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if strings.TrimSpace(recorder.Body.String()) != "zh index" {
+		t.Fatalf("expected zh index page, got %q", recorder.Body.String())
+	}
+}
+
 func TestFrontendStaticCachesNextExportData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	root := t.TempDir()
@@ -73,7 +220,7 @@ func TestFrontendStaticCachesNextExportData(t *testing.T) {
 	}
 
 	engine := gin.New()
-	registerFrontendStatic(engine, root, nil)
+	registerFrontendStatic(engine, root, nil, nil)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/__next._tree.txt?conversation_id=demo&_rsc=abc", nil)
@@ -99,7 +246,7 @@ func TestFrontendStaticCachesImmutableBuildAssets(t *testing.T) {
 	}
 
 	engine := gin.New()
-	registerFrontendStatic(engine, root, nil)
+	registerFrontendStatic(engine, root, nil, nil)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/_next/static/chunks/app.js", nil)
@@ -121,7 +268,7 @@ func TestFrontendStaticFallbackSkipsAPIPaths(t *testing.T) {
 	}
 
 	engine := gin.New()
-	registerFrontendStatic(engine, root, nil)
+	registerFrontendStatic(engine, root, nil, nil)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/missing", nil)

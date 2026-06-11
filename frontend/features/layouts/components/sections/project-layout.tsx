@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useTranslations } from "next-intl";
 import { AnnouncementDialogHost } from "@/features/announcements/components/announcement-dialog-host";
 import { AppearancePreferencesSync } from "@/features/settings/components/appearance-preferences-sync";
 import { AppSidebar } from "@/features/layouts/components/navigation/app-sidebar";
@@ -17,10 +18,18 @@ export function ProjectLayout({
   children: React.ReactNode;
   defaultSidebarOpen?: boolean;
 }) {
+  const t = useTranslations("common.navigation");
+
   return (
     <SidebarProvider className="h-svh overflow-hidden" defaultOpen={defaultSidebarOpen}>
       <SidebarRecentsProvider>
         <ChatSessionProvider>
+          <a
+            href="#main-content"
+            className="sr-only fixed left-3 top-3 z-50 rounded-md bg-background px-3 py-2 text-sm font-medium text-foreground shadow-md focus:not-sr-only focus:outline-none focus:ring-[3px] focus:ring-ring/50"
+          >
+            {t("skipToContent")}
+          </a>
           <UserLocaleSync />
           <AppearancePreferencesSync />
           <InitialSecurityGuard />
@@ -29,7 +38,13 @@ export function ProjectLayout({
           <AppSidebar />
           <SidebarInset>
             <MobileHeader />
-            <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden px-0 pb-2 pt-0 md:p-4 md:pt-0">{children}</div>
+            <main
+              id="main-content"
+              tabIndex={-1}
+              className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden px-0 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-0 outline-none md:p-4 md:pt-0"
+            >
+              {children}
+            </main>
           </SidebarInset>
         </ChatSessionProvider>
       </SidebarRecentsProvider>

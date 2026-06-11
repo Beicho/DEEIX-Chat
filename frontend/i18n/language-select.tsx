@@ -10,21 +10,31 @@ import { cn } from "@/lib/utils";
 
 export function LanguageSelect({
   className,
+  disabled,
+  onValueChange,
   triggerClassName,
+  value,
 }: {
   className?: string;
+  disabled?: boolean;
+  onValueChange?: (locale: AppLocale) => void;
   triggerClassName?: string;
+  value?: AppLocale;
 }) {
   const t = useTranslations("common.locale");
   const { locale, setLocale } = useAppLocale();
+  const selectedLocale = value ?? locale;
 
   return (
     <div className={cn("min-w-0", className)}>
       <Select
-        value={locale}
+        value={selectedLocale}
         onValueChange={(value) => {
-          void setLocale(value as AppLocale);
+          const nextLocale = value as AppLocale;
+          onValueChange?.(nextLocale);
+          void setLocale(nextLocale);
         }}
+        disabled={disabled}
       >
         <SelectTrigger aria-label={t("label")} className={cn("h-8 w-[8.25rem]", triggerClassName)}>
           <SelectValue />
