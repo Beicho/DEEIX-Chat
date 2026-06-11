@@ -97,6 +97,17 @@ export function NavStarred() {
     successMessage: t("exported"),
     failureMessage: t("exportFailed"),
   })
+  const onExportMarkdown = useConversationExportAction({
+    successMessage: t("exportMarkdownSuccess"),
+    failureMessage: t("exportMarkdownFailed"),
+    format: "markdown",
+  })
+  const onCopyMarkdown = useConversationExportAction({
+    successMessage: t("copyMarkdownSuccess"),
+    failureMessage: t("copyMarkdownFailed"),
+    format: "markdown",
+    action: "copy",
+  })
 
   const starredConversationItems = React.useMemo(
     () => starredItems.map((item) => toSidebarConversationItem(item, t("untitled"))),
@@ -285,6 +296,8 @@ export function NavStarred() {
                     onArchive={onArchive}
                     onShare={onShare}
                     onExport={onExport}
+                    onExportMarkdown={onExportMarkdown}
+                    onCopyMarkdown={onCopyMarkdown}
                     onDelete={onDelete}
                     onNavigate={isMobile ? () => setOpenMobile(false) : undefined}
                     menuTriggerID={`starred-item-menu-trigger-${item.publicID}`}

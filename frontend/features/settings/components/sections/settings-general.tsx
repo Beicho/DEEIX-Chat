@@ -73,6 +73,8 @@ import {
   SettingsSectionSeparator,
 } from "@/shared/components/settings-layout";
 import { TimeZoneSelect } from "@/shared/components/time-zone-select";
+import { LanguageSelect } from "@/i18n/language-select";
+import { normalizeAppLocale } from "@/i18n/config";
 
 const THEME_PREVIEW_PALETTES: Record<"light" | "dark", ThemePreviewPalette> = {
   light: {
@@ -1012,6 +1014,16 @@ export function SettingsGeneral() {
               value={draft.timezone}
               disabled={loading || saving}
               onChange={(value) => setDraft((current) => ({ ...current, timezone: value }))}
+            />
+          </Field>
+
+          <Field>
+            <FieldLabel>{t("language")}</FieldLabel>
+            <LanguageSelect
+              value={normalizeAppLocale(draft.locale)}
+              disabled={loading || saving}
+              onValueChange={(value) => setDraft((current) => ({ ...current, locale: value }))}
+              triggerClassName="h-9 w-full"
             />
           </Field>
 

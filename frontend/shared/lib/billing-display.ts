@@ -30,7 +30,7 @@ const DEFAULT_BILLING_DISPLAY_LABELS: BillingDisplayLabels = {
   claudeCacheWriteMixedNote: (multiplier) => `Claude cache write uses configured pricing at ${multiplier}`,
   claudeCacheWriteNote: (timeout, multiplier) => `Claude ${timeout} cache write uses configured pricing at ${multiplier}`,
   claudeFastModeNote: (multiplier) => `Claude Fast Mode bills input, output, and cache usage at ${multiplier}`,
-  openaiServiceTierNote: (tier, multiplier) => `OpenAI service_tier=${tier} bills at ${multiplier}`,
+  openaiServiceTierNote: (tier, multiplier) => `OpenAI service tier ${tier} bills at ${multiplier}`,
   cacheWritePricingLabel: "Cache write 5m",
   cacheWritePricingNote: "Claude cache read uses configured pricing; cache write 5m uses 1.25x, 1h uses 2x, and Fast Mode applies another 6x on top.",
 };

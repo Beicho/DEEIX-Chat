@@ -47,6 +47,8 @@ type ChatLabelProps = {
   onShare?: () => void;
   shareActive?: boolean;
   onExport?: () => void | Promise<void>;
+  onExportMarkdown?: () => void | Promise<void>;
+  onCopyMarkdown?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
 };
 
@@ -60,6 +62,8 @@ export function ChatLabel({
   onShare,
   shareActive = false,
   onExport,
+  onExportMarkdown,
+  onCopyMarkdown,
   onDelete,
 }: ChatLabelProps) {
   const t = useTranslations("chat.labelMenu");
@@ -103,7 +107,7 @@ export function ChatLabel({
             type="button"
             aria-label={t("actions")}
             className={cn(
-              "group inline-flex h-7 max-w-full items-center gap-0.5 rounded-lg text-left transition-colors",
+              "group inline-flex h-11 max-w-full items-center gap-0.5 rounded-lg text-left transition-colors md:h-7",
               "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
             )}
           >
@@ -114,7 +118,7 @@ export function ChatLabel({
                 textClassName="text-sm font-medium leading-none text-foreground"
               />
             </span>
-            <span className="inline-flex h-7 items-center px-1 text-muted-foreground transition-colors group-hover:text-foreground">
+            <span className="inline-flex h-11 items-center px-2 text-muted-foreground transition-colors group-hover:text-foreground md:h-7 md:px-1">
               <ChevronDown className="size-4 stroke-[1.8]" />
             </span>
           </button>
@@ -167,8 +171,12 @@ export function ChatLabel({
             label={t("shareAndExport")}
             shareLabel={shareActive ? t("manageShare") : t("share")}
             exportLabel={t("exportJSON")}
+            exportMarkdownLabel={t("exportMarkdown")}
+            copyMarkdownLabel={t("copyMarkdown")}
             onShare={onShare}
             onExport={onExport}
+            onExportMarkdown={onExportMarkdown}
+            onCopyMarkdown={onCopyMarkdown}
             onCloseMenu={() => setMenuOpen(false)}
           />
           <DropdownMenuSeparator />

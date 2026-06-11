@@ -128,8 +128,8 @@ type UploadPolicyRejectionLabels = {
 };
 
 const DEFAULT_UPLOAD_POLICY_REJECTION_LABELS: UploadPolicyRejectionLabels = {
-  mimeNotAllowed: "This file type is not included in the admin MIME allowlist.",
-  fullContextLimitExceeded: (limitKB) => `Vector retrieval is disabled. Only small files that fit full-context injection can be uploaded, and this file exceeds the ${limitKB} KB limit.`,
+  mimeNotAllowed: "This file type is not supported.",
+  fullContextLimitExceeded: (limitKB) => `Smart retrieval is off. Only small documents can be uploaded in direct reading mode, and this file exceeds the ${limitKB} KB limit.`,
   sizeLimitExceeded: (limitKB) => `This file exceeds the ${limitKB} KB limit.`,
 };
 

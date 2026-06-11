@@ -106,7 +106,7 @@ const PROJECT_TREE_ACCORDION_MASK_STYLE = {
   overflow: "hidden",
 } satisfies React.CSSProperties
 const PROJECT_CREATE_ACTION_CLASS =
-  "static size-7 shrink-0 opacity-100 transition-[background-color,color,opacity,transform] duration-150"
+  "static size-11 shrink-0 opacity-100 transition-[background-color,color,opacity,transform] duration-150 md:size-7"
 
 type ProjectFolderIconHandle = {
   startAnimation: () => void
@@ -123,7 +123,7 @@ function ProjectGroupHeader({
   onCreate: () => void
 }) {
   return (
-    <div className="group/project-create flex h-8 items-center">
+    <div className="group/project-create flex h-10 items-center md:h-8">
       <SidebarGroupLabel className="min-w-0 flex-1 shrink pr-2">{title}</SidebarGroupLabel>
       <SidebarGroupAction
         type="button"
@@ -156,7 +156,7 @@ function ProjectTreeButton({
     <button
       type="button"
       className={cn(
-        "flex h-8 w-full min-w-0 items-center rounded-md text-sm outline-hidden ring-sidebar-ring transition-colors focus-visible:ring-2",
+        "flex h-10 w-full min-w-0 items-center rounded-md text-sm outline-hidden ring-sidebar-ring transition-colors focus-visible:ring-2 md:h-8",
         active
           ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
           : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -177,7 +177,7 @@ function ProjectTreeButton({
         iconRef.current?.stopAnimation()
       }}
     >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center md:h-8 md:w-8">
         {expanded ? (
           <FolderOpenIcon
             ref={iconRef}
@@ -226,7 +226,7 @@ const ProjectInlineAction = React.forwardRef<HTMLButtonElement, ProjectInlineAct
       title={label}
       tabIndex={tabIndex ?? (visible ? undefined : -1)}
       className={cn(
-        "pointer-events-none absolute top-0 z-10 flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground opacity-0 transition-[background-color,color,opacity] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/project-row:pointer-events-auto group-hover/project-row:opacity-100 group-focus-within/project-row:pointer-events-auto group-focus-within/project-row:opacity-100",
+        "pointer-events-auto absolute top-0 z-10 flex h-11 w-11 items-center justify-center rounded-md text-sidebar-foreground opacity-100 transition-[background-color,color,opacity] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:pointer-events-none md:h-8 md:w-8 md:opacity-0 md:group-hover/project-row:pointer-events-auto md:group-hover/project-row:opacity-100 md:group-focus-within/project-row:pointer-events-auto md:group-focus-within/project-row:opacity-100",
         visible && "pointer-events-auto opacity-100",
         className,
       )}
@@ -306,6 +306,17 @@ export function NavProjects() {
   const onExportConversation = useConversationExportAction({
     successMessage: tRecent("exported"),
     failureMessage: tRecent("exportFailed"),
+  })
+  const onExportMarkdownConversation = useConversationExportAction({
+    successMessage: tRecent("exportMarkdownSuccess"),
+    failureMessage: tRecent("exportMarkdownFailed"),
+    format: "markdown",
+  })
+  const onCopyMarkdownConversation = useConversationExportAction({
+    successMessage: tRecent("copyMarkdownSuccess"),
+    failureMessage: tRecent("copyMarkdownFailed"),
+    format: "markdown",
+    action: "copy",
   })
 
   React.useEffect(() => {
@@ -806,6 +817,8 @@ export function NavProjects() {
                                 onArchive={onArchiveConversation}
                                 onShare={(publicID, shareTitle) => setShareTarget({ publicID, title: shareTitle })}
                                 onExport={onExportConversation}
+                                onExportMarkdown={onExportMarkdownConversation}
+                                onCopyMarkdown={onCopyMarkdownConversation}
                                 onDelete={onDeleteConversation}
                                 onNavigate={isMobile ? () => setOpenMobile(false) : undefined}
                                 menuTriggerID={`project-conversation-menu-trigger-${conversation.publicID}`}

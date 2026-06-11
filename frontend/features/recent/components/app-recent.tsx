@@ -102,6 +102,8 @@ export function AppRecent() {
           onSetProject={controller.onSetProject}
           onRevokeShare={controller.onRevokeShare}
           onExport={controller.onExport}
+          onExportMarkdown={controller.onExportMarkdown}
+          onCopyMarkdown={controller.onCopyMarkdown}
           onDelete={controller.onDelete}
           onRetryLoadMore={controller.retryLoadMore}
         />

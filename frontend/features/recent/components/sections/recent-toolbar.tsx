@@ -117,7 +117,7 @@ export function RecentToolbar({
               <button
                 type="button"
                 className={cn(
-                  "inline-flex size-6 items-center justify-center rounded-md transition-colors",
+                  "inline-flex size-11 items-center justify-center rounded-md transition-colors md:size-6",
                   selectedCount > 0
                     ? "text-foreground/60 hover:bg-accent hover:text-foreground"
                     : "text-muted-foreground/50",
@@ -131,7 +131,7 @@ export function RecentToolbar({
               <button
                 type="button"
                 className={cn(
-                  "inline-flex size-6 items-center justify-center rounded-md transition-colors",
+                  "inline-flex size-11 items-center justify-center rounded-md transition-colors md:size-6",
                   selectedSharedCount > 0
                     ? "text-foreground/60 hover:bg-accent hover:text-foreground"
                     : "text-muted-foreground/50",
@@ -145,7 +145,7 @@ export function RecentToolbar({
               <button
                 type="button"
                 className={cn(
-                  "inline-flex size-6 items-center justify-center rounded-md transition-colors",
+                  "inline-flex size-11 items-center justify-center rounded-md transition-colors md:size-6",
                   selectedCount > 0
                     ? "text-foreground/60 hover:bg-accent hover:text-foreground"
                     : "text-muted-foreground/50",
@@ -158,7 +158,7 @@ export function RecentToolbar({
               </button>
               <button
                 type="button"
-                className="inline-flex size-6 items-center justify-center rounded-md text-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                className="inline-flex size-11 items-center justify-center rounded-md text-foreground/60 transition-colors hover:bg-accent hover:text-foreground md:size-6"
                 onClick={onExitSelectionMode}
                 aria-label={t("exitSelection")}
               >

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Copy, ExternalLink } from "lucide-react";
+import { Copy, ExternalLink, Share2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
@@ -26,6 +26,11 @@ import {
 import type { ConversationShareDTO } from "@/shared/api/conversation.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import {
+  buildConversationNativeShareData,
+  isNativeShareAbortError,
+} from "@/features/chat/model/conversation-share-utils";
+import { resolveShareCanonicalPath } from "@/features/share/model/share-metadata";
 
 type ConversationShareDialogProps = {
   open: boolean;
@@ -37,7 +42,7 @@ type ConversationShareDialogProps = {
 };
 
 function shareURL(shareID: string): string {
-  const path = `/share?conversation_id=${encodeURIComponent(shareID)}`;
+  const path = resolveShareCanonicalPath(shareID);
   if (typeof window === "undefined") {
     return path;
   }
@@ -73,6 +78,8 @@ export function ConversationShareDialog({
   const [share, setShare] = React.useState<ConversationShareDTO | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [working, setWorking] = React.useState<"create" | "revoke" | "regenerate" | null>(null);
+  const [nativeShareSupported, setNativeShareSupported] = React.useState(false);
+  const [nativeShareWorking, setNativeShareWorking] = React.useState(false);
   const active = isActiveShare(share);
   const currentURL = active ? shareURL(share.shareID) : "";
   const snapshotMessageCount = active ? share.messageCount : (defaultMessagePublicIDs?.length ?? 0);
@@ -86,6 +93,10 @@ export function ConversationShareDialog({
   React.useEffect(() => {
     onShareChangeRef.current = onShareChange;
   }, [onShareChange]);
+
+  React.useEffect(() => {
+    setNativeShareSupported(typeof navigator !== "undefined" && typeof navigator.share === "function");
+  }, []);
 
   const applyShare = React.useCallback((next: ConversationShareDTO) => {
     setShare(next);
@@ -196,6 +207,28 @@ export function ConversationShareDialog({
     window.open(currentURL, "_blank", "noopener,noreferrer");
   }, [currentURL]);
 
+  const nativeShare = React.useCallback(async () => {
+    if (!currentURL || typeof navigator === "undefined" || typeof navigator.share !== "function") {
+      return;
+    }
+    setNativeShareWorking(true);
+    try {
+      await navigator.share(
+        buildConversationNativeShareData({
+          title: normalizedTitle,
+          text: headerDescription,
+          url: currentURL,
+        }),
+      );
+    } catch (error) {
+      if (!isNativeShareAbortError(error)) {
+        toast.error(t("nativeShareFailed"));
+      }
+    } finally {
+      setNativeShareWorking(false);
+    }
+  }, [currentURL, headerDescription, normalizedTitle, t]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -243,6 +276,21 @@ export function ConversationShareDialog({
         <DialogFooter>
           {active ? (
             <>
+              {nativeShareSupported ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => void nativeShare()}
+                  disabled={Boolean(working) || loading || nativeShareWorking || !currentURL}
+                >
+                  {nativeShareWorking ? <SpinnerLabel>{t("nativeSharing")}</SpinnerLabel> : (
+                    <>
+                      <Share2 className="size-4" />
+                      {t("nativeShare")}
+                    </>
+                  )}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"

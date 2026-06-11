@@ -354,6 +354,7 @@ export function useChatMessageSubmit({
       parentMessagePublicID,
       sourceMessagePublicID,
       branchReason,
+      platformModelName,
     }: {
       content: string;
       currentAttachments: PendingAttachment[];
@@ -361,9 +362,10 @@ export function useChatMessageSubmit({
       parentMessagePublicID?: string | null;
       sourceMessagePublicID?: string | null;
       branchReason?: "default" | "retry" | "edit";
+      platformModelName?: string;
     }) => {
       const payloadContent = content || t("attachmentOnlyContent");
-      const requestPlatformModelName = selectedPlatformModelName.trim();
+      const requestPlatformModelName = platformModelName?.trim() || selectedPlatformModelName.trim();
       const selectedModel = modelOptions.find((item) => item.platformModelName === requestPlatformModelName) ?? null;
       if ((!content && currentAttachments.length === 0) || sending || uploading || activeStreamRef.current) {
         return false;
@@ -864,7 +866,7 @@ export function useChatMessageSubmit({
   }, [attachments, currentLeafMessage?.publicID, draft, submitMessage, visibleMessages]);
 
   const onRetryUserMessage = React.useCallback(
-    async (message: ChatAreaMessage) => {
+    async (message: ChatAreaMessage, platformModelName?: string) => {
       const sourceMessagePublicID = resolvePersistedPublicID(message.publicID);
       if (!sourceMessagePublicID) {
         toast.error(t("retryReplyFailed"), { description: t("continueReplyUnavailable") });
@@ -877,13 +879,14 @@ export function useChatMessageSubmit({
         parentMessagePublicID: message.parentPublicID,
         sourceMessagePublicID,
         branchReason: "retry",
+        platformModelName,
       });
     },
     [submitMessage, t],
   );
 
   const onRetryAssistantMessage = React.useCallback(
-    async (message: ChatAreaMessage) => {
+    async (message: ChatAreaMessage, platformModelName?: string) => {
       const parentUser = combinedMessages.find((item) => item.publicID === message.parentPublicID && item.role === "user");
       if (!parentUser) {
         toast.error(t("retryReplyFailed"), { description: t("retryReplyMissingUser") });
@@ -901,6 +904,7 @@ export function useChatMessageSubmit({
         parentMessagePublicID: parentUser.parentPublicID,
         sourceMessagePublicID,
         branchReason: "retry",
+        platformModelName,
       });
     },
     [combinedMessages, submitMessage, t],

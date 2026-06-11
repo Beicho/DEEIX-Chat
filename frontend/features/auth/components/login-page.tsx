@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import { PASSWORD_MIN_LENGTH } from "@/shared/auth/account-policy";
 import { useLoginPage } from "@/features/auth/hooks/use-login-page";
+import { LanguageSelect } from "@/i18n/language-select";
 import { AppLogo } from "@/shared/components/app-logo";
 import { IdentityProviderIcon } from "@/shared/components/identity-provider-icon";
 import { TurnstileWidget } from "@/features/auth/components/turnstile-widget";
@@ -47,7 +48,6 @@ export function LoginPage({ nextPath }: LoginPageProps) {
     passwordLoginEnabled,
     registerCode,
     registerCodeCooldownSeconds,
-    registerDebugCode,
     registerEmail,
     registerPassword,
     registerTurnstileRequired,
@@ -69,7 +69,6 @@ export function LoginPage({ nextPath }: LoginPageProps) {
     twoFactorChallengeToken,
     twoFactorCode,
     twoFactorEmailCodeCooldownSeconds,
-    twoFactorEmailDebugCode,
     twoFactorVerificationMethod,
     twoFactorVerificationMethods,
     updateRegisterEmail,
@@ -91,6 +90,9 @@ export function LoginPage({ nextPath }: LoginPageProps) {
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-8 text-foreground" aria-busy={!configReady}>
+      <div className="fixed right-4 top-4 z-10">
+        <LanguageSelect triggerClassName="h-9" />
+      </div>
       <div className="w-full max-w-[360px]">
         <LoginBrandMark />
 
@@ -138,7 +140,6 @@ export function LoginPage({ nextPath }: LoginPageProps) {
                         </Button>
                       ) : null}
                     </div>
-                    {twoFactorEmailDebugCode ? <p className="text-xs font-medium text-muted-foreground">{t("debugCode", { code: twoFactorEmailDebugCode })}</p> : null}
                   </div>
                   <Button
                     className="mt-1 h-9 w-full rounded-md bg-foreground text-sm font-semibold text-background shadow-none hover:bg-foreground/90"
@@ -282,7 +283,6 @@ export function LoginPage({ nextPath }: LoginPageProps) {
                     </div>
                   </div>
                 ) : null}
-                {registerDebugCode ? <p className="text-xs font-medium text-muted-foreground">{t("debugCode", { code: registerDebugCode })}</p> : null}
                 <Button
                   className="mt-1 h-9 w-full rounded-md bg-foreground text-sm font-semibold text-background shadow-none hover:bg-foreground/90"
                   type="submit"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,16 @@ const (
 	conversationShareStatusNone    = "none"
 	conversationShareStatusActive  = "active"
 	conversationShareStatusRevoked = "revoked"
+	shareMetadataDescriptionLimit  = 160
+)
+
+var (
+	shareMetadataCodeBlockPattern     = regexp.MustCompile("(?s)```.*?```")
+	shareMetadataInlineCodePattern    = regexp.MustCompile("`([^`]+)`")
+	shareMetadataImagePattern         = regexp.MustCompile(`!\[[^\]]*]\([^)]*\)`)
+	shareMetadataLinkPattern          = regexp.MustCompile(`\[([^\]]+)]\([^)]*\)`)
+	shareMetadataMarkdownCharsPattern = regexp.MustCompile(`[#>*_~|\[\]()` + "`" + `-]+`)
+	shareMetadataWhitespacePattern    = regexp.MustCompile(`\s+`)
 )
 
 // ConversationShareResult 是当前用户管理分享时返回的分享状态。
@@ -257,6 +268,56 @@ func (s *Service) GetPublicSharedConversation(ctx context.Context, shareID strin
 		RunModels:         runModels,
 		DefaultMessageIDs: resolvePublicDefaultMessageIDs(share.DefaultMessageIDsJSON, messages),
 	}, nil
+}
+
+// GetPublicShareMetadata returns a small public title/summary for social link previews.
+func (s *Service) GetPublicShareMetadata(ctx context.Context, shareID string) (string, string, error) {
+	result, err := s.GetPublicSharedConversation(ctx, shareID)
+	if err != nil {
+		return "", "", err
+	}
+	title := strings.TrimSpace(result.Title)
+	if title == "" {
+		title = "Shared conversation"
+	}
+	return title, buildShareMetadataDescription(result.Messages, title), nil
+}
+
+func buildShareMetadataDescription(messages []model.Message, fallback string) string {
+	for _, role := range []string{"user", "assistant"} {
+		for _, message := range messages {
+			if strings.TrimSpace(message.Role) != role {
+				continue
+			}
+			description := stripShareMetadataMarkdown(message.Content)
+			if description != "" {
+				return truncateShareMetadataDescription(description)
+			}
+		}
+	}
+	return truncateShareMetadataDescription(stripShareMetadataMarkdown(fallback))
+}
+
+func stripShareMetadataMarkdown(value string) string {
+	result := shareMetadataCodeBlockPattern.ReplaceAllString(value, " ")
+	result = shareMetadataInlineCodePattern.ReplaceAllString(result, "$1")
+	result = shareMetadataImagePattern.ReplaceAllString(result, " ")
+	result = shareMetadataLinkPattern.ReplaceAllString(result, "$1")
+	result = shareMetadataMarkdownCharsPattern.ReplaceAllString(result, " ")
+	result = shareMetadataWhitespacePattern.ReplaceAllString(result, " ")
+	return strings.TrimSpace(result)
+}
+
+func truncateShareMetadataDescription(value string) string {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" {
+		return "Shared conversation on DEEIX Chat."
+	}
+	runes := []rune(normalized)
+	if len(runes) <= shareMetadataDescriptionLimit {
+		return normalized
+	}
+	return strings.TrimRight(string(runes[:shareMetadataDescriptionLimit-1]), " \t\r\n") + "…"
 }
 
 // CloneSharedConversation 将公开分享快照克隆到当前登录用户账户。

@@ -129,11 +129,11 @@
     "originForbidden": "This origin is not allowed."
   },
   "embedding": {
-    "serviceNotConfigured": "Enable and configure the embedding service first.",
-    "serviceUnavailable": "Embedding service is unavailable."
+    "serviceNotConfigured": "Enable and configure file indexing first.",
+    "serviceUnavailable": "File indexing is unavailable."
   },
   "file": {
-    "embeddingUnavailable": "Embedding is unavailable for this file.",
+    "embeddingUnavailable": "Smart retrieval is unavailable for this file.",
     "extractNotReady": "File extraction is not ready.",
     "invalidId": "Invalid file ID.",
     "invalidName": "Invalid file name.",
@@ -143,7 +143,7 @@
     "notReady": "File is not ready.",
     "required": "File is required.",
     "tooLarge": "File is too large.",
-    "tooLargeForContext": "File is too large for full-context injection.",
+    "tooLargeForContext": "File is too large for direct reading.",
     "typeBlocked": "This file type is not allowed."
   },
   "identityProvider": {
@@ -170,24 +170,24 @@
     "platformModelNameRequired": "Platform model name is required.",
     "protocolRequired": "Protocol is required.",
     "remoteModelsUnavailable": "Remote models are unavailable.",
-    "routeConflict": "This upstream model already has a binding for the same platform model and protocol. Remove the duplicate binding before saving.",
+    "routeConflict": "This model source already has a binding for the same platform model and protocol. Remove the duplicate binding before saving.",
     "routesUnavailable": "All model routes are unavailable."
   },
   "mcp": {
-    "clientUnavailable": "MCP client is unavailable.",
-    "invalidServerBaseUrl": "Invalid MCP server base URL.",
-    "invalidServerHeaders": "Invalid MCP server headers.",
-    "invalidServerName": "Invalid MCP server name.",
-    "invalidServerStatus": "Invalid MCP server status.",
-    "invalidToolDescription": "Invalid MCP tool description.",
-    "invalidToolName": "Invalid MCP tool name.",
-    "invalidToolSelection": "Invalid MCP tool selection.",
-    "invalidToolStatus": "Invalid MCP tool status.",
+    "clientUnavailable": "Connector client is unavailable.",
+    "invalidServerBaseUrl": "Invalid connector server base URL.",
+    "invalidServerHeaders": "Invalid connector server headers.",
+    "invalidServerName": "Invalid connector server name.",
+    "invalidServerStatus": "Invalid connector server status.",
+    "invalidToolDescription": "Invalid connector tool description.",
+    "invalidToolName": "Invalid connector tool name.",
+    "invalidToolSelection": "Invalid connector tool selection.",
+    "invalidToolStatus": "Invalid connector tool status.",
     "server": {
-      "invalidId": "Invalid MCP server ID."
+      "invalidId": "Invalid connector server ID."
     },
     "tool": {
-      "invalidId": "Invalid MCP tool ID."
+      "invalidId": "Invalid connector tool ID."
     }
   },
   "memory": {
@@ -199,7 +199,7 @@
     "imageEditInputRequired": "Image editing requires at least one input image.",
     "imageEditTooManyInputs": "Too many input images for image editing.",
     "imageEditInputInvalid": "Image editing only supports valid image files.",
-    "imageStreamUnsupported": "Tips: The upstream may not support streaming responses. Ask an administrator to disable \"Image streaming call\" in model capabilities (set image.stream=false), then try again.",
+    "imageStreamUnsupported": "This model may not support streaming image responses. Try again later or choose another model.",
     "routeProtocolMismatch": "The current model route protocol does not match this image task. Check the model binding.",
     "invalidTask": "Invalid image task parameters."
   },
@@ -263,7 +263,7 @@
   },
   "settings": {
     "billingPaymentInvalid": "Invalid billing payment settings.",
-    "embeddingInvalid": "Invalid embedding settings.",
+    "embeddingInvalid": "Invalid file indexing settings.",
     "extractInvalid": "Invalid file extraction settings.",
     "invalidKey": "Invalid setting key.",
     "invalidNamespace": "Invalid setting namespace.",
@@ -274,10 +274,10 @@
     "smtpInvalid": "Invalid SMTP settings."
   },
   "upstream": {
-    "unavailable": "Upstream service is unavailable."
+    "unavailable": "Model service is unavailable."
   },
-  "upstreamEmptyResponse": "The upstream returned an empty response. Try again later or ask an administrator to check the model route.",
-  "upstreamRequestFailed": "The upstream request failed. Try again later or ask an administrator to check the model route.",
+  "upstreamEmptyResponse": "The model returned an empty response. Try again later.",
+  "upstreamRequestFailed": "The model request failed. Try again later.",
   "user": {
     "accountDeleteVerificationRequired": "Verify your identity before deleting the account.",
     "emptyPatch": "Change at least one user field.",

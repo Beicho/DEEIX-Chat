@@ -18,6 +18,7 @@ import { useChatRuntime } from "@/features/chat/hooks/use-chat-runtime";
 import { useChatScrollController } from "@/features/chat/hooks/use-chat-scroll-controller";
 import { useChatViewerProfile } from "@/features/chat/hooks/use-chat-viewer-profile";
 import { useConversationExportAction } from "@/features/chat/hooks/use-conversation-export-action";
+import { useVirtualKeyboardGuard } from "@/features/chat/hooks/use-virtual-keyboard-guard";
 import { useHTMLVisualPrompt } from "@/features/chat/hooks/use-visual-prompt";
 import { ChatInput } from "@/features/chat/components/sections/chat-input";
 import {
@@ -37,6 +38,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   cloneConversationOptions,
   isConversationOptionsObject,
   sanitizeConversationOptions,
@@ -50,6 +58,14 @@ import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import type { ConversationDTO, ConversationOptions } from "@/shared/api/conversation.types";
 import type { MCPToolDTO } from "@/shared/api/mcp.types";
 import { useTheme } from "@/shared/components/theme-provider";
+import { Button } from "@/components/ui/button";
+import { isGlobalShortcutEvent, platformModifierLabel } from "@/shared/lib/platform-shortcuts";
+import {
+  estimateConversationTokens,
+  resolveContextUsageRatio,
+  resolveContextUsageTone,
+} from "@/features/chat/model/context-usage";
+import { buildQuotedDraft } from "@/features/chat/model/selection-quote";
 import { cn } from "@/lib/utils";
 
 const MODEL_OPTIONS_STORAGE_PREFIX = "deeix-chat:chat-model-options:";
@@ -103,6 +119,159 @@ function removeCachedModelOptions(platformModelName: string): void {
   } catch {
     // localStorage may be unavailable in private browsing or strict environments.
   }
+}
+
+function ChatEmptySuggestions({
+  suggestions,
+  onSelectSuggestion,
+}: {
+  suggestions: { label: string; prompt: string }[];
+  onSelectSuggestion: (prompt: string) => void;
+}) {
+  const t = useTranslations("chat");
+
+  if (suggestions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mb-5 flex flex-col gap-3 md:mb-6">
+      <div className="text-left text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        {t("emptyStateSuggestionsTitle")}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {suggestions.map((suggestion) => (
+          <Button
+            key={suggestion.prompt}
+            type="button"
+            variant="outline"
+            className={cn(
+              "min-h-11 justify-start rounded-xl border-border/70 bg-background/70 px-4 py-3 text-left text-sm font-medium text-foreground shadow-none hover:border-border hover:bg-accent hover:text-accent-foreground",
+              "md:min-h-12",
+            )}
+            onClick={() => onSelectSuggestion(suggestion.prompt)}
+          >
+            <span className="block min-w-0 truncate">{suggestion.label}</span>
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KeyboardShortcutsDialog({
+  open,
+  onOpenChange,
+  sendShortcut,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  sendShortcut: string;
+}) {
+  const t = useTranslations("chat.shortcuts");
+  const modifierLabel = platformModifierLabel();
+  const rows = React.useMemo(
+    () => [
+      {
+        label: t("send"),
+        keys: sendShortcut === "enter" ? ["Enter"] : [modifierLabel, "Enter"],
+      },
+      {
+        label: t("newLine"),
+        keys: ["Shift", "Enter"],
+      },
+      {
+        label: t("stop"),
+        keys: ["Esc"],
+      },
+      {
+        label: t("help"),
+        keys: [modifierLabel, "/"],
+      },
+      {
+        label: t("search"),
+        keys: [modifierLabel, "K"],
+      },
+      {
+        label: t("newChat"),
+        keys: [modifierLabel, "Shift", "O"],
+      },
+    ],
+    [modifierLabel, sendShortcut, t],
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[520px]">
+        <DialogHeader>
+          <DialogTitle>{t("title")}</DialogTitle>
+          <DialogDescription>{t("description")}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2">
+          {rows.map((row) => (
+            <div key={row.label} className="flex min-h-11 items-center justify-between gap-4 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+              <span className="text-sm font-medium text-foreground">{row.label}</span>
+              <span className="flex shrink-0 items-center gap-1">
+                {row.keys.map((key) => (
+                  <kbd key={`${row.label}-${key}`} className="rounded-md border border-border bg-background px-1.5 py-1 text-[11px] font-medium leading-none text-muted-foreground">
+                    {key}
+                  </kbd>
+                ))}
+              </span>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ContextUsageIndicator({
+  estimatedTokens,
+  ratio,
+  tone,
+}: {
+  estimatedTokens: number;
+  ratio: number;
+  tone: "default" | "warning" | "danger";
+}) {
+  const t = useTranslations("chat.contextUsage");
+  if (estimatedTokens <= 0) {
+    return null;
+  }
+
+  const percent = Math.round(ratio * 100);
+  return (
+    <div
+      className={cn(
+        "mb-2 rounded-xl border px-3 py-2 text-xs shadow-xs",
+        tone === "danger"
+          ? "border-destructive/30 bg-destructive/10 text-destructive"
+          : tone === "warning"
+            ? "border-primary/25 bg-primary/10 text-foreground"
+            : "border-border/70 bg-muted/25 text-muted-foreground",
+      )}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-medium">{t("label")}</span>
+        <span className="tabular-nums">{t("value", { tokens: estimatedTokens, percent })}</span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn(
+            "h-full rounded-full transition-[width] duration-200",
+            tone === "danger" ? "bg-destructive" : "bg-primary",
+          )}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+      {tone !== "default" ? (
+        <p className="mt-1.5 leading-5">
+          {tone === "danger" ? t("dangerHint") : t("warningHint")}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 export function AppChatArea() {
@@ -184,6 +353,7 @@ export function AppChatArea() {
   const [manualConversationTitle, setManualConversationTitle] = React.useState("");
   const [shareDialogOpen, setShareDialogOpen] = React.useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+  const [shortcutsDialogOpen, setShortcutsDialogOpen] = React.useState(false);
   const [deleteFiles, setDeleteFiles] = React.useState(false);
   const deleteFilesID = React.useId();
   const activeConversation = React.useMemo(() => {
@@ -452,6 +622,26 @@ export function AppChatArea() {
     void cancelResumedGeneration();
   }, [cancelResumedGeneration, onStopMessage, sending]);
 
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isGlobalShortcutEvent(event)) {
+        return;
+      }
+      if (event.key === "Escape" && generating) {
+        event.preventDefault();
+        onStopActiveMessage();
+        return;
+      }
+      if (event.key === "/") {
+        event.preventDefault();
+        setShortcutsDialogOpen(true);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [generating, onStopActiveMessage]);
+
   const {
     messageViewportRef,
     messageContentRef,
@@ -471,6 +661,12 @@ export function AppChatArea() {
     hasOlderMessages: hasOlder,
     loadingOlderMessages: loadingOlder,
     onLoadOlderMessages: loadOlderMessages,
+  });
+  const composerDockRef = React.useRef<HTMLDivElement | null>(null);
+  useVirtualKeyboardGuard({
+    composerRef: composerDockRef,
+    messageViewportRef,
+    onScrollToLatest,
   });
 
   const onEditGeneratedImageAttachment = React.useCallback(
@@ -607,6 +803,17 @@ export function AppChatArea() {
     successMessage: t("exportJSONSuccess"),
     failureMessage: t("exportJSONFailed"),
   });
+  const exportActiveConversationMarkdown = useConversationExportAction({
+    successMessage: t("exportMarkdownSuccess"),
+    failureMessage: t("exportMarkdownFailed"),
+    format: "markdown",
+  });
+  const copyActiveConversationMarkdown = useConversationExportAction({
+    successMessage: t("copyMarkdownSuccess"),
+    failureMessage: t("copyMarkdownFailed"),
+    format: "markdown",
+    action: "copy",
+  });
 
   const onExportActiveConversation = React.useCallback(async () => {
     if (!canOperateConversation) {
@@ -614,6 +821,18 @@ export function AppChatArea() {
     }
     await exportActiveConversation(actionConversationID);
   }, [actionConversationID, canOperateConversation, exportActiveConversation]);
+  const onExportActiveConversationMarkdown = React.useCallback(async () => {
+    if (!canOperateConversation) {
+      return;
+    }
+    await exportActiveConversationMarkdown(actionConversationID);
+  }, [actionConversationID, canOperateConversation, exportActiveConversationMarkdown]);
+  const onCopyActiveConversationMarkdown = React.useCallback(async () => {
+    if (!canOperateConversation) {
+      return;
+    }
+    await copyActiveConversationMarkdown(actionConversationID);
+  }, [actionConversationID, canOperateConversation, copyActiveConversationMarkdown]);
 
   const messagesWithInlineError = React.useMemo<ChatAreaMessage[]>(() => {
     const errors = [
@@ -736,6 +955,21 @@ export function AppChatArea() {
   const selectedModelDefaultOptions = modelOptionPolicyDisabled
     ? EMPTY_CONVERSATION_OPTIONS
     : (selectedModel?.defaultOptions ?? EMPTY_CONVERSATION_OPTIONS);
+  const inputHistory = React.useMemo(
+    () =>
+      visibleMessages
+        .filter((item) => item.role === "user" && !item.isPending && item.content.trim())
+        .map((item) => item.content.trim())
+        .slice(-20),
+    [visibleMessages],
+  );
+  const estimatedContextTokens = React.useMemo(
+    () => estimateConversationTokens([...visibleMessages.map((item) => item.content), draft]),
+    [draft, visibleMessages],
+  );
+  const contextUsageRatio = resolveContextUsageRatio(estimatedContextTokens);
+  const contextUsageTone = resolveContextUsageTone(contextUsageRatio);
+  const showContextUsageIndicator = contextUsageRatio >= 0.25;
   const resetFileDragState = React.useCallback(() => {
     fileDragDepthRef.current = 0;
     setFileDragActive(false);
@@ -790,6 +1024,10 @@ export function AppChatArea() {
     }
   }, [resetFileDragState, uploadDropDisabled]);
 
+  const onQuoteSelection = React.useCallback((text: string) => {
+    setDraft((currentDraft) => buildQuotedDraft(currentDraft, text));
+  }, [setDraft]);
+
   const chatInputProps = {
     draft,
     loading,
@@ -802,6 +1040,7 @@ export function AppChatArea() {
     inputHeight,
     attachments,
     uploadingAttachments,
+    inputHistory,
     modelOptions,
     selectedPlatformModelName,
     availableTools,
@@ -827,6 +1066,28 @@ export function AppChatArea() {
     onSendMessage,
     onStopMessage: onStopActiveMessage,
   };
+  const emptyStateSuggestions = React.useMemo(
+    () => [
+      {
+        label: t("emptyStateSuggestions.summarizeLabel"),
+        prompt: t("emptyStateSuggestions.summarizePrompt"),
+      },
+      {
+        label: t("emptyStateSuggestions.planLabel"),
+        prompt: t("emptyStateSuggestions.planPrompt"),
+      },
+      {
+        label: t("emptyStateSuggestions.rewriteLabel"),
+        prompt: t("emptyStateSuggestions.rewritePrompt"),
+      },
+      {
+        label: t("emptyStateSuggestions.brainstormLabel"),
+        prompt: t("emptyStateSuggestions.brainstormPrompt"),
+      },
+    ],
+    [t],
+  );
+  const showEmptySuggestions = chatInputProps.draft.trim().length === 0;
   const isConversationLoading = Boolean(conversationID) && loading && visibleMessageCount === 0 && messagesWithInlineError.length === 0;
   const isConversationLoadFailed = Boolean(conversationID) && !loading && errorMsg.trim().length > 0 && visibleMessageCount === 0;
   const shouldUseCenteredComposer =
@@ -847,7 +1108,24 @@ export function AppChatArea() {
             badgeLabel={activeRouteProject ? t("projectMode") : undefined}
             badgeTooltip={activeRouteProject ? t("projectModeTooltip") : undefined}
           >
-            <ChatInput {...chatInputProps} />
+            {showEmptySuggestions ? (
+              <ChatEmptySuggestions
+                suggestions={emptyStateSuggestions}
+                onSelectSuggestion={(prompt) => {
+                  chatInputProps.onDraftChange(prompt);
+                }}
+              />
+            ) : null}
+            {showContextUsageIndicator ? (
+              <ContextUsageIndicator
+                estimatedTokens={estimatedContextTokens}
+                ratio={contextUsageRatio}
+                tone={contextUsageTone}
+              />
+            ) : null}
+            <div ref={composerDockRef} className="w-full">
+              <ChatInput {...chatInputProps} />
+            </div>
           </ChatEmptyState>
         </div>
       ) : (
@@ -881,6 +1159,9 @@ export function AppChatArea() {
                   onScroll={onScroll}
                   onScrollToLatest={onScrollToLatest}
                   showScrollToLatestButton={showScrollToLatestButton}
+                  hasOlderMessages={hasOlder}
+                  loadingOlderMessages={loadingOlder}
+                  onLoadOlderMessages={loadOlderMessages}
                   onRetryUserMessage={onRetryUserMessage}
                   onRetryAssistantMessage={onRetryAssistantMessage}
                   onContinueAssistantMessage={onContinueAssistantMessage}
@@ -901,7 +1182,12 @@ export function AppChatArea() {
                   onShare={onShareActiveConversation}
                   shareActive={activeConversationShared}
                   onExport={onExportActiveConversation}
+                  onExportMarkdown={onExportActiveConversationMarkdown}
+                  onCopyMarkdown={onCopyActiveConversationMarkdown}
                   onDelete={onRequestDeleteActiveConversation}
+                  onQuoteSelection={onQuoteSelection}
+                  modelOptions={modelOptions}
+                  selectedPlatformModelName={selectedPlatformModelName}
                   markdownRender={markdownRender}
                   showModelInfo={showModelInfo}
                   showLatency={showLatency}
@@ -913,8 +1199,15 @@ export function AppChatArea() {
             </div>
 
             {!isConversationLoadFailed ? (
-              <div className="relative z-10 shrink-0 px-3 pb-3 md:px-6">
+              <div ref={composerDockRef} className="relative z-10 shrink-0 px-3 pb-3 md:px-6">
                 <div className="mx-auto w-full max-w-[800px]">
+                  {showContextUsageIndicator ? (
+                    <ContextUsageIndicator
+                      estimatedTokens={estimatedContextTokens}
+                      ratio={contextUsageRatio}
+                      tone={contextUsageTone}
+                    />
+                  ) : null}
                   <ChatInput {...chatInputProps} />
                 </div>
               </div>
@@ -932,6 +1225,12 @@ export function AppChatArea() {
           />
         </div>
       )}
+
+      <KeyboardShortcutsDialog
+        open={shortcutsDialogOpen}
+        onOpenChange={setShortcutsDialogOpen}
+        sendShortcut={sendShortcut}
+      />
 
       {canOperateConversation ? (
         <>

@@ -2,12 +2,13 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Search, Clock3 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
 import { InputGroupButton } from "@/components/ui/input-group";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
@@ -16,10 +17,19 @@ import { cacheWritePricingLabel, cacheWritePricingNote, resolveCacheWritePricing
 import type { BillingDisplayLabels } from "@/shared/lib/billing-display";
 import { resolveLobeHubIconURL, resolveModelIdentity } from "@/shared/lib/model-identity";
 import { cn } from "@/lib/utils";
+import {
+  filterModelPickerGroups,
+  MODEL_PICKER_RECENT_LIMIT,
+  recordRecentModelSelection,
+  readRecentModelNames,
+  resolveRecentModelOptions,
+  writeRecentModelNames,
+} from "@/features/chat/model/model-picker-utils";
 
 const MODEL_MENU_MAX_HEIGHT = 400;
 const MODEL_MENU_VENDOR_ROW_HEIGHT = 28;
 const MODEL_MENU_MODEL_ROW_HEIGHT = 28;
+const MODEL_MENU_TOUCH_ROW_HEIGHT = 44;
 const MODEL_MENU_ROW_GAP = 2;
 const MODEL_MENU_LIST_PADDING_BOTTOM = 4;
 const MODEL_MENU_MODEL_PANEL_CHROME_HEIGHT = 12;
@@ -388,6 +398,7 @@ function ChatModelMenuItem({
   pricingLabels,
   viewPricingLabel,
   pricingTooltipSide,
+  density = "compact",
 }: {
   model: ChatModelOption;
   selected: boolean;
@@ -395,6 +406,7 @@ function ChatModelMenuItem({
   pricingLabels: React.ComponentProps<typeof ModelPricingTooltipContent>["labels"];
   viewPricingLabel: string;
   pricingTooltipSide: "right";
+  density?: "compact" | "touch";
 }) {
   const platformModelName = model.platformModelName.trim();
   const identity = React.useMemo(
@@ -407,22 +419,29 @@ function ChatModelMenuItem({
     [model.icon, model.platformModelName, model.vendor],
   );
   const iconURL = React.useMemo(() => resolveLobeHubIconURL(identity.modelIcon), [identity.modelIcon]);
+  const touch = density === "touch";
 
   return (
     <div
       data-selected={selected}
-      className="group flex h-7 items-center rounded-md text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-within:bg-accent focus-within:text-accent-foreground data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
+      className={cn(
+        "group flex items-center rounded-md font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-within:bg-accent focus-within:text-accent-foreground data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
+        touch ? "min-h-11 text-xs" : "h-7 text-[11px]",
+      )}
     >
       <button
         type="button"
-        className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md bg-transparent py-0 pl-2 pr-1 text-left text-[11px] font-medium leading-none text-inherit outline-none"
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-2 rounded-md bg-transparent text-left font-medium leading-none text-inherit outline-none",
+          touch ? "min-h-11 py-2 pl-3 pr-2" : "h-7 py-0 pl-2 pr-1",
+        )}
         onClick={onSelect}
       >
         <LobeHubIcon iconUrl={iconURL} label={platformModelName} />
         <span className="min-w-0 flex-1 truncate leading-4">
           {platformModelName}
         </span>
-        <span className="flex size-3 shrink-0 items-center justify-center">
+        <span className={cn("flex shrink-0 items-center justify-center", touch ? "size-4" : "size-3")}>
           {selected ? <Check className="size-3 text-current" strokeWidth={1.7} /> : null}
         </span>
       </button>
@@ -431,7 +450,10 @@ function ChatModelMenuItem({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:text-current focus-visible:text-current focus-visible:outline-none group-hover:text-current group-focus-within:text-current group-data-[selected=true]:text-current"
+              className={cn(
+                "flex shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:text-current focus-visible:text-current focus-visible:outline-none group-hover:text-current group-focus-within:text-current group-data-[selected=true]:text-current",
+                touch ? "size-11" : "h-7 w-7",
+              )}
               aria-label={viewPricingLabel}
             >
               <CircleDollarSign className="size-3.5" strokeWidth={1.8} />
@@ -456,6 +478,93 @@ function ChatModelMenuItem({
   );
 }
 
+function ModelPickerModelList({
+  items,
+  density,
+  selectedPlatformModelName,
+  pricingLabels,
+  viewPricingLabel,
+  onSelectModel,
+}: {
+  items: readonly ChatModelOption[];
+  density: "compact" | "touch";
+  selectedPlatformModelName: string;
+  pricingLabels: React.ComponentProps<typeof ModelPricingTooltipContent>["labels"];
+  viewPricingLabel: string;
+  onSelectModel: (platformModelName: string) => void;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {items.map((item) => (
+        <ChatModelMenuItem
+          key={item.platformModelName}
+          model={item}
+          selected={item.platformModelName === selectedPlatformModelName}
+          onSelect={() => onSelectModel(item.platformModelName)}
+          pricingLabels={pricingLabels}
+          viewPricingLabel={viewPricingLabel}
+          pricingTooltipSide="right"
+          density={density}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ModelPickerGroupedModelList({
+  groups,
+  density,
+  selectedPlatformModelName,
+  pricingLabels,
+  viewPricingLabel,
+  onSelectModel,
+}: {
+  groups: readonly {
+    vendor: string;
+    label: string;
+    icon: string;
+    items: ChatModelOption[];
+  }[];
+  density: "compact" | "touch";
+  selectedPlatformModelName: string;
+  pricingLabels: React.ComponentProps<typeof ModelPricingTooltipContent>["labels"];
+  viewPricingLabel: string;
+  onSelectModel: (platformModelName: string) => void;
+}) {
+  if (groups.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {groups.map((group) => {
+        const iconURL = resolveLobeHubIconURL(group.icon);
+        return (
+          <div key={group.vendor} className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2 px-2 pt-1 text-[10px] font-medium text-muted-foreground">
+              <LobeHubIcon iconUrl={iconURL} label={group.label} />
+              <span className="min-w-0 flex-1 truncate">{group.label}</span>
+              <span className="shrink-0 tabular-nums">{group.items.length}</span>
+            </div>
+            <ModelPickerModelList
+              items={group.items}
+              density={density}
+              selectedPlatformModelName={selectedPlatformModelName}
+              pricingLabels={pricingLabels}
+              viewPricingLabel={viewPricingLabel}
+              onSelectModel={onSelectModel}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ChatModelPicker({
   modelOptions,
   selectedPlatformModelName,
@@ -468,6 +577,13 @@ export function ChatModelPicker({
   const [open, setOpen] = React.useState(false);
   const [activeVendorKey, setActiveVendorKey] = React.useState("");
   const [mobileVendorKey, setMobileVendorKey] = React.useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [recentModelNames, setRecentModelNames] = React.useState<string[]>(() => {
+    if (typeof window === "undefined") {
+      return [];
+    }
+    return readRecentModelNames(window.localStorage);
+  });
   const [desktopModelPanelLayout, setDesktopModelPanelLayout] = React.useState<FloatingModelPanelLayout | null>(null);
   const [desktopModelPanelKey, setDesktopModelPanelKey] = React.useState(0);
   const desktopModelPanelKeyRef = React.useRef(0);
@@ -489,14 +605,14 @@ export function ChatModelPicker({
   }, [selectedModel]);
   const selectedVendorLabel = React.useMemo(() => {
     if (!selectedModel) {
-      return "none";
+      return t("vendor");
     }
     return resolveModelIdentity({
       code: selectedModel.platformModelName,
       vendor: selectedModel.vendor,
       icon: selectedModel.icon,
     }).vendorLabel;
-  }, [selectedModel]);
+  }, [selectedModel, t]);
   const vendorGroups = React.useMemo(() => {
     const groupMap = new Map<string, ChatModelOption[]>();
     for (const item of modelOptions) {
@@ -517,21 +633,42 @@ export function ChatModelPicker({
       items,
     }));
   }, [modelOptions]);
-  const vendorMenuMaxHeight = React.useMemo(
-    () => resolveModelMenuMaxHeight(vendorGroups.length, MODEL_MENU_VENDOR_ROW_HEIGHT, 12),
-    [vendorGroups.length],
+  const searchQueryTrimmed = searchQuery.trim();
+  const isSearchMode = searchQueryTrimmed.length > 0;
+  const selectedModelSearchableGroups = React.useMemo(
+    () => filterModelPickerGroups(vendorGroups, searchQueryTrimmed),
+    [searchQueryTrimmed, vendorGroups],
   );
+  const recentModels = React.useMemo(
+    () => resolveRecentModelOptions(modelOptions, recentModelNames),
+    [modelOptions, recentModelNames],
+  );
+  const recentSectionRowCount = recentModels.length > 0 ? recentModels.length + 1 : 0;
+  const vendorRowHeight = isMobile ? MODEL_MENU_TOUCH_ROW_HEIGHT : MODEL_MENU_VENDOR_ROW_HEIGHT;
+  const modelRowHeight = isMobile ? MODEL_MENU_TOUCH_ROW_HEIGHT : MODEL_MENU_MODEL_ROW_HEIGHT;
+  const vendorMenuMaxHeight = React.useMemo(() => {
+    const itemCount = vendorGroups.length + (isMobile ? 0 : recentSectionRowCount);
+    return resolveModelMenuMaxHeight(itemCount, vendorRowHeight, isMobile ? 56 : 12);
+  }, [isMobile, recentSectionRowCount, vendorGroups.length, vendorRowHeight]);
   const vendorMenuWidth = React.useMemo(
     () => resolveAdaptiveMenuWidth(vendorGroups.map((group) => group.label), 190, 260),
     [vendorGroups],
   );
   const activeDesktopVendorKey = activeVendorKey || selectedVendorKey || vendorGroups[0]?.vendor || "";
   const activeDesktopVendorGroup = React.useMemo(
-    () => vendorGroups.find((group) => group.vendor === activeDesktopVendorKey) ?? vendorGroups[0] ?? null,
-    [activeDesktopVendorKey, vendorGroups],
+    () => {
+      if (isSearchMode) {
+        return null;
+      }
+      return vendorGroups.find((group) => group.vendor === activeDesktopVendorKey) ?? vendorGroups[0] ?? null;
+    },
+    [activeDesktopVendorKey, isSearchMode, vendorGroups],
   );
   const desktopModelMenuMaxHeight = React.useMemo(
     () => {
+      if (isSearchMode) {
+        return `${Math.max(modelRowHeight, 0)}px`;
+      }
       if (desktopModelPanelLayout) {
         return `${desktopModelPanelLayout.listMaxHeight}px`;
       }
@@ -541,11 +678,11 @@ export function ChatModelPicker({
         MODEL_MENU_MODEL_PANEL_CHROME_HEIGHT,
       );
     },
-    [activeDesktopVendorGroup, desktopModelPanelLayout],
+    [activeDesktopVendorGroup, desktopModelPanelLayout, isSearchMode, modelRowHeight],
   );
   const desktopModelMenuWidthValue = React.useMemo(
     () =>
-      activeDesktopVendorGroup
+      !isSearchMode && activeDesktopVendorGroup
         ? resolveAdaptiveMenuWidthValue(
             activeDesktopVendorGroup.items.map((item) => item.platformModelName),
             232,
@@ -553,11 +690,16 @@ export function ChatModelPicker({
             typeof window === "undefined" ? undefined : window.innerWidth,
           )
         : 232,
-    [activeDesktopVendorGroup],
+    [activeDesktopVendorGroup, isSearchMode],
   );
   const mobileVendorGroup = React.useMemo(
-    () => vendorGroups.find((group) => group.vendor === mobileVendorKey) ?? null,
-    [mobileVendorKey, vendorGroups],
+    () => {
+      if (isSearchMode) {
+        return null;
+      }
+      return vendorGroups.find((group) => group.vendor === mobileVendorKey) ?? null;
+    },
+    [isSearchMode, mobileVendorKey, vendorGroups],
   );
   const mobileMenuWidth = React.useMemo(
     () =>
@@ -567,13 +709,27 @@ export function ChatModelPicker({
     [mobileVendorGroup, vendorGroups],
   );
   const mobileVendorMenuMaxHeight = React.useMemo(
-    () =>
-      resolveModelMenuMaxHeight(
-        mobileVendorGroup ? mobileVendorGroup.items.length : vendorGroups.length,
-        MODEL_MENU_VENDOR_ROW_HEIGHT,
-        56,
-      ),
-    [mobileVendorGroup, vendorGroups.length],
+    () => {
+      if (mobileVendorGroup) {
+        return resolveModelMenuMaxHeight(mobileVendorGroup.items.length, MODEL_MENU_TOUCH_ROW_HEIGHT, 56);
+      }
+      return resolveModelMenuMaxHeight(vendorGroups.length + recentSectionRowCount, MODEL_MENU_TOUCH_ROW_HEIGHT, 56);
+    },
+    [mobileVendorGroup, recentSectionRowCount, vendorGroups.length],
+  );
+  const searchResultsMaxHeight = React.useMemo(
+    () => {
+      const itemCount = selectedModelSearchableGroups.reduce((count, group) => count + group.items.length + 1, 0);
+      if (itemCount === 0) {
+        return `${Math.max(modelRowHeight * 3, 144)}px`;
+      }
+      return resolveModelMenuMaxHeight(
+        itemCount,
+        modelRowHeight,
+        isMobile ? 56 : MODEL_MENU_MODEL_PANEL_CHROME_HEIGHT,
+      );
+    },
+    [isMobile, modelRowHeight, selectedModelSearchableGroups],
   );
   const pricingLabels = React.useMemo(
     () => ({
@@ -612,6 +768,12 @@ export function ChatModelPicker({
     }
   }, [isMobile, open]);
 
+  React.useEffect(() => {
+    if (!open) {
+      setSearchQuery("");
+    }
+  }, [open]);
+
   const resetDesktopModelPanelLayout = React.useCallback(() => {
     const nextKey = desktopModelPanelKeyRef.current + 1;
     desktopModelPanelKeyRef.current = nextKey;
@@ -625,6 +787,8 @@ export function ChatModelPicker({
       resetDesktopModelPanelLayout();
       if (nextOpen) {
         setActiveVendorKey(selectedVendorKey || vendorGroups[0]?.vendor || "");
+      } else {
+        setSearchQuery("");
       }
       setOpen(nextOpen);
     },
@@ -632,7 +796,7 @@ export function ChatModelPicker({
   );
 
   const updateDesktopModelPanelLayout = React.useCallback((layoutKey: number) => {
-    if (!open || isMobile || typeof window === "undefined") {
+    if (!open || isMobile || isSearchMode || typeof window === "undefined") {
       return;
     }
     if (desktopModelPanelKeyRef.current !== layoutKey) {
@@ -695,10 +859,10 @@ export function ChatModelPicker({
     );
 
     setDesktopModelPanelLayout({ key: layoutKey, x, y, width: panelWidth, listMaxHeight });
-  }, [activeDesktopVendorGroup, desktopModelMenuWidthValue, isMobile, open]);
+  }, [activeDesktopVendorGroup, desktopModelMenuWidthValue, isMobile, isSearchMode, open]);
 
   React.useLayoutEffect(() => {
-    if (!open || isMobile) {
+    if (!open || isMobile || isSearchMode) {
       setDesktopModelPanelLayout(null);
       return;
     }
@@ -721,6 +885,7 @@ export function ChatModelPicker({
     activeDesktopVendorGroup,
     desktopModelMenuWidthValue,
     desktopModelPanelKey,
+    isSearchMode,
     isMobile,
     open,
     updateDesktopModelPanelLayout,
@@ -729,6 +894,21 @@ export function ChatModelPicker({
   const closeMenu = React.useCallback(() => {
     handleOpenChange(false);
   }, [handleOpenChange]);
+
+  const handleModelSelect = React.useCallback(
+    (platformModelName: string) => {
+      setRecentModelNames((current) => {
+        const next = recordRecentModelSelection(current, platformModelName, MODEL_PICKER_RECENT_LIMIT);
+        if (typeof window !== "undefined") {
+          writeRecentModelNames(window.localStorage, next);
+        }
+        return next;
+      });
+      onModelChange(platformModelName);
+      closeMenu();
+    },
+    [closeMenu, onModelChange],
+  );
 
   const selectDesktopVendor = React.useCallback((vendor: string) => {
     if (vendor === activeDesktopVendorKey) {
@@ -741,160 +921,215 @@ export function ChatModelPicker({
   return (
     <>
       <div className="min-w-0 max-w-[min(320px,100%)] shrink">
-      <Popover open={open} onOpenChange={handleOpenChange}>
-        <PopoverTrigger asChild>
-          <InputGroupButton
-            id="chat-model-menu-trigger"
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="w-full min-w-0 max-w-[min(320px,100%)] rounded-lg px-1.5 hover:bg-accent focus-visible:bg-accent data-[state=open]:bg-accent sm:px-2"
-            disabled={disabled || loading || modelOptions.length === 0}
-            aria-label={t("selectModel")}
+        <Popover open={open} onOpenChange={handleOpenChange}>
+          <PopoverTrigger asChild>
+            <InputGroupButton
+              id="chat-model-menu-trigger"
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full min-w-0 max-w-[min(320px,100%)] rounded-lg px-1.5 hover:bg-accent focus-visible:bg-accent data-[state=open]:bg-accent sm:px-2"
+              disabled={disabled || loading || modelOptions.length === 0}
+              aria-label={t("selectModel")}
+            >
+              {loading ? (
+                <ChatModelTriggerSkeleton />
+              ) : selectedModel ? (
+                <ChatModelIdentity model={selectedModel} density="compact" />
+              ) : selectedPlatformModelName.trim() ? (
+                <span className="truncate text-[12px] font-medium text-foreground">
+                  {selectedPlatformModelName}
+                </span>
+              ) : (
+                <span className="truncate text-[12px] font-medium text-muted-foreground">
+                  {t("selectModel")}
+                </span>
+              )}
+            </InputGroupButton>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={8}
+            className="relative overflow-visible rounded-xl p-1.5"
+            ref={desktopPopoverContentRef}
+            style={{ width: isMobile ? mobileMenuWidth : vendorMenuWidth }}
+            onInteractOutside={(event) => {
+              const target = event.target;
+              if (target instanceof Node && desktopModelPanelRef.current?.contains(target)) {
+                event.preventDefault();
+              }
+            }}
           >
-            {loading ? (
-              <ChatModelTriggerSkeleton />
-            ) : selectedModel ? (
-              <ChatModelIdentity model={selectedModel} density="compact" />
-            ) : selectedPlatformModelName.trim() ? (
-              <span className="truncate text-[12px] font-medium text-foreground">
-                {selectedPlatformModelName}
-              </span>
-            ) : (
-              <span className="truncate text-[12px] font-medium text-muted-foreground">
-                {t("selectModel")}
-              </span>
-            )}
-          </InputGroupButton>
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          sideOffset={8}
-          className="relative overflow-visible rounded-xl p-1.5"
-          ref={desktopPopoverContentRef}
-          style={{ width: isMobile ? mobileMenuWidth : vendorMenuWidth }}
-          onInteractOutside={(event) => {
-            const target = event.target;
-            if (target instanceof Node && desktopModelPanelRef.current?.contains(target)) {
-              event.preventDefault();
-            }
-          }}
-        >
-          {isMobile ? (
-            <>
-              <div className="flex h-7 items-center justify-between gap-2 px-2">
-                {mobileVendorGroup ? (
-                  <button
-                    type="button"
-                    className="-ml-1.5 flex h-7 min-w-0 items-center gap-0.5 rounded-md px-0.5 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
-                    onClick={() => setMobileVendorKey(null)}
-                  >
-                    <ChevronLeft className="size-3.5" strokeWidth={1.8} />
-                    <span>{t("vendor")}</span>
-                  </button>
-                ) : (
-                  <span className="text-[11px] font-medium text-foreground">{t("vendor")}</span>
-                )}
-                <span className="min-w-0 truncate text-right text-[10px] font-medium text-muted-foreground">
-                  {mobileVendorGroup ? mobileVendorGroup.label : selectedVendorLabel}
-                </span>
+            <div className="flex flex-col gap-2">
+              <div className="relative px-2 pt-1">
+                <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder={t("searchPlaceholder")}
+                  aria-label={t("searchPlaceholder")}
+                  className="h-11 rounded-md pl-9 pr-3 text-xs md:h-9"
+                />
               </div>
-              <ModelMenuScrollContainer maxHeight={mobileVendorMenuMaxHeight}>
-                {mobileVendorGroup ? (
-                  <div className="flex flex-col gap-0.5">
-                    {mobileVendorGroup.items.map((item) => (
-                      <ChatModelMenuItem
-                        key={item.platformModelName}
-                        model={item}
-                        selected={item.platformModelName === selectedPlatformModelName}
-                        onSelect={() => {
-                          onModelChange(item.platformModelName);
-                          closeMenu();
-                        }}
-                        pricingLabels={pricingLabels}
-                        viewPricingLabel={t("viewPricing")}
-                        pricingTooltipSide="right"
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-0.5">
-                    {vendorGroups.map((group) => {
-                      const selectedVendor = group.vendor === selectedVendorKey;
-                      const vendorIconURL = resolveLobeHubIconURL(group.icon);
-                      return (
-                        <button
-                          type="button"
-                          key={group.vendor}
-                          className={cn(
-                            "flex h-7 w-full items-center justify-between gap-2 rounded-md px-2 py-0 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                            selectedVendor ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-                          )}
-                          onClick={() => {
-                            setMobileVendorKey(group.vendor);
-                          }}
-                        >
-                          <LobeHubIcon iconUrl={vendorIconURL} label={group.label} />
-                          <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-                          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">
-                            {group.items.length}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </ModelMenuScrollContainer>
-            </>
-          ) : (
-            <div className="relative">
-              <div className="flex h-7 items-center justify-between gap-3 px-2">
-                <span className="text-[11px] font-medium text-foreground">{t("vendor")}</span>
-                <span className="truncate text-[10px] font-medium text-muted-foreground">
-                  {selectedVendorLabel}
-                </span>
-              </div>
-              <ModelMenuScrollContainer maxHeight={vendorMenuMaxHeight}>
-                <div className="flex flex-col gap-0.5">
-                  {vendorGroups.map((group) => {
-                    const selectedVendor = group.vendor === selectedVendorKey;
-                    const activeVendor = group.vendor === activeDesktopVendorGroup?.vendor;
-                    const vendorIconURL = resolveLobeHubIconURL(group.icon);
-                    return (
+
+              {isSearchMode ? (
+                <ModelMenuScrollContainer maxHeight={searchResultsMaxHeight}>
+                  {selectedModelSearchableGroups.length > 0 ? (
+                    <ModelPickerGroupedModelList
+                      groups={selectedModelSearchableGroups}
+                      density={isMobile ? "touch" : "compact"}
+                      selectedPlatformModelName={selectedPlatformModelName}
+                      pricingLabels={pricingLabels}
+                      viewPricingLabel={t("viewPricing")}
+                      onSelectModel={handleModelSelect}
+                    />
+                  ) : (
+                    <div className="flex min-h-20 items-center justify-center px-3 py-4 text-center text-xs text-muted-foreground">
+                      {t("noMatches")}
+                    </div>
+                  )}
+                </ModelMenuScrollContainer>
+              ) : isMobile ? (
+                <>
+                  <div className="flex h-11 items-center justify-between gap-2 px-2">
+                    {mobileVendorGroup ? (
                       <button
                         type="button"
-                        key={group.vendor}
-                        className={cn(
-                          "flex h-7 w-full items-center gap-2 rounded-md px-2 py-0 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                          activeVendor ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-                          selectedVendor && !activeVendor ? "text-foreground" : null,
-                        )}
-                        onMouseEnter={() => selectDesktopVendor(group.vendor)}
-                        onFocus={() => selectDesktopVendor(group.vendor)}
-                        onClick={() => selectDesktopVendor(group.vendor)}
+                        className="-ml-1.5 flex h-11 min-w-0 items-center gap-0.5 rounded-md px-2 text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
+                        onClick={() => setMobileVendorKey(null)}
                       >
-                        <LobeHubIcon iconUrl={vendorIconURL} label={group.label} />
-                        <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-                        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">
-                          {group.items.length}
-                        </span>
-                        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/65" strokeWidth={1.8} />
+                        <ChevronLeft className="size-4" strokeWidth={1.8} />
+                        <span>{t("vendor")}</span>
                       </button>
-                    );
-                  })}
+                    ) : (
+                      <span className="text-xs font-medium text-foreground">{t("vendor")}</span>
+                    )}
+                    <span className="min-w-0 truncate text-right text-[10px] font-medium text-muted-foreground">
+                      {mobileVendorGroup ? mobileVendorGroup.label : selectedVendorLabel}
+                    </span>
+                  </div>
+                  <ModelMenuScrollContainer maxHeight={mobileVendorMenuMaxHeight}>
+                    {mobileVendorGroup ? (
+                      <ModelPickerModelList
+                        items={mobileVendorGroup.items}
+                        density="touch"
+                        selectedPlatformModelName={selectedPlatformModelName}
+                        pricingLabels={pricingLabels}
+                        viewPricingLabel={t("viewPricing")}
+                        onSelectModel={handleModelSelect}
+                      />
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {recentModels.length > 0 ? (
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-2 px-2 pt-1 text-[10px] font-medium text-muted-foreground">
+                              <Clock3 className="size-3.5" />
+                              <span className="min-w-0 flex-1 truncate">{t("recent")}</span>
+                              <span className="shrink-0 tabular-nums">{recentModels.length}</span>
+                            </div>
+                            <ModelPickerModelList
+                              items={recentModels}
+                              density="touch"
+                              selectedPlatformModelName={selectedPlatformModelName}
+                              pricingLabels={pricingLabels}
+                              viewPricingLabel={t("viewPricing")}
+                              onSelectModel={handleModelSelect}
+                            />
+                          </div>
+                        ) : null}
+                        <div className="flex flex-col gap-0.5">
+                          {vendorGroups.map((group) => {
+                            const selectedVendor = group.vendor === selectedVendorKey;
+                            const vendorIconURL = resolveLobeHubIconURL(group.icon);
+                            return (
+                              <button
+                                type="button"
+                                key={group.vendor}
+                                className={cn(
+                                  "flex h-11 w-full items-center gap-2 rounded-md px-3 py-0 text-left text-xs font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                                  selectedVendor ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                                )}
+                                onClick={() => {
+                                  setMobileVendorKey(group.vendor);
+                                }}
+                              >
+                                <LobeHubIcon iconUrl={vendorIconURL} label={group.label} />
+                                <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
+                                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">
+                                  {group.items.length}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </ModelMenuScrollContainer>
+                </>
+              ) : (
+                <div className="relative">
+                  <div className="flex h-7 items-center justify-between gap-3 px-2">
+                    <span className="text-[11px] font-medium text-foreground">{t("vendor")}</span>
+                    <span className="truncate text-[10px] font-medium text-muted-foreground">
+                      {selectedVendorLabel}
+                    </span>
+                  </div>
+                  <ModelMenuScrollContainer maxHeight={vendorMenuMaxHeight}>
+                    <div className="flex flex-col gap-2">
+                      {recentModels.length > 0 ? (
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-2 px-2 pt-1 text-[10px] font-medium text-muted-foreground">
+                            <Clock3 className="size-3.5" />
+                            <span className="min-w-0 flex-1 truncate">{t("recent")}</span>
+                            <span className="shrink-0 tabular-nums">{recentModels.length}</span>
+                          </div>
+                          <ModelPickerModelList
+                            items={recentModels}
+                            density="compact"
+                            selectedPlatformModelName={selectedPlatformModelName}
+                            pricingLabels={pricingLabels}
+                            viewPricingLabel={t("viewPricing")}
+                            onSelectModel={handleModelSelect}
+                          />
+                        </div>
+                      ) : null}
+                      <div className="flex flex-col gap-0.5">
+                        {vendorGroups.map((group) => {
+                          const selectedVendor = group.vendor === selectedVendorKey;
+                          const activeVendor = group.vendor === activeDesktopVendorGroup?.vendor;
+                          const vendorIconURL = resolveLobeHubIconURL(group.icon);
+                          return (
+                            <button
+                              type="button"
+                              key={group.vendor}
+                              className={cn(
+                                "flex h-7 w-full items-center gap-2 rounded-md px-2 py-0 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                                activeVendor ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                                selectedVendor && !activeVendor ? "text-foreground" : null,
+                              )}
+                              onMouseEnter={() => selectDesktopVendor(group.vendor)}
+                              onFocus={() => selectDesktopVendor(group.vendor)}
+                              onClick={() => selectDesktopVendor(group.vendor)}
+                            >
+                              <LobeHubIcon iconUrl={vendorIconURL} label={group.label} />
+                              <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
+                              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">
+                                {group.items.length}
+                              </span>
+                              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/65" strokeWidth={1.8} />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </ModelMenuScrollContainer>
                 </div>
-              </ModelMenuScrollContainer>
+              )}
             </div>
-          )}
-        </PopoverContent>
-      </Popover>
+          </PopoverContent>
+        </Popover>
       </div>
-      {open
-      && !isMobile
-      && activeDesktopVendorGroup
-      && desktopModelPanelLayout
-      && desktopModelPanelLayout.key === desktopModelPanelKey
-      && typeof document !== "undefined"
+      {open && !isMobile && !isSearchMode && activeDesktopVendorGroup && desktopModelPanelLayout && desktopModelPanelLayout.key === desktopModelPanelKey && typeof document !== "undefined"
         ? createPortal(
           <div
             ref={desktopModelPanelRef}
@@ -906,27 +1141,19 @@ export function ChatModelPicker({
             }}
           >
             <ModelMenuScrollContainer maxHeight={desktopModelMenuMaxHeight}>
-              <div className="flex flex-col gap-0.5">
-                {activeDesktopVendorGroup.items.map((item) => (
-                  <ChatModelMenuItem
-                    key={item.platformModelName}
-                    model={item}
-                    selected={item.platformModelName === selectedPlatformModelName}
-                    onSelect={() => {
-                      onModelChange(item.platformModelName);
-                      closeMenu();
-                    }}
-                    pricingLabels={pricingLabels}
-                    viewPricingLabel={t("viewPricing")}
-                    pricingTooltipSide="right"
-                  />
-                ))}
-              </div>
+              <ModelPickerModelList
+                items={activeDesktopVendorGroup.items}
+                density="compact"
+                selectedPlatformModelName={selectedPlatformModelName}
+                pricingLabels={pricingLabels}
+                viewPricingLabel={t("viewPricing")}
+                onSelectModel={handleModelSelect}
+              />
             </ModelMenuScrollContainer>
           </div>,
           document.body,
         )
-      : null}
+        : null}
     </>
   );
 }

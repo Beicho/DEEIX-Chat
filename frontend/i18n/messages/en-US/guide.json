@@ -29,7 +29,7 @@
   "bootstrapTitle": "Admin setup",
   "adminWelcomeTitle": "Welcome to DEEIX Chat Admin",
   "userWelcomeTitle": "Welcome to DEEIX Chat",
-  "adminWelcomeDescription": "Finish admin account security first, then configure upstreams, platform models, billing, logs, identity providers, and system policies.",
+  "adminWelcomeDescription": "Finish admin account security first, then configure model sources, platform models, billing, logs, identity providers, and system policies.",
   "userWelcomeDescription": "Finish your profile and security setup before using chats, files, tools, memory, and sharing.",
   "adminAccountTitle": "Complete admin account",
   "userAccountTitle": "Set up account",
@@ -112,13 +112,13 @@
     "secret": "Key"
   },
   "adminTips": {
-    "upstreams": "Manage upstream channels, route bindings, capability declarations, and provider-native parameters from one place.",
-    "mcp": "Configure MCP servers and tool lifecycle with user-side selection, execution limits, retry handling, and full trace display.",
-    "files": "Cover uploads, previews, downloads, text extraction, OCR, RAG retrieval, and original image context injection.",
+    "upstreams": "Manage model sources, route bindings, capability declarations, and provider-native parameters from one place.",
+    "mcp": "Configure connectors and tool lifecycle with user-side selection, execution limits, retry handling, and full trace display.",
+    "files": "Cover uploads, previews, downloads, text extraction, OCR, smart retrieval, and original image context reading.",
     "context": "Combine long-term memory, historical evidence, semantic recall, context truncation, and summary compression for stable continuity.",
     "trace": "Render processing traces, model thinking, tool calls, inline errors, Markdown, formulas, tables, code blocks, and file cards.",
     "billing": "Support subscriptions, balances, usage, per-call, per-second, and tiered billing with aggregated multi-tool run costs.",
-    "admin": "Provide unified admin entry points for accounts, identity providers, upstreams, models, billing, logs, chats, files, MCP, and audit logs.",
+    "admin": "Provide unified admin entry points for accounts, identity providers, model sources, models, billing, logs, chats, files, connectors, and audit logs.",
     "ops": "Include structured logs, request IDs, Swagger docs, Docker builds, static asset hosting, GeoIP audit, and OpenTelemetry traces."
   },
   "userTips": {

@@ -5,6 +5,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Brain,
+  Check,
   ClockArrowUp,
   ClockCheck,
   CircleDollarSign,
@@ -13,6 +14,9 @@ import {
   Cpu,
   FilePenLine,
   Forward,
+  PauseCircle,
+  PlayCircle,
+  Volume2,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
@@ -29,6 +33,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { upsertUserMemory } from "@/shared/api/memory";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
@@ -36,6 +49,7 @@ import { resolvePersistedPublicID } from "@/features/chat/model/message-submit";
 import { billingRateMultiplierNote, cacheWriteBillingLabel, cacheWriteBillingNote } from "@/shared/lib/billing-display";
 import type { BillingDisplayLabels } from "@/shared/lib/billing-display";
 import type { ChatBillingCost, ChatMessageBranchNavigator } from "@/features/chat/types/messages";
+import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
 import { cn } from "@/lib/utils";
 
@@ -184,6 +198,82 @@ function MetaIconButton({
       </TooltipTrigger>
       <TooltipContent side="top">{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+function AssistantRetryMenu({
+  disabled,
+  modelOptions,
+  selectedPlatformModelName,
+  currentMessageModelName,
+  onRetry,
+}: {
+  disabled: boolean;
+  modelOptions: readonly ChatModelOption[];
+  selectedPlatformModelName: string;
+  currentMessageModelName?: string;
+  onRetry: (platformModelName?: string) => void;
+}) {
+  const t = useTranslations("chat.messages");
+  const currentModelName =
+    selectedPlatformModelName.trim() ||
+    currentMessageModelName?.trim() ||
+    "";
+  const selectableModels = React.useMemo(
+    () => modelOptions.filter((item) => item.platformModelName.trim()),
+    [modelOptions],
+  );
+
+  if (selectableModels.length === 0) {
+    return (
+      <MetaIconButton label={t("retryReply")} disabled={disabled} onClick={() => onRetry()}>
+        <RotateCcw size={14} strokeWidth={1.8} animateOnHover="default" />
+      </MetaIconButton>
+    );
+  }
+
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+          aria-label={t("retryReply")}
+          disabled={disabled}
+        >
+          <RotateCcw size={14} strokeWidth={1.8} animateOnHover="default" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" sideOffset={6} className="min-w-56">
+        <DropdownMenuItem onSelect={() => onRetry(currentModelName || undefined)}>
+          <RotateCcw size={13} strokeWidth={1.8} />
+          <span className="min-w-0 flex-1">{t("retryWithCurrentModel")}</span>
+          {currentModelName ? (
+            <span className="max-w-28 truncate text-[11px] text-muted-foreground">
+              {currentModelName}
+            </span>
+          ) : null}
+        </DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Cpu className="size-3.5" strokeWidth={1.7} />
+            {t("retryWithModel")}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="max-h-72 min-w-56 overflow-y-auto p-1.5">
+            {selectableModels.map((model) => {
+              const modelName = model.platformModelName.trim();
+              const selected = modelName === currentModelName;
+              return (
+                <DropdownMenuItem key={modelName} onSelect={() => onRetry(modelName)}>
+                  <span className="min-w-0 flex-1 truncate">{modelName}</span>
+                  {selected ? <Check className="size-3.5 text-current" strokeWidth={1.8} /> : null}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -893,6 +983,12 @@ export function AssistantMessageMeta({
   onEdit,
   onCopy,
   onReact,
+  speechSupported = false,
+  speechActive = false,
+  speechPaused = false,
+  onToggleSpeech,
+  retryModelOptions = [],
+  selectedPlatformModelName = "",
   showModelInfo = true,
   showLatency = true,
   showTokenUsage = true,
@@ -905,11 +1001,17 @@ export function AssistantMessageMeta({
   busy: boolean;
   reaction: AssistantReaction;
   onCycleBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
-  onRetry: () => void;
+  onRetry: (platformModelName?: string) => void;
   onContinue?: () => void;
   onEdit?: () => void;
   onCopy: () => void;
   onReact: (value: AssistantReaction) => void;
+  speechSupported?: boolean;
+  speechActive?: boolean;
+  speechPaused?: boolean;
+  onToggleSpeech?: () => void;
+  retryModelOptions?: readonly ChatModelOption[];
+  selectedPlatformModelName?: string;
   showModelInfo?: boolean;
   showLatency?: boolean;
   showTokenUsage?: boolean;
@@ -979,6 +1081,23 @@ export function AssistantMessageMeta({
                 >
                   <Copy size={14} strokeWidth={1.8} animateOnHover="default" />
                 </MetaIconButton>
+                {speechSupported && onToggleSpeech ? (
+                  <MetaIconButton
+                    label={speechActive ? (speechPaused ? t("resumeReadReply") : t("pauseReadReply")) : t("readReply")}
+                    disabled={isLive}
+                    onClick={onToggleSpeech}
+                  >
+                    {speechActive ? (
+                      speechPaused ? (
+                        <PlayCircle className="size-3.5" strokeWidth={1.8} />
+                      ) : (
+                        <PauseCircle className="size-3.5" strokeWidth={1.8} />
+                      )
+                    ) : (
+                      <Volume2 className="size-3.5" strokeWidth={1.8} />
+                    )}
+                  </MetaIconButton>
+                ) : null}
                 {canEdit ? (
                   <MetaIconButton
                     label={t("editReply")}
@@ -1004,12 +1123,13 @@ export function AssistantMessageMeta({
                   <ThumbsDown size={14} strokeWidth={1.8} animateOnHover="default" />
                 </MetaIconButton>
                 {canRetry ? (
-                  <MetaIconButton
-                    label={t("retryReply")}
-                    onClick={onRetry}
-                  >
-                    <RotateCcw size={14} strokeWidth={1.8} animateOnHover="default" />
-                  </MetaIconButton>
+                  <AssistantRetryMenu
+                    disabled={!canRetry}
+                    modelOptions={retryModelOptions}
+                    selectedPlatformModelName={selectedPlatformModelName}
+                    currentMessageModelName={item.platformModelName}
+                    onRetry={onRetry}
+                  />
                 ) : null}
                 {canContinue && onContinue ? (
                   <MetaIconButton

@@ -81,6 +81,17 @@ export function NavRecents() {
     successMessage: t("exported"),
     failureMessage: t("exportFailed"),
   })
+  const onExportMarkdown = useConversationExportAction({
+    successMessage: t("exportMarkdownSuccess"),
+    failureMessage: t("exportMarkdownFailed"),
+    format: "markdown",
+  })
+  const onCopyMarkdown = useConversationExportAction({
+    successMessage: t("copyMarkdownSuccess"),
+    failureMessage: t("copyMarkdownFailed"),
+    format: "markdown",
+    action: "copy",
+  })
 
   useLoadMoreSentinel({
     enabled: hasMore && !loadingInitial && !loadMoreFailed,
@@ -222,6 +233,8 @@ export function NavRecents() {
                       onArchive={onArchive}
                       onShare={onShare}
                       onExport={onExport}
+                      onExportMarkdown={onExportMarkdown}
+                      onCopyMarkdown={onCopyMarkdown}
                       onDelete={onDelete}
                       onNavigate={isMobile ? () => setOpenMobile(false) : undefined}
                       menuTriggerID={`recent-item-menu-trigger-${publicID}`}

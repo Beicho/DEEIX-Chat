@@ -14,9 +14,9 @@ export function MobileHeader() {
   const { toggleSidebar } = useSidebar();
 
   return (
-    <header className="grid h-12 shrink-0 grid-cols-[2rem_minmax(0,1fr)_2rem] items-center px-3 md:hidden">
+    <header className="grid min-h-12 shrink-0 grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center px-3 pt-[env(safe-area-inset-top)] md:hidden">
       <div className="flex justify-start">
-        <Button variant="ghost" size="icon" className="size-6" onClick={toggleSidebar}>
+        <Button variant="ghost" size="icon" className="size-11" onClick={toggleSidebar}>
           <PanelRight size={18} strokeWidth={1.4} />
           <span className="sr-only">{t("openSidebar")}</span>
         </Button>
@@ -32,7 +32,7 @@ export function MobileHeader() {
       </div>
 
       <div className="flex justify-end">
-        <Button variant="ghost" size="icon" className="size-6" asChild>
+        <Button variant="ghost" size="icon" className="size-11" asChild>
           <Link href="/chat">
             <Plus size={16} strokeWidth={1.6} />
             <span className="sr-only">{t("newChat")}</span>

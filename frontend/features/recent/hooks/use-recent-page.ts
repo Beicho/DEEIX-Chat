@@ -37,7 +37,11 @@ import {
   conversationMatchesSearch,
   normalizeConversationSearchText,
 } from "@/shared/lib/conversation-search";
-import { downloadConversationExport } from "@/features/chat/model/conversation-export";
+import {
+  copyConversationMarkdownExport,
+  downloadConversationExport,
+  downloadConversationMarkdownExport,
+} from "@/features/chat/model/conversation-export";
 
 function isSharedConversation(item: ConversationDTO): boolean {
   return item.shareStatus === "active" && Boolean(item.shareID?.trim());
@@ -459,6 +463,38 @@ export function useRecentPage() {
     }
   }, [resolveErrorMessage, t]);
 
+  const onExportMarkdown = React.useCallback(async (item: ConversationDTO) => {
+    const token = await resolveAccessToken();
+    if (!token) {
+      return;
+    }
+    try {
+      const data = await exportConversation(token, item.publicID);
+      downloadConversationMarkdownExport(data);
+      toast.success(t("exportMarkdownSuccess"));
+    } catch (error) {
+      toast.error(t("exportMarkdownFailed"), {
+        description: resolveErrorMessage(error, t("exportMarkdownFailed")),
+      });
+    }
+  }, [resolveErrorMessage, t]);
+
+  const onCopyMarkdown = React.useCallback(async (item: ConversationDTO) => {
+    const token = await resolveAccessToken();
+    if (!token) {
+      return;
+    }
+    try {
+      const data = await exportConversation(token, item.publicID);
+      await copyConversationMarkdownExport(data);
+      toast.success(t("copyMarkdownSuccess"));
+    } catch (error) {
+      toast.error(t("copyMarkdownFailed"), {
+        description: resolveErrorMessage(error, t("copyMarkdownFailed")),
+      });
+    }
+  }, [resolveErrorMessage, t]);
+
   const onRenameCommit = React.useCallback(async () => {
     if (!renameTarget) {
       return;
@@ -692,6 +728,8 @@ export function useRecentPage() {
     onSetProject,
     onRevokeShare,
     onExport,
+    onExportMarkdown,
+    onCopyMarkdown,
     onDelete,
     setRenameValue,
     onRenameCommit,

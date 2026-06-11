@@ -44,6 +44,8 @@ type SidebarConversationItemProps = {
   onArchive: (publicID: string) => void
   onShare?: (publicID: string, title: string) => void
   onExport?: (publicID: string) => void | Promise<void>
+  onExportMarkdown?: (publicID: string) => void | Promise<void>
+  onCopyMarkdown?: (publicID: string) => void | Promise<void>
   onDelete: (publicID: string, title: string) => void
   onNavigate?: () => void
 }
@@ -66,6 +68,8 @@ export function SidebarConversationItem({
   onArchive,
   onShare,
   onExport,
+  onExportMarkdown,
+  onCopyMarkdown,
   onDelete,
   onNavigate,
 }: SidebarConversationItemProps) {
@@ -85,11 +89,11 @@ export function SidebarConversationItem({
       active={active}
     >
       {isRenaming ? (
-        <div className="relative flex h-8 items-center rounded-md bg-sidebar-accent text-sm text-sidebar-accent-foreground">
+        <div className="relative flex h-10 items-center rounded-md bg-sidebar-accent text-sm text-sidebar-accent-foreground md:h-8">
           <input
             autoFocus
             value={renameValue}
-            className="h-8 w-full bg-transparent pl-2 pr-2 outline-none"
+            className="h-10 w-full bg-transparent pl-2 pr-2 outline-none md:h-8"
             onChange={(event) => onRenameValueChange(event.target.value)}
             onClick={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
@@ -109,7 +113,7 @@ export function SidebarConversationItem({
       ) : (
         <div
           className={cn(
-            "group relative flex h-8 items-center rounded-md text-sm transition-colors",
+            "group relative flex h-10 items-center rounded-md text-sm transition-colors md:h-8",
             active || isRowHovered
               ? "bg-sidebar-accent text-sidebar-accent-foreground"
               : "text-sidebar-foreground",
@@ -119,7 +123,7 @@ export function SidebarConversationItem({
           <Link
             href={item.url}
             prefetch={false}
-            className={cn("flex h-full min-w-0 flex-1 items-center pl-2 pr-9", linkClassName)}
+            className={cn("flex h-full min-w-0 flex-1 items-center pl-2 pr-12 md:pr-9", linkClassName)}
             onClick={onNavigate}
             onMouseEnter={() => setIsRowHovered(true)}
             onMouseLeave={() => setIsRowHovered(false)}
@@ -136,7 +140,7 @@ export function SidebarConversationItem({
               <button
                 id={menuTriggerID}
                 className={cn(
-                  "absolute right-0 flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground opacity-0 transition-[background-color,color,opacity] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  "absolute right-0 flex h-11 w-11 items-center justify-center rounded-md text-sidebar-foreground opacity-100 transition-[background-color,color,opacity] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:h-8 md:w-8 md:opacity-0",
                   showMenuButton && "opacity-100",
                 )}
                 onMouseEnter={() => setIsMenuHovered(true)}
@@ -181,8 +185,12 @@ export function SidebarConversationItem({
                 label={t("shareAndExport")}
                 shareLabel={item.shareActive ? t("manageShare") : t("share")}
                 exportLabel={t("exportJSON")}
+                exportMarkdownLabel={t("exportMarkdown")}
+                copyMarkdownLabel={t("copyMarkdown")}
                 onShare={onShare ? () => onShare(item.publicID, item.title) : undefined}
                 onExport={onExport ? () => onExport(item.publicID) : undefined}
+                onExportMarkdown={onExportMarkdown ? () => onExportMarkdown(item.publicID) : undefined}
+                onCopyMarkdown={onCopyMarkdown ? () => onCopyMarkdown(item.publicID) : undefined}
                 onCloseMenu={() => setIsMenuOpen(false)}
               />
               <DropdownMenuItem

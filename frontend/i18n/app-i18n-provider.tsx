@@ -48,10 +48,19 @@ function applyDocumentLocale(locale: AppLocale): void {
   document.documentElement.lang = locale;
 }
 
-export function AppI18nProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = React.useState<AppLocale>(DEFAULT_LOCALE);
-  const [messages, setMessages] = React.useState<AppMessages>(DEFAULT_MESSAGES);
-  const localeRef = React.useRef<AppLocale>(DEFAULT_LOCALE);
+export function AppI18nProvider({
+  children,
+  initialLocale = DEFAULT_LOCALE,
+  initialMessages = DEFAULT_MESSAGES,
+}: {
+  children: React.ReactNode;
+  initialLocale?: AppLocale;
+  initialMessages?: AppMessages;
+}) {
+  const normalizedInitialLocale = normalizeAppLocale(initialLocale);
+  const [locale, setLocaleState] = React.useState<AppLocale>(normalizedInitialLocale);
+  const [messages, setMessages] = React.useState<AppMessages>(initialMessages);
+  const localeRef = React.useRef<AppLocale>(normalizedInitialLocale);
 
   const applyLocale = React.useCallback(async (nextLocale: AppLocale, persist: boolean) => {
     const normalized = normalizeAppLocale(nextLocale);

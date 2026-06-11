@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import dynamic from "next/dynamic";
-import { Image, ImageOff, ImagePlus } from "lucide-react";
+import { BookOpen, Camera, Image, ImageOff, ImagePlus, Save, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 
 import { AudioLines } from "@/components/animate-ui/icons/audio-lines";
 import { Blocks } from "@/components/animate-ui/icons/blocks";
@@ -46,11 +47,27 @@ import type { MCPToolDTO } from "@/shared/api/mcp.types";
 import type { ModelOptionPolicy } from "@/shared/lib/model-option-policy";
 import type { SendShortcut } from "@/features/settings/types/settings";
 import { isSendShortcutEvent } from "@/shared/lib/platform-shortcuts";
+import { useIsMobile } from "@/shared/hooks/use-mobile";
+import {
+  createPastedTextFile,
+  shouldConvertPasteToTextFile,
+} from "@/features/chat/model/paste-to-file";
+import {
+  buildDraftFromPromptTemplate,
+  filterPromptTemplates,
+  normalizePromptTemplate,
+  recordPromptTemplateUsage,
+  type PromptTemplate,
+} from "@/features/chat/model/prompt-templates";
 
 const FilePreviewDialog = dynamic(
   () => import("@/features/files/components/preview/file-preview-dialog").then((module) => module.FilePreviewDialog),
   { ssr: false },
 );
+
+const PROMPT_TEMPLATE_STORAGE_KEY = "deeix-chat:prompt-templates:v1";
+const PROMPT_TEMPLATE_RECENT_STORAGE_KEY = "deeix-chat:recent-prompt-templates:v1";
+const PROMPT_TEMPLATE_RECENT_LIMIT = 5;
 
 type ChatInputProps = {
   draft: string;
@@ -64,6 +81,7 @@ type ChatInputProps = {
   inputHeight?: "compact" | "standard" | "loose";
   attachments: PendingAttachment[];
   uploadingAttachments: UploadingAttachment[];
+  inputHistory?: string[];
   modelOptions: ChatModelOption[];
   selectedPlatformModelName: string;
   availableTools: MCPToolDTO[];
@@ -158,6 +176,52 @@ function clipboardFilesFromPaste(event: React.ClipboardEvent<HTMLTextAreaElement
   });
 }
 
+function readPromptTemplateArray(key: string): unknown[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function readCustomPromptTemplates(): PromptTemplate[] {
+  return readPromptTemplateArray(PROMPT_TEMPLATE_STORAGE_KEY)
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const record = item as Record<string, unknown>;
+      if (typeof record.id !== "string" || typeof record.title !== "string" || typeof record.body !== "string") {
+        return null;
+      }
+      return normalizePromptTemplate({
+        id: record.id,
+        title: record.title,
+        body: record.body,
+        category: typeof record.category === "string" ? record.category : "custom",
+      });
+    })
+    .filter((item): item is PromptTemplate => Boolean(item?.id && item.title && item.body));
+}
+
+function readRecentPromptTemplateIDs(): string[] {
+  return readPromptTemplateArray(PROMPT_TEMPLATE_RECENT_STORAGE_KEY)
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .slice(0, PROMPT_TEMPLATE_RECENT_LIMIT);
+}
+
+function writePromptTemplateStorage(key: string, value: unknown) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
+
 function ChatInputComponent({
   draft,
   loading,
@@ -168,6 +232,7 @@ function ChatInputComponent({
   inputHeight = "standard",
   attachments,
   uploadingAttachments,
+  inputHistory = [],
   modelOptions,
   selectedPlatformModelName,
   availableTools,
@@ -200,14 +265,26 @@ function ChatInputComponent({
   const [isPlusHovered, setIsPlusHovered] = React.useState(false);
   const [isBlocksHovered, setIsBlocksHovered] = React.useState(false);
   const [isVoiceHovered, setIsVoiceHovered] = React.useState(false);
-  const speechInput = useSpeechInput({ draft, onDraftChange });
-  const [hoveredTool, setHoveredTool] = React.useState<"upload" | "screenshot" | null>(null);
+  const speechInput = useSpeechInput({
+    draft,
+    idlePlaceholder: tChat("placeholder"),
+    listeningPlaceholder: tComposer("listening"),
+    onDraftChange,
+  });
+  const isMobile = useIsMobile();
+  const [hoveredTool, setHoveredTool] = React.useState<"upload" | "camera" | "gallery" | "screenshot" | null>(null);
   const [ragWarnDismissed, setRagWarnDismissed] = React.useState(false);
   const [previewAttachment, setPreviewAttachment] = React.useState<PendingAttachment | null>(null);
+  const [customPromptTemplates, setCustomPromptTemplates] = React.useState<PromptTemplate[]>([]);
+  const [recentPromptTemplateIDs, setRecentPromptTemplateIDs] = React.useState<string[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = React.useRef<HTMLInputElement | null>(null);
   const composingRef = React.useRef(false);
+  const historyIndexRef = React.useRef<number | null>(null);
   const hasDraftText = draft.trim().length > 0;
-  const canSend = (draft.trim().length > 0 || attachments.length > 0) && !sending && !loading && !uploading;
+  const hasSendableContent = hasDraftText || attachments.length > 0;
+  const canSend = hasSendableContent && !sending && !loading && !uploading;
   const inputHeightClassName =
     inputHeight === "compact" ? "max-h-32" : inputHeight === "loose" ? "max-h-64" : "max-h-44";
 
@@ -225,12 +302,63 @@ function ChatInputComponent({
     }
   }, []);
 
+  React.useEffect(() => {
+    setCustomPromptTemplates(readCustomPromptTemplates());
+    setRecentPromptTemplateIDs(readRecentPromptTemplateIDs());
+  }, []);
+
+  const builtInPromptTemplates = React.useMemo(
+    () => [
+      normalizePromptTemplate({
+        id: "summarize",
+        title: tComposer("promptTemplates.defaults.summarize.title"),
+        body: tComposer("promptTemplates.defaults.summarize.body"),
+        category: tComposer("promptTemplates.categories.work"),
+      }),
+      normalizePromptTemplate({
+        id: "rewrite",
+        title: tComposer("promptTemplates.defaults.rewrite.title"),
+        body: tComposer("promptTemplates.defaults.rewrite.body"),
+        category: tComposer("promptTemplates.categories.writing"),
+      }),
+      normalizePromptTemplate({
+        id: "plan",
+        title: tComposer("promptTemplates.defaults.plan.title"),
+        body: tComposer("promptTemplates.defaults.plan.body"),
+        category: tComposer("promptTemplates.categories.work"),
+      }),
+      normalizePromptTemplate({
+        id: "compare",
+        title: tComposer("promptTemplates.defaults.compare.title"),
+        body: tComposer("promptTemplates.defaults.compare.body"),
+        category: tComposer("promptTemplates.categories.analysis"),
+      }),
+    ],
+    [tComposer],
+  );
+
+  const promptTemplateQuery = draft.trimStart().startsWith("/") ? draft.trimStart() : "";
+  const promptTemplates = React.useMemo(() => {
+    const recentRank = new Map(recentPromptTemplateIDs.map((id, index) => [id, index]));
+    return [...customPromptTemplates, ...builtInPromptTemplates].sort((a, b) => {
+      const aRank = recentRank.get(a.id) ?? Number.POSITIVE_INFINITY;
+      const bRank = recentRank.get(b.id) ?? Number.POSITIVE_INFINITY;
+      return aRank - bRank || a.title.localeCompare(b.title);
+    });
+  }, [builtInPromptTemplates, customPromptTemplates, recentPromptTemplateIDs]);
+  const filteredPromptTemplates = React.useMemo(
+    () => filterPromptTemplates(promptTemplates, promptTemplateQuery).slice(0, 8),
+    [promptTemplateQuery, promptTemplates],
+  );
+  const showPromptTemplatePanel = promptTemplateQuery.length > 0;
+
   const selectedModel = React.useMemo(
     () => modelOptions.find((item) => item.platformModelName === selectedPlatformModelName) ?? null,
     [modelOptions, selectedPlatformModelName],
   );
   const selectedProtocol = selectedModel?.protocols[0]?.trim() ?? "";
   const selectedModelName = selectedModel?.platformModelName || selectedPlatformModelName;
+  const screenshotSupported = typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getDisplayMedia);
   const submitDecision = resolveChatSubmitDecision(selectedModel, attachments);
   const submitTask = submitDecision.task;
   const isMediaMode = isMediaSubmitTask(submitTask);
@@ -243,17 +371,91 @@ function ChatInputComponent({
     fileInputRef.current?.click();
   }, []);
 
+  const onSelectCameraTool = React.useCallback(() => {
+    cameraInputRef.current?.click();
+  }, []);
+
+  const onSelectGalleryTool = React.useCallback(() => {
+    galleryInputRef.current?.click();
+  }, []);
+
   const onSelectScreenshotTool = React.useCallback(() => {
     void onCaptureScreenshot();
   }, [onCaptureScreenshot]);
 
+  const applyPromptTemplate = React.useCallback(
+    (template: PromptTemplate) => {
+      onDraftChange(buildDraftFromPromptTemplate(draft, template));
+      const nextRecentIDs = recordPromptTemplateUsage(recentPromptTemplateIDs, template.id, PROMPT_TEMPLATE_RECENT_LIMIT);
+      setRecentPromptTemplateIDs(nextRecentIDs);
+      writePromptTemplateStorage(PROMPT_TEMPLATE_RECENT_STORAGE_KEY, nextRecentIDs);
+    },
+    [draft, onDraftChange, recentPromptTemplateIDs],
+  );
+
+  const saveCurrentDraftAsPromptTemplate = React.useCallback(() => {
+    const body = draft.replace(/^\/\S*\s*/, "").trim();
+    if (!body) {
+      toast.error(tComposer("promptTemplates.emptyDraft"));
+      return;
+    }
+    const title = body.split("\n")[0]?.slice(0, 32).trim() || tComposer("promptTemplates.customFallbackTitle");
+    const nextTemplate = normalizePromptTemplate({
+      id: `custom-${Date.now()}`,
+      title,
+      body,
+      category: tComposer("promptTemplates.categories.mine"),
+    });
+    const nextTemplates = [nextTemplate, ...customPromptTemplates].slice(0, 30);
+    setCustomPromptTemplates(nextTemplates);
+    writePromptTemplateStorage(PROMPT_TEMPLATE_STORAGE_KEY, nextTemplates);
+    toast.success(tComposer("promptTemplates.saved"));
+  }, [customPromptTemplates, draft, tComposer]);
+
+  const deleteCustomPromptTemplate = React.useCallback(
+    (templateID: string) => {
+      const nextTemplates = customPromptTemplates.filter((template) => template.id !== templateID);
+      setCustomPromptTemplates(nextTemplates);
+      writePromptTemplateStorage(PROMPT_TEMPLATE_STORAGE_KEY, nextTemplates);
+    },
+    [customPromptTemplates],
+  );
+
   return (
-    <div className="w-full">
+    <div className="w-full pb-[env(safe-area-inset-bottom)] md:pb-0">
       <input
         ref={fileInputRef}
         type="file"
         multiple
         className="sr-only "
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          if (files.length > 0) {
+            void onUploadFiles(files);
+          }
+          event.currentTarget.value = "";
+        }}
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          if (files.length > 0) {
+            void onUploadFiles(files);
+          }
+          event.currentTarget.value = "";
+        }}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="sr-only"
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
           if (files.length > 0) {
@@ -272,16 +474,16 @@ function ChatInputComponent({
         {attachments.length > 0 || uploadingAttachments.length > 0 ? (
           <div className="w-full space-y-2 px-2.5 pt-2">
             {showRagWarn ? (
-              <div className="flex items-center gap-2 rounded-lg border border-amber-200/70 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-700 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-400">
-                <span className="shrink-0">⚠</span>
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/70 px-3 py-2 text-[11px] text-foreground">
+                <ImageOff className="size-4 shrink-0 text-muted-foreground" strokeWidth={1.6} />
                 <span className="flex-1">{tComposer("ragAllDisabled")}</span>
                 <button
                   type="button"
-                  className="shrink-0 text-amber-500 hover:text-amber-700 dark:text-amber-500 dark:hover:text-amber-300"
+                  className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:size-7"
                   onClick={() => setRagWarnDismissed(true)}
                   aria-label={tComposer("closeHint")}
                 >
-                  ✕
+                  <XIcon size={15} strokeWidth={1.8} />
                 </button>
               </div>
             ) : null}
@@ -290,22 +492,30 @@ function ChatInputComponent({
                 {attachments.map((item) => (
                   <div
                     key={item.fileID}
-                    className="bg-pure group relative flex h-14 w-full shrink-0 items-center gap-1.5 rounded-lg border border-border/50 bg-background/95 px-2 text-left shadow-[0_1px_2px_rgba(0,0,0,0.025)] transition-colors hover:border-border hover:bg-accent/30 sm:w-[228px] sm:px-2.5"
+                    className="bg-pure group relative flex h-14 w-full shrink-0 items-center gap-1.5 rounded-lg border border-border/50 bg-background/95 px-2 text-left shadow-xs transition-colors hover:border-border hover:bg-accent/30 sm:w-[228px] sm:px-2.5"
                   >
                     <button
                       type="button"
-                      className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-1 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/35"
+                      className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-md py-1 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/35"
                       onClick={() => setPreviewAttachment(item)}
                       aria-label={tComposer("previewAttachment", { name: item.fileName })}
                     >
                     {(() => {
                       const badge = resolveFileProcessingBadge(item, (key, values) => tFileStatus(key, values));
                       const FileIcon = resolveFileIcon(item);
+                      const imagePreview = item.fileCategory === "image" && item.previewURL ? item.previewURL : "";
                       return (
                         <>
-                          <div className="flex size-6 shrink-0 items-center justify-center">
-                            <FileIcon className="size-5 text-muted-foreground" strokeWidth={1.6} />
-                          </div>
+                          {imagePreview ? (
+                            <div className="size-10 shrink-0 overflow-hidden rounded-md border border-border/60 bg-muted">
+                              {/* eslint-disable-next-line @next/next/no-img-element -- Composer previews are local/user-uploaded attachment URLs. */}
+                              <img src={imagePreview} alt={item.fileName} loading="lazy" decoding="async" className="size-full object-cover" />
+                            </div>
+                          ) : (
+                            <div className="flex size-6 shrink-0 items-center justify-center">
+                              <FileIcon className="size-5 text-muted-foreground" strokeWidth={1.6} />
+                            </div>
+                          )}
                           <div className="flex min-w-0 flex-1 flex-col justify-center">
                             <p className="truncate text-[12px] font-medium leading-4 text-foreground/90" title={item.fileName}>
                               {item.fileName}
@@ -339,7 +549,7 @@ function ChatInputComponent({
                     </button>
                     <button
                       type="button"
-                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35 sm:size-7"
+                      className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35 md:size-7"
                       onClick={() => onRemoveAttachment(item.fileID)}
                       aria-label={tComposer("removeAttachment", { name: item.fileName })}
                     >
@@ -375,6 +585,68 @@ function ChatInputComponent({
           </div>
         ) : null}
 
+        {showPromptTemplatePanel ? (
+          <div
+            className="mx-2.5 mb-2 rounded-2xl border border-border/70 bg-popover p-2 text-popover-foreground shadow-xs"
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <div className="mb-1 flex items-center justify-between gap-2 px-1">
+              <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <BookOpen className="size-3.5" strokeWidth={1.8} />
+                <span>{tComposer("promptTemplates.title")}</span>
+              </div>
+              <button
+                type="button"
+                className="inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:min-h-7"
+                onClick={saveCurrentDraftAsPromptTemplate}
+              >
+                <Save className="size-3.5" strokeWidth={1.7} />
+                {tComposer("promptTemplates.save")}
+              </button>
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              {filteredPromptTemplates.length > 0 ? (
+                filteredPromptTemplates.map((template) => {
+                  const custom = template.id.startsWith("custom-");
+                  return (
+                    <div key={template.id} className="group/template flex items-start gap-1 rounded-xl hover:bg-accent/60">
+                      <button
+                        type="button"
+                        className="flex min-h-11 min-w-0 flex-1 flex-col rounded-xl px-3 py-2 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/35"
+                        onClick={() => applyPromptTemplate(template)}
+                      >
+                        <span className="flex w-full min-w-0 items-center gap-2">
+                          <span className="truncate text-xs font-medium text-foreground">{template.title}</span>
+                          <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            {template.category}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                          {template.body}
+                        </span>
+                      </button>
+                      {custom ? (
+                        <button
+                          type="button"
+                          className="mr-1 mt-1 inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive md:size-7"
+                          aria-label={tComposer("promptTemplates.delete", { title: template.title })}
+                          onClick={() => deleteCustomPromptTemplate(template.id)}
+                        >
+                          <Trash2 className="size-3.5" strokeWidth={1.8} />
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                  {tComposer("promptTemplates.empty")}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
         <InputGroupTextarea
           value={draft}
           disabled={sending || loading || uploading}
@@ -391,6 +663,12 @@ function ChatInputComponent({
           onPaste={(event) => {
             const files = clipboardFilesFromPaste(event);
             if (files.length === 0) {
+              const pastedText = event.clipboardData.getData("text/plain");
+              if (shouldConvertPasteToTextFile(pastedText)) {
+                event.preventDefault();
+                void onUploadFiles([createPastedTextFile(pastedText)]);
+                toast.success(tComposer("longPasteAttached"));
+              }
               return;
             }
             if (!event.clipboardData.getData("text/plain")) {
@@ -407,6 +685,36 @@ function ChatInputComponent({
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing || composingRef.current || event.key === "Process" || event.keyCode === 229) {
               return;
+            }
+            if (
+              (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+              inputHistory.length > 0 &&
+              event.currentTarget.selectionStart === event.currentTarget.selectionEnd
+            ) {
+              const atStart = event.currentTarget.selectionStart === 0;
+              const atEnd = event.currentTarget.selectionStart === event.currentTarget.value.length;
+              const currentIndex = historyIndexRef.current;
+              if (event.key === "ArrowUp" && atStart && (!draft.trim() || currentIndex !== null)) {
+                event.preventDefault();
+                const nextIndex = currentIndex === null ? inputHistory.length - 1 : Math.max(0, currentIndex - 1);
+                historyIndexRef.current = nextIndex;
+                onDraftChange(inputHistory[nextIndex] ?? "");
+                return;
+              }
+              if (event.key === "ArrowDown" && atEnd && currentIndex !== null) {
+                event.preventDefault();
+                const nextIndex = currentIndex + 1;
+                if (nextIndex >= inputHistory.length) {
+                  historyIndexRef.current = null;
+                  onDraftChange("");
+                } else {
+                  historyIndexRef.current = nextIndex;
+                  onDraftChange(inputHistory[nextIndex] ?? "");
+                }
+                return;
+              }
+            } else if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
+              historyIndexRef.current = null;
             }
             const shouldSend = isSendShortcutEvent(sendShortcut, event);
 
@@ -428,7 +736,7 @@ function ChatInputComponent({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8"
+                  className="size-11 rounded-md text-muted-foreground hover:text-foreground md:size-8"
                   disabled={sending || loading || uploading}
                   aria-label={tComposer("openTools")}
                   onMouseEnter={() => setIsPlusHovered(true)}
@@ -442,6 +750,32 @@ function ChatInputComponent({
                 </InputGroupButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="bottom" align="start" sideOffset={8} className="w-36">
+                {isMobile ? (
+                  <>
+                    <DropdownMenuItem
+                      onMouseEnter={() => setHoveredTool("camera")}
+                      onMouseLeave={() => setHoveredTool((prev) => (prev === "camera" ? null : prev))}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onSelectCameraTool();
+                      }}
+                    >
+                      <Camera size={12} strokeWidth={1.5} />
+                      {tComposer("takePhoto")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onMouseEnter={() => setHoveredTool("gallery")}
+                      onMouseLeave={() => setHoveredTool((prev) => (prev === "gallery" ? null : prev))}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onSelectGalleryTool();
+                      }}
+                    >
+                      <ImagePlus size={12} strokeWidth={1.5} />
+                      {tComposer("chooseFromGallery")}
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
                 <DropdownMenuItem
                   onMouseEnter={() => setHoveredTool("upload")}
                   onMouseLeave={() => setHoveredTool((prev) => (prev === "upload" ? null : prev))}
@@ -453,17 +787,19 @@ function ChatInputComponent({
                   <LinkIcon size={12} strokeWidth={1.5} animate={hoveredTool === "upload" ? "default" : undefined} />
                   {tComposer("uploadFile")}
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onMouseEnter={() => setHoveredTool("screenshot")}
-                  onMouseLeave={() => setHoveredTool((prev) => (prev === "screenshot" ? null : prev))}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onSelectScreenshotTool();
-                  }}
-                >
-                  <Crop size={12} strokeWidth={1.5} animate={hoveredTool === "screenshot" ? "default" : undefined} />
-                  {tComposer("screenshot")}
-                </DropdownMenuItem>
+                {screenshotSupported && !isMobile ? (
+                  <DropdownMenuItem
+                    onMouseEnter={() => setHoveredTool("screenshot")}
+                    onMouseLeave={() => setHoveredTool((prev) => (prev === "screenshot" ? null : prev))}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      onSelectScreenshotTool();
+                    }}
+                  >
+                    <Crop size={12} strokeWidth={1.5} animate={hoveredTool === "screenshot" ? "default" : undefined} />
+                    {tComposer("screenshot")}
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -502,7 +838,7 @@ function ChatInputComponent({
                     variant="ghost"
                     size="icon-sm"
                     className={cn(
-                      "size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8",
+                      "size-11 rounded-md text-muted-foreground hover:text-foreground md:size-8",
                       htmlVisualPromptEnabled && "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
                     )}
                     disabled={sending || loading || uploading}
@@ -561,13 +897,13 @@ function ChatInputComponent({
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8"
-              disabled={loading || uploading || (!sending && !hasDraftText && !speechInput.supported)}
-              onClick={sending ? onStopMessage : hasDraftText ? onSendMessage : speechInput.toggle}
+              className="size-11 rounded-md text-muted-foreground hover:text-foreground md:size-8"
+              disabled={loading || uploading || (!sending && !hasSendableContent && !speechInput.supported)}
+              onClick={sending ? onStopMessage : hasSendableContent ? onSendMessage : speechInput.toggle}
               onMouseEnter={() => setIsVoiceHovered(true)}
               onMouseLeave={() => setIsVoiceHovered(false)}
-              aria-label={sending ? tComposer("pauseGeneration") : hasDraftText ? tChat("send") : speechInput.active ? tComposer("cancelVoiceInput") : tComposer("voiceInput")}
-              title={sending ? tComposer("pauseGeneration") : hasDraftText ? tChat("send") : speechInput.supported ? (speechInput.active ? tComposer("cancelVoiceInput") : tComposer("voiceInput")) : tComposer("voiceUnsupported")}
+              aria-label={sending ? tComposer("pauseGeneration") : hasSendableContent ? tChat("send") : speechInput.active ? tComposer("cancelVoiceInput") : tComposer("voiceInput")}
+              title={sending ? tComposer("pauseGeneration") : hasSendableContent ? tChat("send") : speechInput.supported ? (speechInput.active ? tComposer("cancelVoiceInput") : tComposer("voiceInput")) : tComposer("voiceUnsupported")}
             >
               {sending ? (
                 <Pause
@@ -581,7 +917,7 @@ function ChatInputComponent({
                   strokeWidth={1.4}
                   animate="default"
                 />
-              ) : hasDraftText ? (
+              ) : hasSendableContent ? (
                 <Send
                   size={20}
                   strokeWidth={1.4}

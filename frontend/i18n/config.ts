@@ -1,8 +1,8 @@
-export const APP_LOCALES = ["en-US", "zh-CN"] as const;
+export const APP_LOCALES = ["zh-CN", "en-US"] as const;
 
 export type AppLocale = (typeof APP_LOCALES)[number];
 
-export const DEFAULT_LOCALE: AppLocale = "en-US";
+export const DEFAULT_LOCALE: AppLocale = "zh-CN";
 export const LOCALE_COOKIE_NAME = "deeix_chat_locale";
 
 export const APP_LOCALE_LABELS: Record<AppLocale, string> = {
@@ -34,4 +34,12 @@ export function resolveBrowserLocale(languages: readonly string[] | undefined): 
     }
   }
   return DEFAULT_LOCALE;
+}
+
+export function resolveAcceptLanguageLocale(value: string | null | undefined): AppLocale {
+  const languages = String(value ?? "")
+    .split(",")
+    .map((part) => part.trim().split(";")[0])
+    .filter(Boolean);
+  return resolveBrowserLocale(languages);
 }
