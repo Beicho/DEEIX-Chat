@@ -1,0 +1,20 @@
+{
+  "title": "Service status",
+  "description": "Model availability in the last {hours} hours.",
+  "updatedAt": "Updated {time}",
+  "emptyTitle": "No recent calls",
+  "emptyDescription": "Status appears after models receive traffic.",
+  "loadFailed": "Status could not be loaded.",
+  "table": {
+    "model": "Model",
+    "status": "Status",
+    "successRate": "Success rate",
+    "calls": "Calls"
+  },
+  "status": {
+    "normal": "Available",
+    "degraded": "Slower",
+    "down": "Unavailable",
+    "unknown": "Unknown"
+  }
+}

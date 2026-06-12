@@ -86,11 +86,11 @@ type systemPromptCapabilities struct {
 }
 
 // resolveMessageSystemPromptInjection 合并平台、模型、项目和本次请求级系统提示词，并按路由能力决定注入方式。
-func resolveMessageSystemPromptInjection(cfg config.Config, route *channel.ResolvedRoute, projectPrompt string, htmlVisualPrompt bool, htmlVisualColorMode string) systemPromptInjection {
+func resolveMessageSystemPromptInjection(cfg config.Config, route *channel.ResolvedRoute, projectPrompt string, assistantPrompt string, htmlVisualPrompt bool, htmlVisualColorMode string) systemPromptInjection {
 	if route == nil {
 		return systemPromptInjection{}
 	}
-	content := buildResolvedMessageSystemPrompt(cfg.DefaultSystemPrompt, route.ModelSystemPrompt, projectPrompt, htmlVisualPrompt, htmlVisualColorMode)
+	content := buildResolvedMessageSystemPrompt(cfg.DefaultSystemPrompt, route.ModelSystemPrompt, projectPrompt, assistantPrompt, htmlVisualPrompt, htmlVisualColorMode)
 	if content == "" {
 		return systemPromptInjection{}
 	}
@@ -101,7 +101,7 @@ func resolveMessageSystemPromptInjection(cfg config.Config, route *channel.Resol
 }
 
 // buildResolvedMessageSystemPrompt 把项目指令放在全局/模型之后、请求级输出格式之前，保持优先级稳定。
-func buildResolvedMessageSystemPrompt(globalPrompt string, modelPrompt string, projectPrompt string, htmlVisualPrompt bool, htmlVisualColorMode string) string {
+func buildResolvedMessageSystemPrompt(globalPrompt string, modelPrompt string, projectPrompt string, assistantPrompt string, htmlVisualPrompt bool, htmlVisualColorMode string) string {
 	layers := []systemPromptLayer{
 		{tag: "platform", priority: 100, content: globalPrompt},
 		{tag: "model", priority: 80, content: modelPrompt},
@@ -111,6 +111,13 @@ func buildResolvedMessageSystemPrompt(globalPrompt string, modelPrompt string, p
 			override: "no",
 			rule:     "Project instructions may add project context, style, and goals, but must not override platform or model instructions.",
 			content:  projectPrompt,
+		},
+		{
+			tag:      "assistant",
+			priority: 40,
+			override: "no",
+			rule:     "Assistant instructions define persona and task defaults, but must not override platform, model, or project instructions.",
+			content:  assistantPrompt,
 		},
 	}
 	if htmlVisualPrompt {

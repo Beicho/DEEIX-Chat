@@ -206,6 +206,7 @@ export function mapServerMessage(
     myFeedback: item.myFeedback || null,
     thumbsUpCount: item.thumbsUpCount ?? 0,
     thumbsDownCount: item.thumbsDownCount ?? 0,
+    bookmarked: Boolean(item.bookmarked),
   };
   const parsedAttachments = parseAttachments(item.attachments);
   if (parsedAttachments.length > 0) {

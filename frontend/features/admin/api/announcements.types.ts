@@ -8,7 +8,7 @@ export type AdminAnnouncementPage = PagePayload<AdminAnnouncementDTO>;
 export type CreateAdminAnnouncementRequest = {
   title: string;
   contentMarkdown: string;
-  status?: "active" | "inactive";
+  status?: "active" | "inactive" | "draft";
   type?: "critical" | "warning" | "info" | "normal" | "general";
   pinned?: boolean;
   priority: number;

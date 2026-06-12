@@ -136,15 +136,17 @@ func (s *Service) RuntimeValuesByNamespace(ctx context.Context, namespace string
 
 // validNamespaces 合法的 namespace 集合。
 var validNamespaces = map[string]bool{
-	"auth":     true,
-	"billing":  true,
-	"branding": true,
-	"chat":     true,
-	"storage":  true,
-	"file":     true,
-	"extract":  true,
-	"mcp":      true,
-	"circuit":  true,
+	"auth":       true,
+	"billing":    true,
+	"branding":   true,
+	"chat":       true,
+	"storage":    true,
+	"file":       true,
+	"extract":    true,
+	"mcp":        true,
+	"moderation": true,
+	"voice":      true,
+	"circuit":    true,
 }
 
 // IsValidNamespace 判断 namespace 是否允许被动态配置。
@@ -239,7 +241,7 @@ func validatePatchItem(item PatchItem) error {
 		return validateFloatMinMax(value, 0.000001, 1000, key)
 	case "billing:prepaid_amount_usd":
 		return validateFloatMinMax(value, 0, 1000000, key)
-	case "billing:stripe_publishable_key", "billing:stripe_secret_key", "billing:stripe_webhook_secret", "billing:epay_pid", "billing:epay_key":
+	case "billing:stripe_publishable_key", "billing:stripe_secret_key", "billing:stripe_webhook_secret", "billing:epay_pid", "billing:epay_key", "billing:newapi_bridge_hmac_key":
 		return validateStringMax(value, 512, key)
 	case "billing:epay_types":
 		if err := validateStringMax(value, 4000, key); err != nil {
@@ -248,7 +250,7 @@ func validatePatchItem(item PatchItem) error {
 		return validateEPayTypesJSON(value, key)
 	case "billing:native_tool_pricing_json":
 		return validateNativeToolPricingJSON(value, key)
-	case "billing:epay_gateway_url":
+	case "billing:epay_gateway_url", "billing:newapi_bridge_base_url":
 		if err := validateStringMax(value, 512, key); err != nil {
 			return err
 		}
@@ -294,6 +296,40 @@ func validatePatchItem(item PatchItem) error {
 		return validateStringMax(value, 255, key)
 	case "auth:turnstile_site_key", "auth:turnstile_secret_key":
 		return validateStringMax(value, 512, key)
+	case "moderation:mode":
+		switch value {
+		case "moderations", "chat_classifier":
+			return nil
+		default:
+			return fmt.Errorf("%s must be one of: moderations, chat_classifier", key)
+		}
+	case "moderation:fail_strategy":
+		switch value {
+		case "fail_open", "fail_close":
+			return nil
+		default:
+			return fmt.Errorf("%s must be one of: fail_open, fail_close", key)
+		}
+	case "moderation:base_url":
+		if value == "" {
+			return nil
+		}
+		if !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
+			return fmt.Errorf("%s must start with http:// or https://", key)
+		}
+		return nil
+	case "moderation:api_key", "moderation:model", "moderation:action":
+		return validateStringMax(value, 512, key)
+	case "moderation:threshold":
+		return validateFloatMinMax(value, 0.000001, 1, key)
+	case "moderation:timeout_seconds":
+		return validateIntMinMax(value, 1, 120, key)
+	case "moderation:classifier_template":
+		return validateStringMax(value, 20000, key)
+	case "moderation:auto_window_hours":
+		return validateIntMinMax(value, 1, 168, key)
+	case "moderation:auto_limit_threshold", "moderation:auto_suspend_threshold":
+		return validateIntMinMax(value, 0, 100000, key)
 	case "chat:default_system_prompt":
 		return validateStringMax(value, 20000, key)
 	case "auth:smtp_port":
@@ -402,7 +438,7 @@ func validatePatchItem(item PatchItem) error {
 		return validateStringMax(value, 255, key)
 	case "extract:tencent_ocr_secret_id", "extract:tencent_ocr_secret_key", "extract:aliyun_ocr_access_key_id", "extract:aliyun_ocr_access_key_secret":
 		return validateStringMax(value, 512, key)
-	case "auth:username_login_enabled", "auth:email_login_enabled", "auth:third_party_login_enabled", "auth:email_registration_enabled", "auth:email_verification_enabled", "auth:email_registration_block_plus_alias", "auth:auto_link_verified_email", "auth:turnstile_registration_enabled", "auth:rate_limit_enabled", "billing:native_tool_billing_enabled", "chat:rag_enabled", "chat:message_embedding_enabled", "chat:semantic_context_enabled", "file:full_context_limit_enabled", "file:embedding_enabled", "file:embed_trigger_on_upload", "file:embedding_normalize", "extract:image_ocr_enabled", "extract:pdf_ocr_fallback_enabled", "mcp:mcp_enable":
+	case "auth:username_login_enabled", "auth:email_login_enabled", "auth:third_party_login_enabled", "auth:email_registration_enabled", "auth:email_verification_enabled", "auth:invite_registration_required", "auth:email_registration_block_plus_alias", "auth:auto_link_verified_email", "auth:turnstile_registration_enabled", "auth:rate_limit_enabled", "billing:native_tool_billing_enabled", "chat:rag_enabled", "chat:message_embedding_enabled", "chat:semantic_context_enabled", "file:full_context_limit_enabled", "file:embedding_enabled", "file:embed_trigger_on_upload", "file:embedding_normalize", "extract:image_ocr_enabled", "extract:pdf_ocr_fallback_enabled", "mcp:mcp_enable", "mcp:code_sandbox_enabled", "moderation:enabled", "voice:asr_enabled", "voice:tts_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s must be bool", key)
 		}
@@ -422,6 +458,28 @@ func validatePatchItem(item PatchItem) error {
 		return validateIntMinMax(value, 1, 120, key)
 	case "mcp:mcp_tool_retry_count":
 		return validateIntMinMax(value, 0, 5, key)
+	case "mcp:web_search_provider":
+		switch value {
+		case "disabled", "searxng", "tavily", "bocha":
+			return nil
+		default:
+			return fmt.Errorf("%s must be one of: disabled, searxng, tavily, bocha", key)
+		}
+	case "mcp:web_search_base_url":
+		if value == "" {
+			return nil
+		}
+		if !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
+			return fmt.Errorf("%s must start with http:// or https://", key)
+		}
+	case "mcp:web_search_api_key", "voice:asr_model", "voice:asr_provider", "voice:tts_model", "voice:tts_provider", "voice:tts_voice":
+		return validateStringMax(value, 512, key)
+	case "mcp:web_search_timeout_seconds", "mcp:code_sandbox_timeout_seconds":
+		return validateIntMinMax(value, 1, 120, key)
+	case "mcp:web_search_max_results":
+		return validateIntMinMax(value, 1, 10, key)
+	case "mcp:code_sandbox_max_code_chars", "mcp:code_sandbox_max_output_chars":
+		return validateIntMinMax(value, 100, 200000, key)
 	}
 	return nil
 }
@@ -556,8 +614,13 @@ func (s *Service) applyAuthSettingDependencies(ctx context.Context, patches []Pa
 		if patchValueIsTrue(patches, "auth", "turnstile_registration_enabled") {
 			return nil, fmt.Errorf("auth:turnstile_registration_enabled requires auth:email_registration_enabled")
 		}
+		if patchValueIsTrue(patches, "auth", "invite_registration_required") {
+			return nil, fmt.Errorf("auth:invite_registration_required requires auth:email_registration_enabled")
+		}
 		patches = upsertPatch(patches, PatchItem{Namespace: "auth", Key: "turnstile_registration_enabled", Value: "false"})
+		patches = upsertPatch(patches, PatchItem{Namespace: "auth", Key: "invite_registration_required", Value: "false"})
 		next["auth:turnstile_registration_enabled"] = "false"
+		next["auth:invite_registration_required"] = "false"
 		turnstileRegistrationEnabled = false
 	}
 	if turnstileRegistrationEnabled {

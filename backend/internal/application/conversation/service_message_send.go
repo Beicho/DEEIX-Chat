@@ -170,6 +170,17 @@ func (s *Service) sendMessageInternal(
 	if err != nil {
 		return nil, ErrConversationNotFound
 	}
+	inputModeration, moderationErr := s.checkModeration(ctx, "input", input.Content)
+	if moderationErr != nil {
+		failed := s.moderationFailureResult(moderationErr)
+		s.recordModerationEvent(ctx, input, 0, runID, "input", failed, "check_failed")
+		if failed.Flagged {
+			return nil, ErrModerationBlocked
+		}
+	} else if inputModeration != nil && inputModeration.Flagged {
+		s.recordModerationEvent(ctx, input, 0, runID, "input", inputModeration, "blocked")
+		return nil, ErrModerationBlocked
+	}
 
 	normalizedBranchReason := normalizeBranchReason(input.BranchReason)
 	branchState, err := s.resolveMessageBranch(ctx, input.ConversationID, input.UserID, input.ParentMessagePublicID, input.SourceMessagePublicID, normalizedBranchReason)
@@ -180,6 +191,18 @@ func (s *Service) sendMessageInternal(
 
 	currentPlatformModelName := strings.TrimSpace(conversation.Model)
 	requestedPlatformModelName := strings.TrimSpace(input.PlatformModelName)
+	assistantSystemPrompt := ""
+	if normalizedAssistantID := strings.TrimSpace(input.AssistantPublicID); normalizedAssistantID != "" && s.assistantResolver != nil {
+		assistant, assistantErr := s.assistantResolver.ResolveAssistantPrompt(ctx, input.UserID, normalizedAssistantID)
+		if assistantErr != nil {
+			retErr = ErrConversationNotFound
+			return nil, retErr
+		}
+		assistantSystemPrompt = strings.TrimSpace(assistant.SystemPrompt)
+		if requestedPlatformModelName == "" && strings.TrimSpace(assistant.DefaultModel) != "" {
+			requestedPlatformModelName = strings.TrimSpace(assistant.DefaultModel)
+		}
+	}
 	targetPlatformModelName := currentPlatformModelName
 	if requestedPlatformModelName != "" {
 		targetPlatformModelName = requestedPlatformModelName
@@ -419,7 +442,8 @@ func (s *Service) sendMessageInternal(
 		fileMode = fm
 	}
 
-	conversationFileIDs := collectConversationFileIDs(contextMessages, input.FileIDs)
+	projectDocumentFileIDs := s.projectDocumentFileIDsForConversation(ctx, input.UserID, conversation)
+	conversationFileIDs := mergeFileIDs(collectConversationFileIDs(contextMessages, input.FileIDs), projectDocumentFileIDs)
 	conversationAttachments, err := s.resolveConversationFileContext(ctx, input.UserID, conversationFileIDs, input.FileIDs)
 	if err != nil {
 		retErr = err
@@ -457,7 +481,7 @@ func (s *Service) sendMessageInternal(
 
 	// ContextAssembler 只承载真正的系统级行为指令；资料型上下文稍后进入用户 XML。
 	assembler := NewContextAssembler(int64(cfg.ContextMaxInputTokens))
-	systemPrompt := resolveMessageSystemPromptInjection(cfg, route, conversation.ProjectSystemPrompt, input.HTMLVisualPromptEnabled, input.HTMLVisualColorMode)
+	systemPrompt := resolveMessageSystemPromptInjection(cfg, route, conversation.ProjectSystemPrompt, assistantSystemPrompt, input.HTMLVisualPromptEnabled, input.HTMLVisualColorMode)
 	if systemPrompt.Content != "" {
 		if systemPrompt.InlineToUser {
 			historyMsgs = inlineSystemPromptIntoLatestUserMessage(historyMsgs, systemPrompt.Content)
@@ -633,7 +657,14 @@ func (s *Service) sendMessageInternal(
 		RecallChunks:   userCtx.RecallChunks,
 		Memories:       userCtx.Memory,
 	})
-	toolRuntime := s.resolveSelectedToolRuntime(ctx, input.SelectedToolIDs)
+	toolRuntime := s.resolveSelectedToolRuntime(
+		ctx,
+		input.UserID,
+		input.SelectedToolIDs,
+		input.ConfirmedToolIDs,
+		input.WebSearchEnabled,
+		input.CodeSandboxEnabled,
+	)
 	promptPlan := buildPromptPlan(ctx, promptPlanInput{
 		BaseMessages:      llmMessages,
 		StableAttachments: stableFullContextAttachments,
@@ -730,9 +761,34 @@ func (s *Service) sendMessageInternal(
 
 	firstVisibleDeltaLatencyMS := int64(0)
 	visibleDeltaCount := 0
+	var moderationWindow strings.Builder
 	emitVisibleDelta := func(delta string) error {
 		if delta == "" {
 			return nil
+		}
+		moderationWindow.WriteString(delta)
+		if moderationWindow.Len() >= 800 {
+			if checked, checkErr := s.checkModeration(ctx, "output", moderationWindow.String()); checkErr != nil {
+				failed := s.moderationFailureResult(checkErr)
+				s.recordModerationEvent(ctx, input, 0, runID, "output", failed, "check_failed")
+				moderationWindow.Reset()
+				if failed.Flagged {
+					emitEvent(input.OnEvent, "moderation_retract", map[string]interface{}{
+						"action": "retract",
+						"reason": "check_failed",
+					})
+					return ErrModerationBlocked
+				}
+			} else if checked != nil && checked.Flagged {
+				s.recordModerationEvent(ctx, input, 0, runID, "output", checked, "blocked")
+				emitEvent(input.OnEvent, "moderation_retract", map[string]interface{}{
+					"action": "retract",
+					"reason": "blocked",
+				})
+				return ErrModerationBlocked
+			} else {
+				moderationWindow.Reset()
+			}
 		}
 		visibleDeltaCount++
 		if firstVisibleDeltaLatencyMS == 0 {
@@ -1007,8 +1063,8 @@ func (s *Service) sendMessageInternal(
 		streamUsageTotal = totalUsage
 	}
 	totalServerSideToolUsage = addServerSideToolUsage(nil, upstreamOutput.ServerSideToolUsage)
-	remainingToolCalls := s.resolveMaxToolCallsPerRun()
-	maxLLMCalls := s.resolveMaxLLMCallsPerRun()
+	remainingToolCalls := s.resolveMaxToolCallsPerRun(input.ResearchMaxToolCalls)
+	maxLLMCalls := s.resolveMaxLLMCallsPerRun(input.ResearchMaxLLMCalls)
 	if maxLLMCalls <= 0 {
 		maxLLMCalls = 1
 	}
@@ -1034,6 +1090,7 @@ func (s *Service) sendMessageInternal(
 			TraceRecorder:  traceRecorder,
 			ToolNameMap:    toolRuntime.nameMap,
 			MCPConfigs:     toolRuntime.mcpConfigs,
+			BuiltInTools:   toolRuntime.builtIn,
 			ToolSchemas:    toolRuntime.schemas,
 			Ledger:         toolLedger,
 		})
@@ -1149,6 +1206,31 @@ func (s *Service) sendMessageInternal(
 
 	if strings.TrimSpace(assistantText) == "" {
 		retErr = ErrUpstreamEmptyResponse
+		return nil, retErr
+	}
+	outputModeration, moderationErr := s.checkModeration(ctx, "output", assistantText)
+	if moderationErr != nil {
+		failed := s.moderationFailureResult(moderationErr)
+		s.recordModerationEvent(ctx, input, assistantMessage.ID, runID, "output", failed, "check_failed")
+		if failed.Flagged {
+			emitEvent(input.OnEvent, "moderation_retract", map[string]interface{}{
+				"action": "retract",
+				"reason": "check_failed",
+			})
+			assistantText = ""
+			streamedText.Reset()
+			retErr = ErrModerationBlocked
+			return nil, retErr
+		}
+	} else if outputModeration != nil && outputModeration.Flagged {
+		s.recordModerationEvent(ctx, input, assistantMessage.ID, runID, "output", outputModeration, "blocked")
+		emitEvent(input.OnEvent, "moderation_retract", map[string]interface{}{
+			"action": "retract",
+			"reason": "blocked",
+		})
+		assistantText = ""
+		streamedText.Reset()
+		retErr = ErrModerationBlocked
 		return nil, retErr
 	}
 	finalUsageEvent := totalUsage

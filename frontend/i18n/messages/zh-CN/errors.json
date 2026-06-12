@@ -119,6 +119,8 @@
     "invalid": "分享对话无效。",
     "invalidId": "分享 ID 无效。",
     "notFound": "分享不存在。",
+    "passwordRequired": "需要输入访问密码。",
+    "passwordInvalid": "访问密码不正确。",
     "schemaOutdated": "分享数据结构已过期，请重建数据库。"
   },
   "contextArtifact": {
@@ -260,6 +262,10 @@
   },
   "service": {
     "unavailable": "服务暂不可用，请稍后重试。"
+  },
+  "share": {
+    "passwordRequired": "需要输入访问密码。",
+    "passwordInvalid": "访问密码不正确。"
   },
   "settings": {
     "billingPaymentInvalid": "计费支付设置无效。",

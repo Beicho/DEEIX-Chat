@@ -103,6 +103,7 @@ export function AppRecent() {
           onRevokeShare={controller.onRevokeShare}
           onExport={controller.onExport}
           onExportMarkdown={controller.onExportMarkdown}
+          onExportImage={controller.onExportImage}
           onCopyMarkdown={controller.onCopyMarkdown}
           onDelete={controller.onDelete}
           onRetryLoadMore={controller.retryLoadMore}
@@ -126,6 +127,7 @@ export function AppRecent() {
         onCloseDeleteDialog={controller.closeDeleteDialog}
         onCloseShareDialog={controller.closeShareDialog}
         onShareChange={controller.onShareChange}
+        onExportImage={controller.onExportImage}
         onCloseBulkConfirm={() => setBulkConfirmAction(null)}
         onConfirmBulkAction={confirmBulkAction}
       />

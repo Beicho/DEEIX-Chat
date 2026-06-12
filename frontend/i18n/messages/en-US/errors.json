@@ -119,6 +119,8 @@
     "invalid": "Invalid conversation share.",
     "invalidId": "Invalid share ID.",
     "notFound": "Share not found.",
+    "passwordRequired": "Enter the share password.",
+    "passwordInvalid": "The share password is incorrect.",
     "schemaOutdated": "Share schema is outdated. Rebuild the database."
   },
   "contextArtifact": {
@@ -260,6 +262,10 @@
   },
   "service": {
     "unavailable": "Service is unavailable. Try again later."
+  },
+  "share": {
+    "passwordRequired": "Enter the share password.",
+    "passwordInvalid": "The share password is incorrect."
   },
   "settings": {
     "billingPaymentInvalid": "Invalid billing payment settings.",

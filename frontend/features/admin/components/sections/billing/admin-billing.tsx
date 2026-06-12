@@ -55,12 +55,20 @@ import {
 } from "@/shared/components/settings-layout";
 import {
   getAdminReferenceData,
+  adjustAdminBillingAccountBalance,
+  applyAdminPaymentOrderAction,
   batchDeleteAdminRedemptionCodes,
+  createAdminBillingPlan,
   createAdminRedemptionCodes,
+  deleteAdminBillingPlan,
   deleteAdminRedemptionCode,
+  exportAdminBillingUsageCSV,
+  getAdminBillingRiskSummary,
   invalidateAdminReferenceDataCache,
   listAdminRedemptionCodes,
+  listAdminBalanceTransactions,
   listAdminModelPricing,
+  listAdminPaymentOrders,
   listAdminSettingsByNamespace,
   patchAdminBillingConfig,
   patchAdminSettings,
@@ -70,7 +78,7 @@ import {
   upsertAdminModelPricing,
 } from "@/features/admin/api";
 import { listAllAdminPages } from "@/features/admin/api/shared";
-import type { AdminBillingMode, AdminBillingPlanDTO, AdminModelPricingDTO, AdminRedemptionCodeDTO, NativeToolPricingDTO } from "@/features/admin/api/billing.types";
+import type { AdminBalanceTransactionDTO, AdminBillingMode, AdminBillingPlanDTO, AdminBillingRiskSummaryDTO, AdminModelPricingDTO, AdminPaymentOrderDTO, AdminRedemptionCodeDTO, NativeToolPricingDTO } from "@/features/admin/api/billing.types";
 import type { AdminLLMModelDTO } from "@/features/admin/api/llm.types";
 import { resolveErrorMessage } from "@/features/admin/types/llm";
 import { cn } from "@/lib/utils";
@@ -84,6 +92,7 @@ import {
   createOptimisticModelPricing,
   createPlanFormState,
   flattenPaymentSettings,
+  formatAmountCents,
   formatCreditUSD,
   formatDateTime,
   mergeModelPricingItem,
@@ -118,6 +127,22 @@ function formatBillingAmountInput(value: number | null | undefined): string {
   return String(value);
 }
 
+function parseSignedAmount(value: string): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatSignedCreditUSD(value: number, locale: string): string {
+  const amount = Number.isFinite(value) ? value : 0;
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    signDisplay: "exceptZero",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(amount);
+}
+
 function modelPricingExportFilename(): string {
   const date = new Date().toISOString().slice(0, 10);
   return `deeix-chat-model-pricing-${date}.json`;
@@ -126,6 +151,22 @@ function modelPricingExportFilename(): string {
 function redemptionCodesExportFilename(): string {
   const date = new Date().toISOString().slice(0, 10);
   return `deeix-chat-redemption-codes-${date}.json`;
+}
+
+function billingUsageExportFilename(): string {
+  const date = new Date().toISOString().slice(0, 10);
+  return `deeix-chat-admin-usage-${date}.csv`;
+}
+
+function downloadBlobFile(filename: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function formatNativeToolPriceInput(priceNanousd: number): string {
@@ -284,6 +325,27 @@ export function AdminBillingPage() {
   const [models, setModels] = React.useState<AdminLLMModelDTO[]>([]);
   const [pricingItems, setPricingItems] = React.useState<AdminModelPricingDTO[]>([]);
   const [redemptionCodes, setRedemptionCodes] = React.useState<AdminRedemptionCodeDTO[]>([]);
+  const [paymentOrders, setPaymentOrders] = React.useState<AdminPaymentOrderDTO[]>([]);
+  const [paymentOrderTotal, setPaymentOrderTotal] = React.useState(0);
+  const [paymentOrderLoading, setPaymentOrderLoading] = React.useState(false);
+  const [paymentOrderPage, setPaymentOrderPage] = React.useState(1);
+  const [paymentOrderPageSize, setPaymentOrderPageSize] = React.useState(DEFAULT_PAGE_SIZE);
+  const [paymentOrderStatus, setPaymentOrderStatus] = React.useState("");
+  const [paymentOrderQuery, setPaymentOrderQuery] = React.useState("");
+  const [paymentOrderActionPending, setPaymentOrderActionPending] = React.useState("");
+  const [balanceTransactions, setBalanceTransactions] = React.useState<AdminBalanceTransactionDTO[]>([]);
+  const [balanceTransactionTotal, setBalanceTransactionTotal] = React.useState(0);
+  const [balanceTransactionLoading, setBalanceTransactionLoading] = React.useState(false);
+  const [balanceTransactionPage, setBalanceTransactionPage] = React.useState(1);
+  const [balanceTransactionPageSize, setBalanceTransactionPageSize] = React.useState(DEFAULT_PAGE_SIZE);
+  const [riskSummary, setRiskSummary] = React.useState<AdminBillingRiskSummaryDTO | null>(null);
+  const [riskLoading, setRiskLoading] = React.useState(false);
+  const [balanceUserID, setBalanceUserID] = React.useState("");
+  const [balanceDelta, setBalanceDelta] = React.useState("");
+  const [balanceDeltaDescription, setBalanceDeltaDescription] = React.useState("");
+  const [usageExporting, setUsageExporting] = React.useState(false);
+  const [planCreateOpen, setPlanCreateOpen] = React.useState(false);
+  const [planCreateForm, setPlanCreateForm] = React.useState({ code: "", name: "", description: "", amount: "0", periodCredit: "0", discountPercent: "0", billingInterval: "month" });
   const [loading, setLoading] = React.useState(true);
   const [redemptionLoading, setRedemptionLoading] = React.useState(false);
   const [modelPricingRefreshing, setModelPricingRefreshing] = React.useState(false);
@@ -320,6 +382,7 @@ export function AdminBillingPage() {
   const [form, setForm] = React.useState<PricingFormState | null>(null);
   const [editPlan, setEditPlan] = React.useState<AdminBillingPlanDTO | null>(null);
   const [planForm, setPlanForm] = React.useState<PlanFormState | null>(null);
+  const [planDeleteTarget, setPlanDeleteTarget] = React.useState<AdminBillingPlanDTO | null>(null);
   const [redemptionForm, setRedemptionForm] = React.useState<RedemptionFormState | null>(null);
   const [redemptionSaving, setRedemptionSaving] = React.useState(false);
   const [selectedRedemptionIDs, setSelectedRedemptionIDs] = React.useState<Set<number>>(new Set());
@@ -434,6 +497,67 @@ export function AdminBillingPage() {
     }
   }, [t]);
 
+  const loadPaymentOrders = React.useCallback(async () => {
+    setPaymentOrderLoading(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
+        return;
+      }
+      const result = await listAdminPaymentOrders(token, {
+        page: paymentOrderPage,
+        pageSize: paymentOrderPageSize,
+        status: paymentOrderStatus,
+        query: paymentOrderQuery,
+      });
+      setPaymentOrders(result.results ?? []);
+      setPaymentOrderTotal(result.total ?? 0);
+    } catch (error) {
+      toast.error(t("toast.paymentOrdersLoadFailed"), { description: resolveErrorMessage(error) });
+    } finally {
+      setPaymentOrderLoading(false);
+    }
+  }, [paymentOrderPage, paymentOrderPageSize, paymentOrderQuery, paymentOrderStatus, t]);
+
+  const loadBalanceTransactions = React.useCallback(async () => {
+    setBalanceTransactionLoading(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
+        return;
+      }
+      const result = await listAdminBalanceTransactions(token, {
+        page: balanceTransactionPage,
+        pageSize: balanceTransactionPageSize,
+      });
+      setBalanceTransactions(result.results ?? []);
+      setBalanceTransactionTotal(result.total ?? 0);
+    } catch (error) {
+      toast.error(t("toast.balanceTransactionsLoadFailed"), { description: resolveErrorMessage(error) });
+    } finally {
+      setBalanceTransactionLoading(false);
+    }
+  }, [balanceTransactionPage, balanceTransactionPageSize, t]);
+
+  const loadRiskSummary = React.useCallback(async () => {
+    setRiskLoading(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
+        return;
+      }
+      const result = await getAdminBillingRiskSummary(token);
+      setRiskSummary(result.risk);
+    } catch (error) {
+      toast.error(t("toast.riskLoadFailed"), { description: resolveErrorMessage(error) });
+    } finally {
+      setRiskLoading(false);
+    }
+  }, [t]);
+
   React.useEffect(() => {
     void loadData();
   }, [loadData]);
@@ -441,6 +565,18 @@ export function AdminBillingPage() {
   React.useEffect(() => {
     void loadRedemptionCodes();
   }, [loadRedemptionCodes]);
+
+  React.useEffect(() => {
+    void loadPaymentOrders();
+  }, [loadPaymentOrders]);
+
+  React.useEffect(() => {
+    void loadBalanceTransactions();
+  }, [loadBalanceTransactions]);
+
+  React.useEffect(() => {
+    void loadRiskSummary();
+  }, [loadRiskSummary]);
 
   const rows = React.useMemo(() => buildPricingRows(models, pricingItems), [models, pricingItems]);
   const vendorFilterOptions = React.useMemo(() => {
@@ -1238,6 +1374,24 @@ export function AdminBillingPage() {
     toast.success(t("toast.exported", { count }));
   }
 
+  async function exportBillingUsageCSV() {
+    setUsageExporting(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
+        return;
+      }
+      const blob = await exportAdminBillingUsageCSV(token);
+      downloadBlobFile(billingUsageExportFilename(), blob);
+      toast.success(t("toast.billingCSVExported"));
+    } catch (error) {
+      toast.error(t("toast.billingCSVExportFailed"), { description: resolveErrorMessage(error) });
+    } finally {
+      setUsageExporting(false);
+    }
+  }
+
   async function importModelPricingFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     event.target.value = "";
@@ -1362,6 +1516,111 @@ export function AdminBillingPage() {
       setPlanForm(null);
     } catch (error) {
       toast.error(t("toast.planSaveFailed"), { description: resolveErrorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createPlan(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    if (!planCreateForm.code.trim() || !planCreateForm.name.trim()) {
+      toast.error(t("toast.planCreateInvalid"));
+      return;
+    }
+    setSaving(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
+        return;
+      }
+      const data = await createAdminBillingPlan(token, {
+        code: planCreateForm.code.trim(),
+        name: planCreateForm.name.trim(),
+        description: planCreateForm.description.trim(),
+        amountUSD: parsePrice(planCreateForm.amount),
+        currency: "USD",
+        billingInterval: planCreateForm.billingInterval,
+        periodCreditUSD: parsePrice(planCreateForm.periodCredit),
+        discountPercent: Math.min(100, parseIntValue(planCreateForm.discountPercent)),
+      });
+      setPlans((current) => [...current, data.plan].sort((left, right) => left.sortOrder - right.sortOrder || left.id - right.id));
+      setPlanCreateOpen(false);
+      setPlanCreateForm({ code: "", name: "", description: "", amount: "0", periodCredit: "0", discountPercent: "0", billingInterval: "month" });
+      invalidateAdminReferenceDataCache();
+      toast.success(t("toast.planCreated"));
+    } catch (error) {
+      toast.error(t("toast.planCreateFailed"), { description: resolveErrorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deletePlan(plan: AdminBillingPlanDTO) {
+    setSaving(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
+        return;
+      }
+      await deleteAdminBillingPlan(token, plan.id);
+      setPlans((current) => current.filter((item) => item.id !== plan.id));
+      setPlanDeleteTarget(null);
+      invalidateAdminReferenceDataCache();
+      toast.success(t("toast.planDeleted"));
+    } catch (error) {
+      toast.error(t("toast.planDeleteFailed"), { description: resolveErrorMessage(error) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function applyPaymentAction(order: AdminPaymentOrderDTO, action: "complete" | "expire" | "fail") {
+    setPaymentOrderActionPending(`${order.orderNo}:${action}`);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
+        return;
+      }
+      const data = await applyAdminPaymentOrderAction(token, order.orderNo, { action });
+      setPaymentOrders((current) => current.map((item) => item.orderNo === order.orderNo ? data.order : item));
+      toast.success(t("toast.paymentOrderUpdated"));
+      void loadPaymentOrders();
+      void loadBalanceTransactions();
+    } catch (error) {
+      toast.error(t("toast.paymentOrderUpdateFailed"), { description: resolveErrorMessage(error) });
+    } finally {
+      setPaymentOrderActionPending("");
+    }
+  }
+
+  async function applyBalanceDelta(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const userID = parseIntValue(balanceUserID);
+    const deltaUSD = parseSignedAmount(balanceDelta);
+    if (!userID || deltaUSD === 0) {
+      toast.error(t("toast.balanceDeltaInvalid"));
+      return;
+    }
+    setSaving(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
+        return;
+      }
+      await adjustAdminBillingAccountBalance(token, userID, {
+        deltaUSD,
+        description: balanceDeltaDescription.trim() || undefined,
+      });
+      setBalanceDelta("");
+      setBalanceDeltaDescription("");
+      toast.success(t("toast.balanceDeltaSaved"));
+      void loadBalanceTransactions();
+    } catch (error) {
+      toast.error(t("toast.balanceDeltaFailed"), { description: resolveErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -1612,6 +1871,135 @@ export function AdminBillingPage() {
 
       <section className="space-y-6 px-1">
         <div className="flex h-10 items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold">{t("orders.title")}</h3>
+        </div>
+        <TableToolbar
+          query={paymentOrderQuery}
+          onQueryChange={(value) => {
+            setPaymentOrderQuery(value);
+            setPaymentOrderPage(1);
+          }}
+          queryPlaceholder={t("orders.searchPlaceholder")}
+          filters={[
+            {
+              key: "status",
+              label: t("orders.status"),
+              value: paymentOrderStatus,
+              onValueChange: (value) => {
+                setPaymentOrderStatus(value);
+                setPaymentOrderPage(1);
+              },
+              options: [
+                { label: t("orders.allStatuses"), value: "" },
+                { label: t("orders.statuses.pending"), value: "pending" },
+                { label: t("orders.statuses.paid"), value: "paid" },
+                { label: t("orders.statuses.failed"), value: "failed" },
+                { label: t("orders.statuses.expired"), value: "expired" },
+              ],
+            },
+          ]}
+          loading={paymentOrderLoading}
+          onRefresh={() => void loadPaymentOrders()}
+        />
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("orders.columns.order")}</TableHead>
+              <TableHead>{t("orders.columns.user")}</TableHead>
+              <TableHead>{t("orders.columns.amount")}</TableHead>
+              <TableHead>{t("orders.columns.status")}</TableHead>
+              <TableHead stickyEnd className="w-[180px]" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paymentOrderLoading ? <TableSkeletonRows colSpan={5} rowCount={4} /> : null}
+            {!paymentOrderLoading && paymentOrders.length === 0 ? <TableEmptyRow colSpan={5}>{t("orders.empty")}</TableEmptyRow> : null}
+            {!paymentOrderLoading ? paymentOrders.map((order) => {
+              const canAct = order.status === "pending";
+              return (
+                <TableRow key={order.orderNo}>
+                  <TableCell className="py-1.5 text-xs">
+                    <div className="font-medium">{order.orderNo}</div>
+                    <div className="text-muted-foreground">{formatDateTime(order.createdAt, locale)}</div>
+                  </TableCell>
+                  <TableCell className="py-1.5 text-xs tabular-nums">{order.userID}</TableCell>
+                  <TableCell className="py-1.5 text-xs tabular-nums">{formatAmountCents(order.payAmountCents, order.payCurrency)}</TableCell>
+                  <TableCell className="py-1.5 text-xs">{t(`orders.statuses.${order.status === "paid" ? "paid" : order.status === "failed" ? "failed" : order.status === "expired" ? "expired" : "pending"}`)}</TableCell>
+                  <TableCell stickyEnd className="py-1.5">
+                    <div className="flex justify-end gap-1">
+                      <Button size="sm" variant="ghost" disabled={!canAct || paymentOrderActionPending === `${order.orderNo}:complete`} onClick={() => void applyPaymentAction(order, "complete")}>{t("orders.complete")}</Button>
+                      <Button size="sm" variant="ghost" disabled={!canAct || paymentOrderActionPending === `${order.orderNo}:expire`} onClick={() => void applyPaymentAction(order, "expire")}>{t("orders.expire")}</Button>
+                      <Button size="sm" variant="ghost" disabled={!canAct || paymentOrderActionPending === `${order.orderNo}:fail`} onClick={() => void applyPaymentAction(order, "fail")}>{t("orders.fail")}</Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            }) : null}
+          </TableBody>
+        </Table>
+        <TablePagination total={paymentOrderTotal} page={paymentOrderPage} pageCount={Math.max(1, Math.ceil(paymentOrderTotal / paymentOrderPageSize))} pageSize={paymentOrderPageSize} pageSizeOptions={PAGE_SIZE_OPTIONS} onPageChange={setPaymentOrderPage} onPageSizeChange={(value) => { setPaymentOrderPageSize(value); setPaymentOrderPage(1); }} loading={paymentOrderLoading} />
+      </section>
+
+      <Separator className="mx-1 my-10" />
+
+      <section className="grid gap-6 px-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold">{t("balance.title")}</h3>
+          <form className="grid gap-3 rounded-md bg-muted/25 p-3" onSubmit={(event) => void applyBalanceDelta(event)}>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Input value={balanceUserID} inputMode="numeric" placeholder={t("balance.userID")} onChange={(event) => setBalanceUserID(event.target.value)} />
+              <Input value={balanceDelta} type="number" step="0.01" placeholder={t("balance.deltaUSD")} onChange={(event) => setBalanceDelta(event.target.value)} />
+              <Input value={balanceDeltaDescription} placeholder={t("balance.description")} onChange={(event) => setBalanceDeltaDescription(event.target.value)} />
+            </div>
+            <Button type="submit" size="sm" disabled={saving}>{saving ? <SpinnerLabel>{tActions("saving")}</SpinnerLabel> : t("balance.applyDelta")}</Button>
+          </form>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("balance.columns.time")}</TableHead>
+                <TableHead>{t("balance.columns.user")}</TableHead>
+                <TableHead>{t("balance.columns.amount")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {balanceTransactionLoading ? <TableSkeletonRows colSpan={3} rowCount={4} /> : null}
+              {!balanceTransactionLoading && balanceTransactions.length === 0 ? <TableEmptyRow colSpan={3}>{t("balance.empty")}</TableEmptyRow> : null}
+              {!balanceTransactionLoading ? balanceTransactions.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="py-1.5 text-xs text-muted-foreground">{formatDateTime(item.createdAt, locale)}</TableCell>
+                  <TableCell className="py-1.5 text-xs tabular-nums">{item.userID}</TableCell>
+                  <TableCell className="py-1.5 text-xs tabular-nums">{formatSignedCreditUSD(item.amountUSD, locale)}</TableCell>
+                </TableRow>
+              )) : null}
+            </TableBody>
+          </Table>
+          <TablePagination total={balanceTransactionTotal} page={balanceTransactionPage} pageCount={Math.max(1, Math.ceil(balanceTransactionTotal / balanceTransactionPageSize))} pageSize={balanceTransactionPageSize} pageSizeOptions={PAGE_SIZE_OPTIONS} onPageChange={setBalanceTransactionPage} onPageSizeChange={(value) => { setBalanceTransactionPageSize(value); setBalanceTransactionPage(1); }} loading={balanceTransactionLoading} />
+        </div>
+        <div className="space-y-4">
+          <div className="flex h-8 items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold">{t("risk.title")}</h3>
+            <Button type="button" size="sm" variant="outline" disabled={riskLoading} onClick={() => void loadRiskSummary()}>{riskLoading ? <SpinnerLabel>{t("risk.loading")}</SpinnerLabel> : t("risk.refresh")}</Button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              ["multiAccountClusterCount", riskSummary?.multiAccountClusterCount ?? 0],
+              ["highRiskClusterCount", riskSummary?.highRiskClusterCount ?? 0],
+              ["ignoredClusterCount", riskSummary?.ignoredClusterCount ?? 0],
+              ["uniqueIPCount", riskSummary?.uniqueIPCount ?? 0],
+            ].map(([key, value]) => (
+              <div key={key} className="rounded-md bg-muted/25 p-3">
+                <p className="text-xs text-muted-foreground">{t(`risk.metrics.${key}`)}</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums">{Number(value).toLocaleString(locale)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <Separator className="mx-1 my-10" />
+
+      <section className="space-y-6 px-1">
+        <div className="flex h-10 items-center justify-between gap-3">
           <h3 className="text-sm font-semibold">{t("redemption.title")}</h3>
         </div>
 
@@ -1770,7 +2158,7 @@ export function AdminBillingPage() {
                                 <span
                                   tabIndex={0}
                                   aria-label={t("redemption.unavailable")}
-                                  className="inline-flex size-4 items-center justify-center text-amber-600 outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-400"
+                                  className="inline-flex size-4 items-center justify-center text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 >
                                   <CircleAlert className="size-3.5 stroke-1.5" />
                                 </span>
@@ -1863,10 +2251,19 @@ export function AdminBillingPage() {
       <Separator className="mx-1 my-10" />
 
       <section className="space-y-6 px-1">
-        <div className="flex h-10 items-center">
+        <div className="flex h-10 items-center justify-between gap-3">
           <h3 className="text-sm font-semibold">{t("plans.title")}</h3>
+          <Button
+            type="button"
+            size="sm"
+            disabled={loading || saving}
+            onClick={() => setPlanCreateOpen(true)}
+          >
+            <Plus className="size-3.5" />
+            {t("plans.createPlan")}
+          </Button>
         </div>
-        <PeriodBillingTable plans={plans} loading={loading} onEdit={openPlanEdit} />
+        <PeriodBillingTable plans={plans} loading={loading} onEdit={openPlanEdit} onDelete={setPlanDeleteTarget} />
       </section>
 
       <Separator className="mx-1 my-10" />
@@ -1939,6 +2336,18 @@ export function AdminBillingPage() {
               className="hidden"
               onChange={(event) => void importModelPricingFile(event)}
             />
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="size-8 text-muted-foreground shadow-none hover:bg-muted hover:text-foreground"
+              disabled={loading || saving || usageExporting}
+              onClick={() => void exportBillingUsageCSV()}
+              aria-label={t("actions.exportBillingCSV")}
+              title={t("actions.exportBillingCSV")}
+            >
+              {usageExporting ? <Download className="size-3.5 animate-pulse stroke-1" /> : <Download className="size-3.5 stroke-1" />}
+            </Button>
             <Button
               type="button"
               size="icon-sm"
@@ -2157,6 +2566,124 @@ export function AdminBillingPage() {
         onCancel={() => setEditPlan(null)}
         onSubmit={savePlan}
       />
+
+      <Dialog
+        open={planCreateOpen}
+        onOpenChange={(open) => {
+          if (!open && saving) return;
+          setPlanCreateOpen(open);
+        }}
+      >
+        <DialogContent className="flex max-h-[min(86vh,720px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[560px]">
+          <DialogHeader className="shrink-0 px-4 py-4">
+            <DialogTitle>{t("plans.createTitle")}</DialogTitle>
+            <DialogDescription>{t("plans.createDescription")}</DialogDescription>
+          </DialogHeader>
+
+          <motion.form layout transition={DIALOG_LAYOUT_TRANSITION} onSubmit={(event) => void createPlan(event)} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-2">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">{t("plans.code")}</p>
+                  <Input
+                    value={planCreateForm.code}
+                    autoComplete="off"
+                    disabled={saving}
+                    placeholder={t("plans.codePlaceholder")}
+                    onChange={(event) => setPlanCreateForm((current) => ({ ...current, code: event.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">{t("plans.name")}</p>
+                  <Input
+                    value={planCreateForm.name}
+                    disabled={saving}
+                    onChange={(event) => setPlanCreateForm((current) => ({ ...current, name: event.target.value }))}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">{t("plans.price")}</p>
+                  <Input
+                    value={planCreateForm.amount}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    disabled={saving}
+                    onChange={(event) => setPlanCreateForm((current) => ({ ...current, amount: event.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">{t("plans.interval")}</p>
+                  <Select
+                    value={planCreateForm.billingInterval}
+                    disabled={saving}
+                    onValueChange={(value) => setPlanCreateForm((current) => ({ ...current, billingInterval: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="lifetime">{t("plans.intervals.lifetime")}</SelectItem>
+                      <SelectItem value="month">{t("plans.intervals.month")}</SelectItem>
+                      <SelectItem value="year">{t("plans.intervals.year")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">{t("plans.periodCredit")}</p>
+                  <Input
+                    value={planCreateForm.periodCredit}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    disabled={saving}
+                    onChange={(event) => setPlanCreateForm((current) => ({ ...current, periodCredit: event.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">{t("plans.discount")}</p>
+                  <Input
+                    value={planCreateForm.discountPercent}
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    disabled={saving}
+                    onChange={(event) => setPlanCreateForm((current) => ({ ...current, discountPercent: event.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">{t("plans.description")}</p>
+                <Textarea
+                  value={planCreateForm.description}
+                  className="h-20 resize-none"
+                  disabled={saving}
+                  onChange={(event) => setPlanCreateForm((current) => ({ ...current, description: event.target.value }))}
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="shrink-0 px-4 py-3">
+              <Button type="button" variant="ghost" onClick={() => setPlanCreateOpen(false)} disabled={saving}>
+                {tActions("cancel")}
+              </Button>
+              <Button type="submit" disabled={saving || !planCreateForm.code.trim() || !planCreateForm.name.trim()}>
+                {saving ? <SpinnerLabel>{tActions("saving")}</SpinnerLabel> : t("plans.createPlan")}
+              </Button>
+            </DialogFooter>
+          </motion.form>
+        </DialogContent>
+      </Dialog>
 
       <PricingBillingDialog
         open={!!editRow && !!form}
@@ -2429,6 +2956,23 @@ export function AdminBillingPage() {
         confirmLabel={redemptionBulkConfirmLabel(redemptionBulkAction)}
         pendingLabel={t("redemption.bulkPending")}
         onConfirm={confirmRedemptionBulkAction}
+      />
+
+      <AdminBulkConfirmDialog
+        open={planDeleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !saving) setPlanDeleteTarget(null);
+        }}
+        pending={saving}
+        title={t("plans.deleteTitle")}
+        description={t("plans.deleteDescription", { name: planDeleteTarget?.name || "" })}
+        confirmLabel={tActions("delete")}
+        pendingLabel={t("plans.deleting")}
+        onConfirm={() => {
+          if (planDeleteTarget) {
+            void deletePlan(planDeleteTarget);
+          }
+        }}
       />
 
       <AdminBulkConfirmDialog

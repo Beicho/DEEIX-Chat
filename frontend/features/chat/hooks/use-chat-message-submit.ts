@@ -36,6 +36,7 @@ import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { notifyResponseCompletion } from "@/shared/lib/browser-notifications";
 import {
   cancelMessageGeneration,
+  deleteMessage,
   getConversation,
   streamImageEdit,
   streamImageGeneration,
@@ -55,6 +56,15 @@ import type {
 import { ApiError } from "@/shared/api/http-client";
 
 const CONVERSATION_METADATA_REFRESH_DELAYS = [800, 1200, 1800, 2600, 3500, 5000] as const;
+const LEGACY_UNTITLED_TITLES = new Set([
+  "",
+  "new conversation",
+  "new chat",
+  "untitled",
+  "\u65b0\u4f1a\u8bdd",
+  "\u65b0\u5bf9\u8bdd",
+  "\u65b0\u7684\u5bf9\u8bdd",
+]);
 
 function resolveSubmitBlockDescription(
   reason: ChatSubmitBlockReason,
@@ -147,7 +157,7 @@ function normalizeLabelsJSON(value: string | null | undefined): string {
 
 function isPlaceholderConversationTitle(title: string): boolean {
   const value = title.trim().toLowerCase();
-  return ["", "new conversation", "new chat", "untitled", "新会话", "新对话", "新的对话"].includes(value);
+  return LEGACY_UNTITLED_TITLES.has(value);
 }
 
 function shouldRefreshGeneratedConversationMetadata(item: ConversationDTO | null, visibleMessageCount: number): boolean {
@@ -194,6 +204,11 @@ export function useChatMessageSubmit({
   selectedPlatformModelName,
   modelOptions,
   selectedToolIDs,
+  confirmedToolIDs,
+  webSearchEnabled,
+  codeSandboxEnabled,
+  researchMaxLLMCalls,
+  researchMaxToolCalls,
   htmlVisualPromptEnabled,
   htmlVisualColorMode,
   options,
@@ -233,6 +248,11 @@ export function useChatMessageSubmit({
   selectedPlatformModelName: string;
   modelOptions: ChatModelOption[];
   selectedToolIDs: number[];
+  confirmedToolIDs: number[];
+  webSearchEnabled: boolean;
+  codeSandboxEnabled: boolean;
+  researchMaxLLMCalls: number;
+  researchMaxToolCalls: number;
   htmlVisualPromptEnabled: boolean;
   htmlVisualColorMode: "light" | "dark";
   options: ConversationOptions;
@@ -609,6 +629,11 @@ export function useChatMessageSubmit({
             contentType: effectiveAttachments.length > 0 ? "mixed" : "text",
             content: payloadContent,
             selectedToolIDs: selectedToolIDs.length > 0 ? selectedToolIDs : undefined,
+            confirmedToolIDs: confirmedToolIDs.length > 0 ? confirmedToolIDs : undefined,
+            webSearchEnabled: webSearchEnabled || undefined,
+            codeSandboxEnabled: codeSandboxEnabled || undefined,
+            researchMaxLLMCalls: researchMaxLLMCalls > 0 ? researchMaxLLMCalls : undefined,
+            researchMaxToolCalls: researchMaxToolCalls > 0 ? researchMaxToolCalls : undefined,
             htmlVisualPrompt: htmlVisualPromptEnabled || undefined,
             htmlVisualColorMode: htmlVisualPromptEnabled ? htmlVisualColorMode : undefined,
           };
@@ -820,6 +845,11 @@ export function useChatMessageSubmit({
       restoreDraftOnFailure,
       modelOptions,
       selectedToolIDs,
+      confirmedToolIDs,
+      webSearchEnabled,
+      codeSandboxEnabled,
+      researchMaxLLMCalls,
+      researchMaxToolCalls,
       htmlVisualPromptEnabled,
       htmlVisualColorMode,
       selectedPlatformModelName,
@@ -974,6 +1004,28 @@ export function useChatMessageSubmit({
     [replaceMessage, t],
   );
 
+  const onDeleteMessage = React.useCallback(
+    async (message: ChatAreaMessage) => {
+      const messagePublicID = resolvePersistedPublicID(message.publicID);
+      if (!messagePublicID || message.isPending || message.isStreaming) {
+        toast.error(t("deleteMessageFailed"), { description: t("continueReplyUnavailable") });
+        return;
+      }
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("deleteMessageFailed"), { description: t("signInRequired") });
+        return;
+      }
+      try {
+        await deleteMessage(token, messagePublicID);
+        reload();
+      } catch {
+        toast.error(t("deleteMessageFailed"), { description: t("retryLater") });
+      }
+    },
+    [reload, t],
+  );
+
   const onCycleMessageBranch = React.useCallback(
     (parentPublicID: string | null, direction: "previous" | "next") => {
       const siblings = buildChildrenIndex(combinedMessages).get(toBranchKey(parentPublicID)) ?? [];
@@ -1002,6 +1054,7 @@ export function useChatMessageSubmit({
 
   return {
     onCycleMessageBranch,
+    onDeleteMessage,
     onEditAssistantMessage,
     onEditUserMessage,
     onContinueAssistantMessage,

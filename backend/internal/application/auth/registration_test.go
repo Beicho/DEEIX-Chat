@@ -265,7 +265,7 @@ func TestRegisterWithEmailRequiresTurnstileWhenEmailVerificationDisabled(t *test
 		TurnstileSecretKey:           "secret-key",
 	}, nil, nil)
 
-	_, err := service.RegisterWithEmail(context.Background(), "user@example.com", "securepass1", "", "", "127.0.0.1", "", requestmeta.SessionAuditContext{})
+	_, err := service.RegisterWithEmail(context.Background(), "user@example.com", "securepass1", "", "", "127.0.0.1", "", "", "", "", requestmeta.SessionAuditContext{})
 	if err == nil || err.Error() != "turnstile verification is required" {
 		t.Fatalf("expected turnstile required error, got %v", err)
 	}
@@ -281,7 +281,7 @@ func TestRegisterWithEmailDoesNotRequireTurnstileWhenEmailVerificationEnabled(t 
 		TurnstileSecretKey:           "secret-key",
 	}, &emailRegistrationRepo{}, nil)
 
-	_, err := service.RegisterWithEmail(context.Background(), "user@example.com", "securepass1", "", "", "127.0.0.1", "", requestmeta.SessionAuditContext{})
+	_, err := service.RegisterWithEmail(context.Background(), "user@example.com", "securepass1", "", "", "127.0.0.1", "", "", "", "", requestmeta.SessionAuditContext{})
 	if err == nil || err.Error() != "verification code is invalid or expired" {
 		t.Fatalf("expected verification code error instead of turnstile error, got %v", err)
 	}

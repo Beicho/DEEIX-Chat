@@ -24,6 +24,7 @@ type executeAssistantToolCallsInput struct {
 	TraceRecorder  *messageTraceRecorder
 	ToolNameMap    map[string]string
 	MCPConfigs     map[string]mcp.CallConfig
+	BuiltInTools   map[string]string
 	ToolSchemas    map[string]json.RawMessage
 	Ledger         *toolExecutionLedger
 }
@@ -85,7 +86,8 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 		}
 
 		mcpConfig := resolveMCPConfig(modelToolName, input.MCPConfigs)
-		if mcpConfig == nil {
+		builtInKind := resolveBuiltInToolKind(modelToolName, input.BuiltInTools)
+		if mcpConfig == nil && builtInKind == "" {
 			row.Status = "error"
 			row.ErrorJSON = toolNotEnabledForRunMessage(modelToolName)
 			slots[i] = toolExecutionSlot{
@@ -131,6 +133,7 @@ func (s *Service) executeAssistantToolCalls(ctx context.Context, input executeAs
 			ToolName:       row.ToolName,
 			ArgumentsJSON:  row.InputJSON,
 			MCPConfig:      mcpConfig,
+			BuiltInKind:    builtInKind,
 		})
 		row.LatencyMS = time.Since(toolStartedAt).Milliseconds()
 		if row.LatencyMS < 0 {
@@ -330,4 +333,12 @@ func resolveMCPConfig(toolName string, configs map[string]mcp.CallConfig) *mcp.C
 		return nil
 	}
 	return &cfg
+}
+
+func resolveBuiltInToolKind(toolName string, tools map[string]string) string {
+	value := strings.TrimSpace(toolName)
+	if value == "" || len(tools) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(tools[value])
 }

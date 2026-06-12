@@ -1,0 +1,27 @@
+{
+  "title": "内容检查",
+  "description": "近期被内容检查拦截的消息。",
+  "empty": "暂无记录。",
+  "loadFailed": "记录加载失败。",
+  "fields": {
+    "time": "时间",
+    "direction": "方向",
+    "action": "处理",
+    "score": "分值",
+    "threshold": "限制",
+    "reason": "原因",
+    "user": "用户",
+    "conversation": "会话"
+  },
+  "direction": {
+    "input": "输入",
+    "output": "输出"
+  },
+  "action": {
+    "block": "已拦截"
+  },
+  "reason": {
+    "blocked": "已停止",
+    "check_failed": "检查失败"
+  }
+}

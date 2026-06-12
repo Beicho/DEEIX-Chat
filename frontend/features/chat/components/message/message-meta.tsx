@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
+  Bookmark,
   Brain,
   Check,
   ClockArrowUp,
@@ -16,6 +17,7 @@ import {
   Forward,
   PauseCircle,
   PlayCircle,
+  Trash2,
   Volume2,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -86,16 +88,13 @@ function formatMessageDate(value: string | undefined, locale: string): string {
   }
 
   const year = date.getFullYear();
-  const month = date.getMonth() + 1;
-  const day = date.getDate();
   const isCurrentYear = year === new Date().getFullYear();
-  const isChinese = locale.toLowerCase().startsWith("zh");
 
-  if (isChinese) {
-    return isCurrentYear ? `${month}月${day}日` : `${year}年${month}月${day}日`;
-  }
-
-  return isCurrentYear ? `${month}/${day}` : `${year}/${month}/${day}`;
+  return new Intl.DateTimeFormat(locale, {
+    year: isCurrentYear ? undefined : "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(date);
 }
 
 function BranchSwitcher({
@@ -283,8 +282,11 @@ export function UserMessageMeta({
   showRetry,
   onCycleBranch,
   onRetry,
+  onDelete,
   onEdit,
   onCopy,
+  bookmarked = false,
+  onToggleBookmark,
   readOnly = false,
   alwaysVisible = false,
   showBranchNavigator = true,
@@ -294,8 +296,11 @@ export function UserMessageMeta({
   showRetry: boolean;
   onCycleBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onRetry: () => void;
+  onDelete?: () => void;
   onEdit: () => void;
   onCopy: () => void;
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
   readOnly?: boolean;
   alwaysVisible?: boolean;
   showBranchNavigator?: boolean;
@@ -334,6 +339,25 @@ export function UserMessageMeta({
           >
             <Copy size={14} strokeWidth={1.8} animateOnHover="default" />
           </MetaIconButton>
+          {onDelete ? (
+            <MetaIconButton
+              label={t("deleteMessage")}
+              disabled={item.isPending || !hasPersistedMessage}
+              onClick={onDelete}
+            >
+              <Trash2 className="size-3.5" strokeWidth={1.8} />
+            </MetaIconButton>
+          ) : null}
+          {onToggleBookmark ? (
+            <MetaIconButton
+              label={bookmarked ? t("removeBookmark") : t("bookmarkMessage")}
+              className={bookmarked ? "text-foreground" : undefined}
+              disabled={item.isPending}
+              onClick={onToggleBookmark}
+            >
+              <Bookmark className={cn("size-3.5", bookmarked && "fill-current")} strokeWidth={1.8} />
+            </MetaIconButton>
+          ) : null}
         </div>
       ) : null}
       {canShowBranchNavigator ? <BranchSwitcher item={item} onCycle={onCycleBranch} /> : null}
@@ -980,8 +1004,11 @@ export function AssistantMessageMeta({
   onCycleBranch,
   onRetry,
   onContinue,
+  onDelete,
   onEdit,
   onCopy,
+  bookmarked = false,
+  onToggleBookmark,
   onReact,
   speechSupported = false,
   speechActive = false,
@@ -1003,8 +1030,11 @@ export function AssistantMessageMeta({
   onCycleBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onRetry: (platformModelName?: string) => void;
   onContinue?: () => void;
+  onDelete?: () => void;
   onEdit?: () => void;
   onCopy: () => void;
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
   onReact: (value: AssistantReaction) => void;
   speechSupported?: boolean;
   speechActive?: boolean;
@@ -1024,6 +1054,7 @@ export function AssistantMessageMeta({
   const isLive = Boolean(item.isPending || item.isStreaming);
   const canRetry = !readOnly && !busy && !isLive;
   const canEdit = Boolean(canRetry && onEdit && resolvePersistedPublicID(item.publicID));
+  const canDelete = Boolean(canRetry && onDelete && resolvePersistedPublicID(item.publicID));
   const canContinue = Boolean(canRetry && resolvePersistedPublicID(item.publicID) && item.status === "interrupted");
   const canShowBranchNavigator = Boolean(showBranchNavigator && item.branchNavigator && !busy && !isLive);
   const hasTokenUsage = Boolean(
@@ -1081,6 +1112,16 @@ export function AssistantMessageMeta({
                 >
                   <Copy size={14} strokeWidth={1.8} animateOnHover="default" />
                 </MetaIconButton>
+                {onToggleBookmark ? (
+                  <MetaIconButton
+                    label={bookmarked ? t("removeBookmark") : t("bookmarkMessage")}
+                    className={bookmarked ? "text-foreground" : undefined}
+                    disabled={isLive}
+                    onClick={onToggleBookmark}
+                  >
+                    <Bookmark className={cn("size-3.5", bookmarked && "fill-current")} strokeWidth={1.8} />
+                  </MetaIconButton>
+                ) : null}
                 {speechSupported && onToggleSpeech ? (
                   <MetaIconButton
                     label={speechActive ? (speechPaused ? t("resumeReadReply") : t("pauseReadReply")) : t("readReply")}
@@ -1104,6 +1145,14 @@ export function AssistantMessageMeta({
                     onClick={onEdit}
                   >
                     <Brush size={14} strokeWidth={1.8} animateOnHover="default" />
+                  </MetaIconButton>
+                ) : null}
+                {canDelete ? (
+                  <MetaIconButton
+                    label={t("deleteMessage")}
+                    onClick={onDelete}
+                  >
+                    <Trash2 className="size-3.5" strokeWidth={1.8} />
                   </MetaIconButton>
                 ) : null}
                 <MetaIconButton

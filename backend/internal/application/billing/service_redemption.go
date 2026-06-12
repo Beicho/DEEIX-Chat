@@ -108,7 +108,7 @@ type BatchDeleteData struct {
 
 // ListRedemptionCodes 查询管理员兑换码列表。
 func (s *Service) ListRedemptionCodes(ctx context.Context, input RedemptionCodeListInput) ([]RedemptionCodeView, int64, error) {
-	page, pageSize := normalizePage(input.Page, input.PageSize)
+	offset, limit := normalizePage(input.Page, input.PageSize)
 	mode := strings.TrimSpace(input.Mode)
 	status := strings.TrimSpace(input.Status)
 	availability := strings.TrimSpace(input.Availability)
@@ -132,7 +132,7 @@ func (s *Service) ListRedemptionCodes(ctx context.Context, input RedemptionCodeL
 		Status:       status,
 		Availability: availability,
 		Query:        query,
-	}, (page-1)*pageSize, pageSize)
+	}, offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}

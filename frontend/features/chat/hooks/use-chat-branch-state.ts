@@ -18,6 +18,9 @@ import type { UpstreamDebugInfo } from "@/shared/api/conversation.types";
 import { ApiError } from "@/shared/api/http-client";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 
+const CHAT_BRANCH_SELECTION_STORAGE_KEY = "deeix-chat:branch-selections:v1";
+const NEW_BRANCH_SELECTION_KEY = "__new__";
+
 type PendingBranchSelectionInput = {
   parentPublicID: string | null;
   userPublicID?: string;
@@ -218,6 +221,91 @@ function branchSelectionPathResolvedByServer(
   });
 }
 
+function resolveBranchStorageKey(conversationID: string | null): string {
+  return conversationID?.trim() || NEW_BRANCH_SELECTION_KEY;
+}
+
+function readBranchSelectionStore(): Record<string, Record<string, string>> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+  try {
+    const raw = window.localStorage.getItem(CHAT_BRANCH_SELECTION_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const store: Record<string, Record<string, string>> = {};
+    for (const [conversationKey, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        continue;
+      }
+      const selections: Record<string, string> = {};
+      for (const [parentKey, publicID] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof publicID === "string" && parentKey.trim() && publicID.trim()) {
+          selections[parentKey] = publicID;
+        }
+      }
+      if (Object.keys(selections).length > 0) {
+        store[conversationKey] = selections;
+      }
+    }
+    return store;
+  } catch {
+    return {};
+  }
+}
+
+function writeBranchSelectionStore(store: Record<string, Record<string, string>>) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    if (Object.keys(store).length === 0) {
+      window.localStorage.removeItem(CHAT_BRANCH_SELECTION_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(CHAT_BRANCH_SELECTION_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // Keep runtime branch switching usable when localStorage is unavailable.
+  }
+}
+
+function persistBranchSelections(conversationKey: string, selections: Record<string, string>) {
+  const store = readBranchSelectionStore();
+  if (Object.keys(selections).length === 0) {
+    delete store[conversationKey];
+  } else {
+    store[conversationKey] = selections;
+  }
+  writeBranchSelectionStore(store);
+}
+
+function readPersistedBranchSelections(conversationKey: string): Record<string, string> {
+  return readBranchSelectionStore()[conversationKey] ?? {};
+}
+
+function sanitizeBranchSelectionsForPersistence(
+  selections: Record<string, string>,
+  serverMessagePublicIDs: ReadonlySet<string>,
+): Record<string, string> {
+  const sanitized: Record<string, string> = {};
+  for (const [parentKey, selectedPublicID] of Object.entries(selections)) {
+    const selected = selectedPublicID.trim();
+    if (!selected || !serverMessagePublicIDs.has(selected)) {
+      continue;
+    }
+    if (parentKey !== "__root__" && !serverMessagePublicIDs.has(parentKey)) {
+      continue;
+    }
+    sanitized[parentKey] = selected;
+  }
+  return sanitized;
+}
+
 export function useChatBranchState({
   conversationID,
   resetToken,
@@ -235,11 +323,20 @@ export function useChatBranchState({
   const resolveErrorMessage = useLocalizedErrorMessage();
   const [branchSelections, setBranchSelections] = React.useState<Record<string, string>>({});
   const [submittedBranchSelectionPath, setSubmittedBranchSelectionPath] = React.useState<BranchSelectionPathItem[]>([]);
+  const [hydratedBranchStorageKey, setHydratedBranchStorageKey] = React.useState<string | null>(null);
+  const branchStorageKey = React.useMemo(() => resolveBranchStorageKey(conversationID), [conversationID]);
 
   React.useEffect(() => {
-    setBranchSelections({});
+    const nextSelections = resetToken > 0 && !conversationID
+      ? {}
+      : readPersistedBranchSelections(branchStorageKey);
+    if (resetToken > 0 && !conversationID) {
+      persistBranchSelections(branchStorageKey, {});
+    }
+    setBranchSelections(nextSelections);
     setSubmittedBranchSelectionPath([]);
-  }, [conversationID, resetToken]);
+    setHydratedBranchStorageKey(branchStorageKey);
+  }, [branchStorageKey, conversationID, resetToken]);
 
   const serverTreeMessages = React.useMemo(
     () =>
@@ -361,6 +458,19 @@ export function useChatBranchState({
       return applyBranchSelectionPath(reconciled, targetPath, pendingObsoletePublicIDsRef.current);
     });
   }, [activeBranchSelectionKey, messageStructureKey, pendingObsoletePublicIDKey]);
+
+  React.useEffect(() => {
+    if (hydratedBranchStorageKey !== branchStorageKey) {
+      return;
+    }
+    if (serverMessagePublicIDs.size === 0 && Object.keys(branchSelections).length > 0) {
+      return;
+    }
+    persistBranchSelections(
+      branchStorageKey,
+      sanitizeBranchSelectionsForPersistence(branchSelections, serverMessagePublicIDs),
+    );
+  }, [branchSelections, branchStorageKey, hydratedBranchStorageKey, serverMessagePublicIDs]);
 
   React.useEffect(() => {
     if (pendingBranchSelectionPath.length > 0 || submittedBranchSelectionPath.length === 0) {

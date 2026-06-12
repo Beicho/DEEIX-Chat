@@ -4,9 +4,13 @@ import type { PagePayload } from "@/shared/api/common.types";
 import type {
   ConversationDTO,
   ConversationExportDTO,
+  ConversationImportResultDTO,
+  ConversationTakeoutDTO,
+  ConversationDraftDTO,
   ConversationProjectDTO,
   ConversationProjectFilter,
   ConversationProjectStatusFilter,
+  ConversationSearchResultDTO,
   ConversationShareDTO,
   ConversationRunDTO,
   ConversationShareFilter,
@@ -29,12 +33,16 @@ import type {
   ReorderConversationProjectsRequest,
   SendMessageRequest,
   MediaImageRequest,
+  MessageBookmarkListItemDTO,
+  MessageBookmarkResult,
   SendMessageResult,
   SetConversationArchiveRequest,
   SetConversationProjectRequest,
   SetConversationStarRequest,
+  SetMessageBookmarkRequest,
   SetMessageFeedbackRequest,
   UpdateMessageRequest,
+  UpsertConversationDraftRequest,
   UpdateConversationProjectRequest,
   StreamMessageEvent,
   TraceBlockDTO,
@@ -330,6 +338,11 @@ type ListConversationRunsOptions = {
   pageSize?: number;
 };
 
+type SearchConversationsOptions = {
+  page?: number;
+  pageSize?: number;
+};
+
 // Conversation metadata
 export async function listConversations(
   accessToken: string,
@@ -351,6 +364,31 @@ export async function listConversations(
   });
   const data = await authedRequest<PagePayload<ConversationDTO>>(
     `/api/v1/conversations?${params.toString()}`,
+    {
+      accessToken,
+    },
+    true,
+  );
+  return {
+    total: data.total ?? 0,
+    results: data.results ?? [],
+  };
+}
+
+export async function searchConversations(
+  accessToken: string,
+  query: string,
+  options: SearchConversationsOptions = {},
+): Promise<PagePayload<ConversationSearchResultDTO>> {
+  const page = options.page && options.page > 0 ? options.page : 1;
+  const pageSize = options.pageSize && options.pageSize > 0 ? options.pageSize : 20;
+  const params = new URLSearchParams({
+    q: query,
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const data = await authedRequest<PagePayload<ConversationSearchResultDTO>>(
+    `/api/v1/conversations/search?${params.toString()}`,
     {
       accessToken,
     },
@@ -504,6 +542,49 @@ export async function getConversation(
   );
 }
 
+export async function getConversationDraft(
+  accessToken: string,
+  conversationPublicID: string,
+): Promise<ConversationDraftDTO> {
+  return authedRequest<ConversationDraftDTO>(
+    `/api/v1/conversation-drafts/${pathParam(conversationPublicID)}`,
+    {
+      accessToken,
+    },
+    true,
+  );
+}
+
+export async function upsertConversationDraft(
+  accessToken: string,
+  conversationPublicID: string,
+  payload: UpsertConversationDraftRequest,
+): Promise<ConversationDraftDTO> {
+  return authedRequest<ConversationDraftDTO>(
+    `/api/v1/conversation-drafts/${pathParam(conversationPublicID)}`,
+    {
+      method: "PUT",
+      accessToken,
+      body: payload,
+    },
+    true,
+  );
+}
+
+export async function deleteConversationDraft(
+  accessToken: string,
+  conversationPublicID: string,
+): Promise<ConversationDraftDTO> {
+  return authedRequest<ConversationDraftDTO>(
+    `/api/v1/conversation-drafts/${pathParam(conversationPublicID)}`,
+    {
+      method: "DELETE",
+      accessToken,
+    },
+    true,
+  );
+}
+
 export async function exportConversation(
   accessToken: string,
   conversationPublicID: string,
@@ -512,6 +593,31 @@ export async function exportConversation(
     `/api/v1/conversations/${pathParam(conversationPublicID)}/export`,
     {
       accessToken,
+    },
+    true,
+  );
+}
+
+export async function exportConversationTakeout(accessToken: string): Promise<ConversationTakeoutDTO> {
+  return authedRequest<ConversationTakeoutDTO>(
+    "/api/v1/conversations/export",
+    {
+      accessToken,
+    },
+    true,
+  );
+}
+
+export async function importConversationTakeout(
+  accessToken: string,
+  payload: unknown,
+): Promise<ConversationImportResultDTO> {
+  return authedRequest<ConversationImportResultDTO>(
+    "/api/v1/conversations/import",
+    {
+      method: "POST",
+      accessToken,
+      body: payload,
     },
     true,
   );
@@ -659,21 +765,34 @@ export async function revokeConversationShares(
   );
 }
 
-export async function getSharedConversation(shareID: string): Promise<PublicSharedConversationDTO> {
+function sharePasswordHeaders(password?: string): Record<string, string> | undefined {
+  const normalized = password?.trim();
+  return normalized ? { "X-Share-Password": normalized } : undefined;
+}
+
+export async function getSharedConversation(
+  shareID: string,
+  password?: string,
+): Promise<PublicSharedConversationDTO> {
   return apiRequest<PublicSharedConversationDTO>(
     `/api/v1/shared-conversations/${pathParam(shareID)}`,
+    {
+      headers: sharePasswordHeaders(password),
+    },
   );
 }
 
 export async function cloneSharedConversation(
   accessToken: string,
   shareID: string,
+  password?: string,
 ): Promise<ConversationDTO> {
   return authedRequest<ConversationDTO>(
     `/api/v1/shared-conversations/${pathParam(shareID)}/clone`,
     {
       method: "POST",
       accessToken,
+      body: password?.trim() ? { password: password.trim() } : {},
     },
     true,
   );
@@ -838,6 +957,63 @@ export async function setMessageFeedback(
   );
 }
 
+export async function setMessageBookmark(
+  accessToken: string,
+  messagePublicID: string,
+  payload: SetMessageBookmarkRequest,
+): Promise<MessageBookmarkResult> {
+  return authedRequest<MessageBookmarkResult>(
+    `/api/v1/messages/${pathParam(messagePublicID)}/bookmark`,
+    {
+      method: "PUT",
+      accessToken,
+      body: payload,
+    },
+    true,
+  );
+}
+
+export async function deleteMessageBookmark(
+  accessToken: string,
+  messagePublicID: string,
+): Promise<MessageBookmarkResult> {
+  return authedRequest<MessageBookmarkResult>(
+    `/api/v1/messages/${pathParam(messagePublicID)}/bookmark`,
+    {
+      method: "DELETE",
+      accessToken,
+    },
+    true,
+  );
+}
+
+export async function listMessageBookmarks(
+  accessToken: string,
+  options: { query?: string; page?: number; pageSize?: number } = {},
+): Promise<PagePayload<MessageBookmarkListItemDTO>> {
+  const page = options.page && options.page > 0 ? options.page : 1;
+  const pageSize = options.pageSize && options.pageSize > 0 ? options.pageSize : 20;
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const query = options.query?.trim();
+  if (query) {
+    params.set("q", query);
+  }
+  const data = await authedRequest<PagePayload<MessageBookmarkListItemDTO>>(
+    `/api/v1/message-bookmarks?${params.toString()}`,
+    {
+      accessToken,
+    },
+    true,
+  );
+  return {
+    total: data.total ?? 0,
+    results: data.results ?? [],
+  };
+}
+
 export async function updateMessage(
   accessToken: string,
   messagePublicID: string,
@@ -849,6 +1025,20 @@ export async function updateMessage(
       method: "PATCH",
       accessToken,
       body: payload,
+    },
+    true,
+  );
+}
+
+export async function deleteMessage(
+  accessToken: string,
+  messagePublicID: string,
+): Promise<MessageDTO> {
+  return authedRequest<MessageDTO>(
+    `/api/v1/messages/${pathParam(messagePublicID)}`,
+    {
+      method: "DELETE",
+      accessToken,
     },
     true,
   );

@@ -7,7 +7,7 @@ type Announcement struct {
 	BaseModel
 	Title           string     `gorm:"size:120;not null;default:'';comment:公告标题"`
 	ContentMarkdown string     `gorm:"type:text;not null;default:'';comment:公告 Markdown 内容"`
-	Status          string     `gorm:"size:32;not null;default:'active';index:idx_system_announcements_status;comment:状态(active/inactive)"`
+	Status          string     `gorm:"size:32;not null;default:'active';index:idx_system_announcements_status;comment:状态(active/inactive/draft)"`
 	Type            string     `gorm:"size:32;not null;default:'general';index:idx_system_announcements_type;comment:公告类型(critical/warning/info/normal/general)"`
 	Pinned          bool       `gorm:"not null;default:false;index:idx_system_announcements_pinned;comment:是否置顶"`
 	Priority        int        `gorm:"not null;default:0;index:idx_system_announcements_priority;comment:排序优先级"`

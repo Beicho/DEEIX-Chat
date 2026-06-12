@@ -28,12 +28,14 @@ function NavigationSearchResultItem({
   const t = useTranslations("common.navigation")
   const { locale } = useAppLocale()
   const [isHovered, setIsHovered] = React.useState(false)
+  const snippet = item.snippet?.trim()
+  const showSnippet = Boolean(snippet && snippet !== item.title)
 
   return (
     <CommandItem
       value={item.searchText}
       keywords={[item.publicID]}
-      className="group/search-item flex h-9 items-center gap-2 rounded-lg text-xs select-none data-[selected=true]:bg-accent/60"
+      className="group/search-item flex min-h-9 items-center gap-2 rounded-lg py-1.5 text-xs select-none data-[selected=true]:bg-accent/60"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onSelect={() => onSelect(item.href)}
@@ -41,13 +43,20 @@ function NavigationSearchResultItem({
       <MessageCircleMore
         strokeWidth={1.2}
         animate={isHovered ? "default" : undefined}
-        className="size-4 text-current"
+        className="mt-0.5 size-4 self-start text-current"
       />
-      <AnimatedText
-        text={item.title}
-        className="min-w-0 flex-1"
-        textClassName="text-current"
-      />
+      <span className="min-w-0 flex-1">
+        <AnimatedText
+          text={item.title}
+          className="min-w-0"
+          textClassName="text-current"
+        />
+        {showSnippet ? (
+          <span className="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">
+            {snippet}
+          </span>
+        ) : null}
+      </span>
       <span className="relative flex h-4 w-12 shrink-0 items-center justify-end">
         <span className="text-xs font-normal text-foreground/55 transition-opacity group-hover/search-item:opacity-0 group-data-[selected=true]/search-item:opacity-0">
           {formatUpdatedAtLabel(item.updatedAt, locale, t("today"), t("yesterday"))}
@@ -127,7 +136,7 @@ export function NavigationSearch({
         <div className="space-y-0.5">
           {results.map((item) => (
             <NavigationSearchResultItem
-              key={item.publicID}
+              key={item.resultID}
               item={item}
               onSelect={onSelect}
             />

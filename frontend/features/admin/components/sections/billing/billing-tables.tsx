@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { Button } from "@/components/ui/button";
@@ -26,10 +26,12 @@ export function PeriodBillingTable({
   plans,
   loading,
   onEdit,
+  onDelete,
 }: {
   plans: AdminBillingPlanDTO[];
   loading: boolean;
   onEdit: (plan: AdminBillingPlanDTO) => void;
+  onDelete?: (plan: AdminBillingPlanDTO) => void;
 }) {
   const t = useTranslations("adminBilling");
   return (
@@ -41,7 +43,7 @@ export function PeriodBillingTable({
           <TableHead>{t("plans.tablePrice")}</TableHead>
           <TableHead>{t("plans.tableCredit")}</TableHead>
           <TableHead>{t("plans.tableDiscount")}</TableHead>
-          <TableHead stickyEnd className="w-[56px]" />
+          <TableHead stickyEnd className="w-[88px]" />
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -76,8 +78,8 @@ export function PeriodBillingTable({
                     </span>
                   </TableCell>
                   <TableCell className="py-1.5">{plan.discountPercent}%</TableCell>
-                  <TableCell stickyEnd className="w-[56px] py-1.5 text-right">
-                    <div className="flex h-7 items-center justify-end">
+                  <TableCell stickyEnd className="w-[88px] py-1.5 text-right">
+                    <div className="flex h-7 items-center justify-end gap-1">
                       <Button
                         type="button"
                         variant="ghost"
@@ -88,6 +90,18 @@ export function PeriodBillingTable({
                       >
                         <Pencil className="size-3.5 stroke-1" />
                       </Button>
+                      {onDelete && plan.code !== "free" ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="h-7 w-7 text-muted-foreground shadow-none"
+                          onClick={() => onDelete(plan)}
+                          aria-label={t("actions.deletePlan")}
+                        >
+                          <Trash2 className="size-3.5 stroke-1" />
+                        </Button>
+                      ) : null}
                     </div>
                   </TableCell>
                 </TableRow>

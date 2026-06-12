@@ -44,6 +44,7 @@ export function AdminSidebar({
         "tool-settings": "sections.toolSettings",
         billing: "sections.billing",
         announcements: "sections.announcements",
+        moderation: "sections.moderation",
         branding: "sections.branding",
         logs: "sections.logs",
         "login-settings": "sections.loginSettings",

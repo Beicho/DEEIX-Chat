@@ -5,6 +5,7 @@ import type {
   ActiveSessionDTO,
   ChangePasswordData,
   ChangePasswordPayload,
+  CompleteEmailRegistrationOptions,
   CompleteOnboardingPayload,
   DeleteAccountPayload,
   EmailBootstrapCompletePayload,
@@ -135,10 +136,38 @@ export async function startEmailRegistration(email: string, turnstileToken?: str
   });
 }
 
-export async function completeEmailRegistration(email: string, password: string, code: string, turnstileToken?: string): Promise<LoginData> {
+export async function completeEmailRegistration(email: string, password: string, code: string, options: CompleteEmailRegistrationOptions = {}): Promise<LoginData> {
   return apiRequest<LoginData>("/api/v1/auth/register/email/complete", {
     method: "POST",
-    body: { email, password, code, turnstileToken },
+    body: { email, password, code, ...options },
+  });
+}
+
+export async function startPasswordReset(email: string): Promise<EmailVerificationStartData> {
+  return apiRequest<EmailVerificationStartData>("/api/v1/auth/password/reset/start", {
+    method: "POST",
+    body: { email },
+  });
+}
+
+export async function completePasswordReset(email: string, code: string, newPassword: string): Promise<ChangePasswordData> {
+  return apiRequest<ChangePasswordData>("/api/v1/auth/password/reset/complete", {
+    method: "POST",
+    body: { email, code, newPassword },
+  });
+}
+
+export async function startEmailCodeLogin(email: string): Promise<EmailVerificationStartData> {
+  return apiRequest<EmailVerificationStartData>("/api/v1/auth/email-login/start", {
+    method: "POST",
+    body: { email },
+  });
+}
+
+export async function completeEmailCodeLogin(email: string, code: string): Promise<LoginData> {
+  return apiRequest<LoginData>("/api/v1/auth/email-login/complete", {
+    method: "POST",
+    body: { email, code },
   });
 }
 

@@ -173,6 +173,7 @@ export function areChatAreaMessagesRenderEqual(
     previous.myFeedback === next.myFeedback &&
     previous.thumbsUpCount === next.thumbsUpCount &&
     previous.thumbsDownCount === next.thumbsDownCount &&
+    previous.bookmarked === next.bookmarked &&
     previous.inputTokens === next.inputTokens &&
     previous.outputTokens === next.outputTokens &&
     previous.cacheReadTokens === next.cacheReadTokens &&

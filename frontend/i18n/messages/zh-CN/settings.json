@@ -66,6 +66,23 @@
       "deniedHelp": "浏览器已阻止通知，请在浏览器设置中手动允许。",
       "grantedHelp": "已启用浏览器通知。开启后，模型回复完成时会弹出提醒。"
     },
+    "data": {
+      "title": "数据",
+      "takeoutTitle": "对话数据",
+      "takeoutDescription": "导出当前账户的对话和消息。导入时会创建新对话，不会覆盖现有内容。",
+      "export": "导出",
+      "import": "导入",
+      "exporting": "导出中",
+      "importing": "导入中",
+      "fileInput": "选择对话数据文件",
+      "toast": {
+        "exported": "对话数据已导出",
+        "exportFailed": "导出对话数据失败",
+        "imported": "已导入 {conversations} 个对话、{messages} 条消息",
+        "importFailed": "导入对话数据失败",
+        "importFailedDescription": "请检查文件格式和内容后重试。"
+      }
+    },
     "appearance": {
       "colorMode": "颜色模式",
       "themePreset": "主题",
@@ -176,6 +193,8 @@
         "twoFactor": "输入认证器验证码或恢复码后删除账号。",
         "email": "发送验证码到已验证邮箱，输入后删除账号。"
       },
+      "usernameTitle": "确认删除账号",
+      "usernameDescription": "请输入用户名 {username} 以确认删除账号。",
       "verificationUnavailable": "删除账号需要先验证身份。请先验证邮箱或启用两步验证。"
     },
     "securityDialog": {
@@ -191,7 +210,6 @@
         "verify": "验证",
         "continue": "继续",
         "back": "返回",
-        "debugCode": "验证码：{code}",
         "copiedLabel": "{label}已复制",
         "copyFailed": "复制失败",
         "copyManually": "请手动选择内容复制。"
@@ -223,6 +241,10 @@
           "password": "至少 8 位，不能为纯数字",
           "otpOrRecovery": "验证码或恢复码",
           "sixDigitCode": "6 位验证码"
+        },
+        "revokeOtherSessions": {
+          "label": "登出其他设备",
+          "description": "保存后保留当前会话，并登出其他活跃会话。"
         }
       },
       "email": {
@@ -314,7 +336,7 @@
       "codeSent": "验证码已发送",
       "sendCodeFailed": "验证码发送失败",
       "passwordChanged": "密码已修改",
-      "passwordChangedDescription": "请使用新密码重新登录。",
+      "passwordChangedDescription": "当前会话已保留，其他设备会按你的选择处理。",
       "changePasswordFailed": "修改密码失败",
       "emailSet": "邮箱已设置",
       "setEmailFailed": "设置邮箱失败",
@@ -447,7 +469,10 @@
       "title": "当前订阅",
       "none": "未订阅",
       "empty": "当前没有可用订阅方案",
-      "subscribe": "订阅"
+      "subscribe": "订阅",
+      "expiryReminderTitle": "订阅即将到期",
+      "expiryReminderDescription": "当前周期将在 {days} 天后结束，可提前续费。",
+      "renewNow": "续费"
     },
     "periodUsage": {
       "title": "套餐使用情况",
@@ -466,7 +491,8 @@
     "usageBilling": {
       "title": "按量付费",
       "balance": "账户余额 {value}",
-      "topUp": "充值"
+      "topUp": "充值",
+      "lowBalanceHint": "余额较低，充值后可避免调用中断。"
     },
     "selfMode": {
       "title": "计费模式",
@@ -477,6 +503,16 @@
       "monthlyTitle": "按月用量趋势",
       "daily": "按天",
       "monthly": "按月",
+      "exportCSV": "导出 CSV",
+      "exporting": "导出中",
+      "startDate": "开始日期",
+      "endDate": "结束日期",
+      "ranges": {
+        "7": "7 天",
+        "30": "30 天",
+        "90": "90 天",
+        "custom": "自定义"
+      },
       "dailyUsage": "每日用量",
       "monthlyUsage": "月度用量",
       "empty": "暂无用量数据。",
@@ -488,7 +524,8 @@
       },
       "tooltip": {
         "cost": "费用",
-        "calls": "调用"
+        "calls": "调用",
+        "tokens": "用量"
       }
     },
     "usageLog": {
@@ -577,6 +614,20 @@
       "card": "银行卡",
       "disabled": "未开启",
       "continue": "继续支付",
+      "cycles": "周期数量",
+      "total": "合计",
+      "cnyEstimate": "人民币估算",
+      "pendingTitle": "有一笔支付待确认",
+      "pendingDescription": "订单 {orderNo} 正在等待支付结果。",
+      "pendingDescriptionWithStatus": "订单 {orderNo} 当前状态：{status}。",
+      "checking": "查询中",
+      "refreshStatus": "刷新状态",
+      "status": {
+        "pending": "待支付",
+        "paid": "已支付",
+        "failed": "失败",
+        "expired": "已过期"
+      },
       "epay": {
         "alipay": "支付宝",
         "wxpay": "微信支付",
@@ -589,7 +640,9 @@
       "description": "输入美元金额",
       "amount": "充值金额",
       "amountAria": "充值美元金额",
-      "confirm": "充值"
+      "confirm": "充值",
+      "cnyEstimate": "约 {value}",
+      "quickCNY": "人民币快捷金额"
     },
     "redemption": {
       "open": "兑换",
@@ -598,12 +651,48 @@
       "code": "兑换码",
       "confirm": "兑换"
     },
+    "history": {
+      "title": "账单与兑换历史",
+      "refresh": "刷新",
+      "loading": "加载中",
+      "orders": "支付记录",
+      "redemptions": "兑换记录",
+      "balance": "余额流水",
+      "empty": "暂无记录",
+      "balanceReward": "余额",
+      "subscriptionReward": "订阅",
+      "planID": "套餐 #{id}",
+      "columns": {
+        "time": "时间",
+        "amount": "金额",
+        "status": "状态",
+        "type": "类型",
+        "value": "权益"
+      },
+      "transactionTypes": {
+        "topup": "充值",
+        "redemption": "兑换",
+        "usage": "用量扣费",
+        "refund": "退回",
+        "adjust": "调整"
+      }
+    },
     "toasts": {
       "retryLater": "请稍后重试。",
       "subscriptionLoadFailed": "订阅信息加载失败",
       "usageLogLoadFailed": "调用日志加载失败",
+      "usageTrendLoadFailed": "用量趋势加载失败",
+      "usageCSVExported": "用量 CSV 已导出",
+      "usageCSVExportFailed": "导出用量 CSV 失败",
       "checkoutCreateFailed": "支付创建失败",
       "checkoutURLMissing": "支付渠道没有返回收银台地址。",
+      "paymentChecking": "正在确认支付结果",
+      "paymentCanceled": "支付已取消",
+      "paymentCompleted": "支付已完成",
+      "paymentExpired": "支付订单已过期",
+      "paymentFailed": "支付失败",
+      "paymentCheckFailed": "支付状态查询失败",
+      "historyLoadFailed": "账单历史加载失败",
       "planUpdated": "订阅方案已更新",
       "subscribeFailed": "订阅失败",
       "invalidTopUpAmount": "充值金额无效",

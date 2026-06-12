@@ -25,6 +25,15 @@ export type ConversationDTO = {
   updatedAt: string;
 };
 
+export type ConversationSearchResultDTO = {
+  conversation: ConversationDTO;
+  messagePublicID: string;
+  messageRole: string;
+  snippet: string;
+  matchedTitle: boolean;
+  matchedAt: string;
+};
+
 export type ConversationStatusFilter = "active" | "archived" | "all";
 export type ConversationStarredFilter = "all" | "starred" | "unstarred";
 export type ConversationShareFilter = "all" | "shared" | "unshared";
@@ -77,6 +86,7 @@ export type MessageDTO = {
   myFeedback: "up" | "down" | "";
   thumbsUpCount: number;
   thumbsDownCount: number;
+  bookmarked: boolean;
   billingCost?: MessageBillingCostDTO;
   editedAt: string | null;
   createdAt: string;
@@ -131,6 +141,62 @@ export type ConversationExportDTO = {
     format: string;
     notes: string;
   };
+};
+
+export type ConversationTakeoutDTO = {
+  format: "deeix.conversations.takeout" | string;
+  version: number;
+  exportScope: string;
+  exportedAt: string;
+  conversations: Array<{
+    conversation: {
+      publicID?: string;
+      title: string;
+      labelsJSON?: string;
+      labels?: unknown[];
+      model?: string;
+      provider?: string;
+      status?: string;
+      createdAt?: string | null;
+      updatedAt?: string | null;
+    };
+    messages: Array<{
+      publicID?: string;
+      parentPublicID?: string;
+      sourcePublicID?: string;
+      runID?: string;
+      role: string;
+      contentType: string;
+      content: string;
+      branchReason?: string;
+      tokenUsage?: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+      reasoningTokens?: number;
+      latencyMS?: number;
+      status?: string;
+      errorCode?: string;
+      errorMessage?: string;
+      attachments?: string;
+      editedAt?: string | null;
+      createdAt?: string | null;
+      updatedAt?: string | null;
+    }>;
+  }>;
+  totalConversations: number;
+  totalMessages: number;
+  compatibility?: {
+    format: string;
+    notes: string;
+  };
+};
+
+export type ConversationImportResultDTO = {
+  importedConversationCount: number;
+  importedMessageCount: number;
+  conversations: ConversationDTO[];
 };
 
 export type MessageBillingCostDTO = {
@@ -310,8 +376,43 @@ export type DeleteConversationData = {
   quota?: UserStorageQuotaDTO;
 };
 
+export type ConversationDraftAttachmentDTO = {
+  fileID: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  detectedMime?: string;
+  fileCategory?: string;
+  processingStatus?: string;
+  processingReady?: boolean;
+  processingErrorCode?: string;
+  processingErrorMessage?: string;
+  extractStatus?: string;
+  embedStatus?: string;
+  ragReady?: boolean;
+  ragReason?: string;
+  ocrUsed?: boolean;
+};
+
+export type ConversationDraftDTO = {
+  conversationPublicID: string;
+  draft: string;
+  attachments: ConversationDraftAttachmentDTO[];
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type UpsertConversationDraftRequest = {
+  draft: string;
+  attachments: ConversationDraftAttachmentDTO[];
+};
+
 export type CreateConversationShareRequest = {
   defaultMessagePublicIDs?: string[];
+  scope?: "current" | "full";
+  expiresInDays?: 0 | 7 | 30;
+  password?: string;
+  includeThinking?: boolean;
 };
 
 export type ConversationShareDTO = {
@@ -320,6 +421,10 @@ export type ConversationShareDTO = {
   titleSnapshot: string;
   modelSnapshot: string;
   messageCount: number;
+  scope: "current" | "full" | string;
+  hasPassword: boolean;
+  includeThinking: boolean;
+  expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
   revokedAt: string | null;
@@ -368,6 +473,10 @@ export type PublicSharedConversationDTO = {
   shareID: string;
   title: string;
   model: string;
+  scope: "current" | "full" | string;
+  requiresPassword: boolean;
+  verified: boolean;
+  expiresAt: string | null;
   createdAt: string;
   lastAccessedAt: string | null;
   defaultMessagePublicIDs: string[];
@@ -376,6 +485,12 @@ export type PublicSharedConversationDTO = {
 
 export type SetMessageFeedbackRequest = {
   feedback?: "up" | "down";
+};
+
+export type SetMessageBookmarkRequest = {
+  bookmarked: boolean;
+  note?: string;
+  tags?: string[];
 };
 
 export type UpdateMessageRequest = {
@@ -390,6 +505,24 @@ export type MessageFeedbackResult = {
   thumbsDownCount: number;
 };
 
+export type MessageBookmarkResult = {
+  messageID: number;
+  messagePublicID: string;
+  bookmarked: boolean;
+  note: string;
+  tags: string[];
+};
+
+export type MessageBookmarkListItemDTO = {
+  id: number;
+  conversation: ConversationDTO;
+  message: MessageDTO;
+  note: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type SendMessageRequest = {
   contentType: "text" | "markdown" | "image" | "file" | "mixed";
   content: string;
@@ -398,8 +531,14 @@ export type SendMessageRequest = {
   clientRunID?: string;
   fileIDs?: string[];
   selectedToolIDs?: number[];
+  confirmedToolIDs?: number[];
+  webSearchEnabled?: boolean;
+  codeSandboxEnabled?: boolean;
+  researchMaxLLMCalls?: number;
+  researchMaxToolCalls?: number;
   htmlVisualPrompt?: boolean;
   htmlVisualColorMode?: "light" | "dark";
+  assistantID?: string;
   parentMessagePublicID?: string;
   sourceMessagePublicID?: string;
   branchReason?: "default" | "retry" | "edit";

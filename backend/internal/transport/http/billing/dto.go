@@ -60,6 +60,24 @@ type UpdateBillingAccountBalanceRequest struct {
 	Description string  `json:"description" binding:"omitempty,max=255"`
 }
 
+// AdjustBillingAccountBalanceRequest 管理员原子增减用户余额。
+type AdjustBillingAccountBalanceRequest struct {
+	DeltaUSD    float64 `json:"deltaUSD" binding:"required"`
+	Description string  `json:"description" binding:"omitempty,max=255"`
+}
+
+// NewAPITransferRequest 创建 NewAPI 转入请求。
+type NewAPITransferRequest struct {
+	AmountUSD      float64 `json:"amountUSD" binding:"required,min=1,max=500"`
+	IdempotencyKey string  `json:"idempotencyKey" binding:"required,min=8,max=128"`
+}
+
+// PaymentOrderActionRequest 管理员支付单动作请求。
+type PaymentOrderActionRequest struct {
+	Action            string `json:"action" binding:"required,oneof=complete expire fail"`
+	ExternalPaymentID string `json:"externalPaymentID" binding:"omitempty,max=128"`
+}
+
 // CreateRedemptionCodeRequest 创建兑换码请求。
 type CreateRedemptionCodeRequest struct {
 	Code           string     `json:"code" binding:"omitempty,min=3,max=64"`
@@ -104,6 +122,18 @@ type RedeemCodeRequest struct {
 
 // UpdateBillingPlanRequest 保存周期套餐。
 type UpdateBillingPlanRequest struct {
+	Name            string  `json:"name" binding:"required,min=1,max=64"`
+	Description     string  `json:"description" binding:"max=255"`
+	PeriodCreditUSD float64 `json:"periodCreditUSD" binding:"min=0"`
+	DiscountPercent int     `json:"discountPercent" binding:"min=0,max=100"`
+	Currency        string  `json:"currency" binding:"omitempty,max=16"`
+	AmountUSD       float64 `json:"amountUSD" binding:"min=0"`
+	BillingInterval string  `json:"billingInterval" binding:"required,oneof=month year lifetime"`
+}
+
+// CreateBillingPlanRequest 创建周期套餐。
+type CreateBillingPlanRequest struct {
+	Code            string  `json:"code" binding:"required,min=2,max=32"`
 	Name            string  `json:"name" binding:"required,min=1,max=64"`
 	Description     string  `json:"description" binding:"max=255"`
 	PeriodCreditUSD float64 `json:"periodCreditUSD" binding:"min=0"`
@@ -232,6 +262,45 @@ type CheckoutDataResponse struct {
 	Checkout CheckoutResponse `json:"checkout"`
 }
 
+// PaymentOrderResponse 支付单列表响应。
+type PaymentOrderResponse struct {
+	OrderNo            string     `json:"orderNo"`
+	OrderType          string     `json:"orderType"`
+	UserID             uint       `json:"userID"`
+	PlanID             uint       `json:"planID"`
+	PriceID            uint       `json:"priceID"`
+	Provider           string     `json:"provider"`
+	Status             string     `json:"status"`
+	BaseAmountCents    int64      `json:"baseAmountCents"`
+	BaseCurrency       string     `json:"baseCurrency"`
+	PayAmountCents     int64      `json:"payAmountCents"`
+	PayCurrency        string     `json:"payCurrency"`
+	FXRate             string     `json:"fxRate"`
+	CreditNanousd      int64      `json:"creditNanousd"`
+	CreditUSD          float64    `json:"creditUSD"`
+	BillingInterval    string     `json:"billingInterval"`
+	Cycles             int        `json:"cycles"`
+	ExternalPaymentID  string     `json:"externalPaymentID,omitempty"`
+	ExternalCheckoutID string     `json:"externalCheckoutID,omitempty"`
+	CheckoutURL        string     `json:"checkoutURL,omitempty"`
+	PaidAt             *time.Time `json:"paidAt"`
+	ExpiredAt          *time.Time `json:"expiredAt"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+}
+
+// PaymentOrderDataResponse 支付单操作响应。
+type PaymentOrderDataResponse struct {
+	Order     PaymentOrderResponse `json:"order"`
+	Activated bool                 `json:"activated,omitempty"`
+}
+
+// PaymentOrderListDataResponse 支付单分页响应。
+type PaymentOrderListDataResponse struct {
+	Total   int64                  `json:"total"`
+	Results []PaymentOrderResponse `json:"results"`
+}
+
 type PaymentWebhookIgnoredResponse struct {
 	Ignored bool `json:"ignored"`
 }
@@ -340,6 +409,118 @@ type BillingAccountDataResponse struct {
 	Account BillingAccountResponse `json:"account"`
 }
 
+// BalanceTransactionResponse 余额流水响应。
+type BalanceTransactionResponse struct {
+	ID                  uint      `json:"id"`
+	AccountID           uint      `json:"accountID"`
+	UserID              uint      `json:"userID"`
+	Type                string    `json:"type"`
+	AmountNanousd       int64     `json:"amountNanousd"`
+	AmountUSD           float64   `json:"amountUSD"`
+	BalanceAfterNanousd int64     `json:"balanceAfterNanousd"`
+	BalanceAfterUSD     float64   `json:"balanceAfterUSD"`
+	RefType             string    `json:"refType"`
+	RefID               uint      `json:"refID"`
+	RefNo               string    `json:"refNo"`
+	Description         string    `json:"description"`
+	CreatedAt           time.Time `json:"createdAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
+}
+
+// BalanceTransactionListDataResponse 余额流水分页响应。
+type BalanceTransactionListDataResponse struct {
+	Total   int64                        `json:"total"`
+	Results []BalanceTransactionResponse `json:"results"`
+}
+
+// BalanceDeltaDataResponse 余额增减响应。
+type BalanceDeltaDataResponse struct {
+	Account     BillingAccountResponse     `json:"account"`
+	Transaction BalanceTransactionResponse `json:"transaction"`
+}
+
+// CheckInStatusResponse 每日签到状态响应。
+type CheckInStatusResponse struct {
+	TodayClaimed      bool                    `json:"todayClaimed"`
+	RewardUSD         float64                 `json:"rewardUSD"`
+	RewardNanousd     int64                   `json:"rewardNanousd"`
+	ConsecutiveDays   int                     `json:"consecutiveDays"`
+	LastCheckInDate    *time.Time              `json:"lastCheckInDate"`
+	NextCheckInDate    time.Time               `json:"nextCheckInDate"`
+	Account            *BillingAccountResponse `json:"account"`
+	LatestTransaction  *BalanceTransactionResponse `json:"latestTransaction,omitempty"`
+}
+
+// CheckInStatusDataResponse 每日签到状态操作响应。
+type CheckInStatusDataResponse struct {
+	CheckIn CheckInStatusResponse `json:"checkIn"`
+}
+
+// CheckInClaimResponse 每日签到领取响应。
+type CheckInClaimResponse struct {
+	ID                   uint                        `json:"id"`
+	CheckInDate          time.Time                   `json:"checkInDate"`
+	AlreadyClaimed       bool                        `json:"alreadyClaimed"`
+	RewardUSD            float64                     `json:"rewardUSD"`
+	RewardNanousd        int64                       `json:"rewardNanousd"`
+	ConsecutiveDays      int                         `json:"consecutiveDays"`
+	BalanceTransactionID uint                        `json:"balanceTransactionID"`
+	Account              *BillingAccountResponse     `json:"account"`
+	Transaction          *BalanceTransactionResponse `json:"transaction,omitempty"`
+}
+
+// CheckInClaimDataResponse 每日签到领取操作响应。
+type CheckInClaimDataResponse struct {
+	CheckIn CheckInClaimResponse `json:"checkIn"`
+}
+
+// ExternalAccountLinkResponse 外部账号绑定响应。
+type ExternalAccountLinkResponse struct {
+	ID                  uint       `json:"id"`
+	Platform            string     `json:"platform"`
+	ExternalDisplayName string     `json:"externalDisplayName"`
+	Status              string     `json:"status"`
+	LinkedAt            time.Time  `json:"linkedAt"`
+	LastSyncedAt        *time.Time `json:"lastSyncedAt"`
+}
+
+// NewAPIBalanceResponse NewAPI 余额与换算响应。
+type NewAPIBalanceResponse struct {
+	Linked              bool                         `json:"linked"`
+	Link                *ExternalAccountLinkResponse `json:"link"`
+	ExternalBalanceUSD  float64                      `json:"externalBalanceUSD"`
+	TransferableUSD     float64                      `json:"transferableUSD"`
+	Rate                float64                      `json:"rate"`
+	MinTransferUSD      float64                      `json:"minTransferUSD"`
+	MaxDailyTransferUSD float64                      `json:"maxDailyTransferUSD"`
+}
+
+// NewAPIBalanceDataResponse NewAPI 余额操作响应。
+type NewAPIBalanceDataResponse struct {
+	Balance NewAPIBalanceResponse `json:"balance"`
+}
+
+// ExternalTransferResponse 外部划转响应。
+type ExternalTransferResponse struct {
+	ID                    uint       `json:"id"`
+	Platform              string     `json:"platform"`
+	Direction             string     `json:"direction"`
+	ExternalAmountUSD     float64    `json:"externalAmountUSD"`
+	CreditedAmountUSD     float64    `json:"creditedAmountUSD"`
+	CreditedAmountNanousd int64      `json:"creditedAmountNanousd"`
+	Status                string     `json:"status"`
+	RequestedAt           time.Time  `json:"requestedAt"`
+	CompletedAt           *time.Time `json:"completedAt"`
+	CreatedAt             time.Time  `json:"createdAt"`
+}
+
+// NewAPITransferDataResponse NewAPI 转入操作响应。
+type NewAPITransferDataResponse struct {
+	Transfer    ExternalTransferResponse    `json:"transfer"`
+	Account     BillingAccountResponse      `json:"account"`
+	Transaction *BalanceTransactionResponse `json:"transaction,omitempty"`
+}
+
 // BillingOverviewResponse 当前用户计费概览响应。
 type BillingOverviewResponse struct {
 	Mode                     string                            `json:"mode"`
@@ -444,6 +625,12 @@ type RedemptionApplyDataResponse struct {
 	Overview     BillingOverviewResponse `json:"overview"`
 }
 
+// RedemptionListDataResponse 用户兑换历史分页响应。
+type RedemptionListDataResponse struct {
+	Total   int64                `json:"total"`
+	Results []RedemptionResponse `json:"results"`
+}
+
 // ModelPricingResponse 模型计费单价响应。金额单位均为美元。
 type ModelPricingResponse struct {
 	ID                          uint      `json:"id"`
@@ -525,6 +712,26 @@ type BillingPlanDataResponse struct {
 	Plan BillingPlanResponse `json:"plan"`
 }
 
+// BillingPlanDeleteDataResponse 套餐删除响应。
+type BillingPlanDeleteDataResponse struct {
+	Deleted bool `json:"deleted"`
+}
+
+// BillingRiskSummaryResponse 风控摘要响应。
+type BillingRiskSummaryResponse struct {
+	MultiAccountClusterCount int64     `json:"multiAccountClusterCount"`
+	HighRiskClusterCount     int64     `json:"highRiskClusterCount"`
+	IgnoredClusterCount      int64     `json:"ignoredClusterCount"`
+	UniqueFingerprintCount   int64     `json:"uniqueFingerprintCount"`
+	UniqueIPCount            int64     `json:"uniqueIPCount"`
+	GeneratedAt              time.Time `json:"generatedAt"`
+}
+
+// BillingRiskSummaryDataResponse 风控摘要操作响应。
+type BillingRiskSummaryDataResponse struct {
+	Risk BillingRiskSummaryResponse `json:"risk"`
+}
+
 // ── Swagger 文档 DTO ─────────────────────────────────────────────────────────
 
 // PlanListResponseDoc 套餐列表响应。
@@ -545,10 +752,40 @@ type CheckoutResponseDoc struct {
 	Data     CheckoutDataResponse `json:"data"`
 }
 
+// PaymentOrderResponseDoc 支付单操作响应。
+type PaymentOrderResponseDoc struct {
+	ErrorMsg string                   `json:"errorMsg"`
+	Data     PaymentOrderDataResponse `json:"data"`
+}
+
+// PaymentOrderListResponseDoc 支付单分页响应。
+type PaymentOrderListResponseDoc struct {
+	ErrorMsg string `json:"errorMsg"`
+	Data     struct {
+		Total   int64                  `json:"total"`
+		Results []PaymentOrderResponse `json:"results"`
+	} `json:"data"`
+}
+
 // BillingAccountResponseDoc 按量计费账户响应。
 type BillingAccountResponseDoc struct {
 	ErrorMsg string                     `json:"errorMsg"`
 	Data     BillingAccountDataResponse `json:"data"`
+}
+
+// BalanceTransactionListResponseDoc 余额流水分页响应。
+type BalanceTransactionListResponseDoc struct {
+	ErrorMsg string `json:"errorMsg"`
+	Data     struct {
+		Total   int64                        `json:"total"`
+		Results []BalanceTransactionResponse `json:"results"`
+	} `json:"data"`
+}
+
+// BalanceDeltaResponseDoc 余额增减响应。
+type BalanceDeltaResponseDoc struct {
+	ErrorMsg string                   `json:"errorMsg"`
+	Data     BalanceDeltaDataResponse `json:"data"`
 }
 
 // BillingOverviewResponseDoc 当前用户计费概览响应。
@@ -599,6 +836,12 @@ type BillingPlanResponseDoc struct {
 	Data     BillingPlanDataResponse `json:"data"`
 }
 
+// BillingPlanDeleteResponseDoc 套餐删除响应文档。
+type BillingPlanDeleteResponseDoc struct {
+	ErrorMsg string                        `json:"errorMsg"`
+	Data     BillingPlanDeleteDataResponse `json:"data"`
+}
+
 // RedemptionCodeListResponseDoc 后台兑换码列表响应文档。
 type RedemptionCodeListResponseDoc struct {
 	ErrorMsg string                         `json:"errorMsg"`
@@ -633,6 +876,21 @@ type BatchDeleteRedemptionCodeResponseDoc struct {
 type RedemptionApplyResponseDoc struct {
 	ErrorMsg string                      `json:"errorMsg"`
 	Data     RedemptionApplyDataResponse `json:"data"`
+}
+
+// RedemptionListResponseDoc 用户兑换历史分页响应文档。
+type RedemptionListResponseDoc struct {
+	ErrorMsg string `json:"errorMsg"`
+	Data     struct {
+		Total   int64                `json:"total"`
+		Results []RedemptionResponse `json:"results"`
+	} `json:"data"`
+}
+
+// BillingRiskSummaryResponseDoc 风控摘要响应文档。
+type BillingRiskSummaryResponseDoc struct {
+	ErrorMsg string                         `json:"errorMsg"`
+	Data     BillingRiskSummaryDataResponse `json:"data"`
 }
 
 // ErrorDoc 错误响应。
@@ -764,6 +1022,50 @@ func toCheckoutResponse(item *domainbilling.PaymentOrder) CheckoutResponse {
 	}
 }
 
+func toPaymentOrderResponse(item domainbilling.PaymentOrder, includeCheckoutURL bool) PaymentOrderResponse {
+	checkoutURL := ""
+	externalCheckoutID := ""
+	externalPaymentID := ""
+	if includeCheckoutURL {
+		checkoutURL = item.CheckoutURL
+		externalCheckoutID = item.ExternalCheckoutID
+		externalPaymentID = item.ExternalPaymentID
+	}
+	return PaymentOrderResponse{
+		OrderNo:            item.OrderNo,
+		OrderType:          item.OrderType,
+		UserID:             item.UserID,
+		PlanID:             item.PlanID,
+		PriceID:            item.PriceID,
+		Provider:           item.Provider,
+		Status:             item.Status,
+		BaseAmountCents:    item.BaseAmountCents,
+		BaseCurrency:       item.BaseCurrency,
+		PayAmountCents:     item.PayAmountCents,
+		PayCurrency:        item.PayCurrency,
+		FXRate:             item.FXRate,
+		CreditNanousd:      item.CreditNanousd,
+		CreditUSD:          nanousdToUSD(item.CreditNanousd),
+		BillingInterval:    item.BillingInterval,
+		Cycles:             item.Cycles,
+		ExternalPaymentID:  externalPaymentID,
+		ExternalCheckoutID: externalCheckoutID,
+		CheckoutURL:        checkoutURL,
+		PaidAt:             item.PaidAt,
+		ExpiredAt:          item.ExpiredAt,
+		CreatedAt:          item.CreatedAt,
+		UpdatedAt:          item.UpdatedAt,
+	}
+}
+
+func toPaymentOrderResponses(items []domainbilling.PaymentOrder, includeCheckoutURL bool) []PaymentOrderResponse {
+	results := make([]PaymentOrderResponse, 0, len(items))
+	for _, item := range items {
+		results = append(results, toPaymentOrderResponse(item, includeCheckoutURL))
+	}
+	return results
+}
+
 func toBillingAccountResponse(item *domainbilling.BillingAccount) BillingAccountResponse {
 	if item == nil {
 		return BillingAccountResponse{}
@@ -776,6 +1078,138 @@ func toBillingAccountResponse(item *domainbilling.BillingAccount) BillingAccount
 		Status:         item.Status,
 		UpdatedAt:      item.UpdatedAt,
 	}
+}
+
+func toBalanceTransactionResponse(item domainbilling.BalanceTransaction) BalanceTransactionResponse {
+	return BalanceTransactionResponse{
+		ID:                  item.ID,
+		AccountID:           item.AccountID,
+		UserID:              item.UserID,
+		Type:                item.Type,
+		AmountNanousd:       item.AmountNanousd,
+		AmountUSD:           nanousdToUSDSigned(item.AmountNanousd),
+		BalanceAfterNanousd: item.BalanceAfterNanousd,
+		BalanceAfterUSD:     nanousdToUSD(item.BalanceAfterNanousd),
+		RefType:             item.RefType,
+		RefID:               item.RefID,
+		RefNo:               item.RefNo,
+		Description:         item.Description,
+		CreatedAt:           item.CreatedAt,
+		UpdatedAt:           item.UpdatedAt,
+	}
+}
+
+func toBalanceTransactionResponses(items []domainbilling.BalanceTransaction) []BalanceTransactionResponse {
+	results := make([]BalanceTransactionResponse, 0, len(items))
+	for _, item := range items {
+		results = append(results, toBalanceTransactionResponse(item))
+	}
+	return results
+}
+
+func toCheckInStatusResponse(item *appbilling.CheckInStatusView) CheckInStatusResponse {
+	if item == nil {
+		return CheckInStatusResponse{}
+	}
+	var account *BillingAccountResponse
+	if item.Account != nil {
+		value := toBillingAccountResponse(item.Account)
+		account = &value
+	}
+	var transaction *BalanceTransactionResponse
+	if item.LatestTransaction != nil {
+		value := toBalanceTransactionResponse(*item.LatestTransaction)
+		transaction = &value
+	}
+	return CheckInStatusResponse{
+		TodayClaimed:     item.TodayClaimed,
+		RewardUSD:        nanousdToUSD(item.RewardNanousd),
+		RewardNanousd:    item.RewardNanousd,
+		ConsecutiveDays:  item.ConsecutiveDays,
+		LastCheckInDate:   item.LastCheckInDate,
+		NextCheckInDate:   item.NextCheckInDate,
+		Account:           account,
+		LatestTransaction: transaction,
+	}
+}
+
+func toCheckInClaimResponse(item *appbilling.CheckInClaimView) CheckInClaimResponse {
+	if item == nil {
+		return CheckInClaimResponse{}
+	}
+	var account *BillingAccountResponse
+	if item.Account != nil {
+		value := toBillingAccountResponse(item.Account)
+		account = &value
+	}
+	var transaction *BalanceTransactionResponse
+	if item.Transaction != nil {
+		value := toBalanceTransactionResponse(*item.Transaction)
+		transaction = &value
+	}
+	return CheckInClaimResponse{
+		ID:                   item.Record.ID,
+		CheckInDate:          item.Record.CheckInDate,
+		AlreadyClaimed:       item.AlreadyClaimed,
+		RewardUSD:            nanousdToUSD(item.Record.RewardNanousd),
+		RewardNanousd:        item.Record.RewardNanousd,
+		ConsecutiveDays:      item.Record.ConsecutiveDays,
+		BalanceTransactionID: item.Record.BalanceTransactionID,
+		Account:              account,
+		Transaction:          transaction,
+	}
+}
+
+func toExternalAccountLinkResponse(item *domainbilling.ExternalAccountLink) *ExternalAccountLinkResponse {
+	if item == nil {
+		return nil
+	}
+	return &ExternalAccountLinkResponse{
+		ID:                  item.ID,
+		Platform:            item.Platform,
+		ExternalDisplayName: item.ExternalDisplayName,
+		Status:              item.Status,
+		LinkedAt:            item.LinkedAt,
+		LastSyncedAt:        item.LastSyncedAt,
+	}
+}
+
+func toNewAPIBalanceResponse(item *appbilling.NewAPIBalanceResult) NewAPIBalanceResponse {
+	if item == nil {
+		return NewAPIBalanceResponse{Rate: 10, MinTransferUSD: 1, MaxDailyTransferUSD: 500}
+	}
+	return NewAPIBalanceResponse{
+		Linked:              item.Linked,
+		Link:                toExternalAccountLinkResponse(item.Link),
+		ExternalBalanceUSD:  item.ExternalBalanceUSD,
+		TransferableUSD:     item.TransferableUSD,
+		Rate:                item.Rate,
+		MinTransferUSD:      item.MinTransferUSD,
+		MaxDailyTransferUSD: item.MaxDailyTransferUSD,
+	}
+}
+
+func toExternalTransferResponse(item domainbilling.ExternalTransfer) ExternalTransferResponse {
+	return ExternalTransferResponse{
+		ID:                    item.ID,
+		Platform:              item.Platform,
+		Direction:             item.Direction,
+		ExternalAmountUSD:     item.ExternalAmountUSD,
+		CreditedAmountUSD:     nanousdToUSD(item.CreditedAmountNanousd),
+		CreditedAmountNanousd: item.CreditedAmountNanousd,
+		Status:                item.Status,
+		RequestedAt:           item.RequestedAt,
+		CompletedAt:           item.CompletedAt,
+		CreatedAt:             item.CreatedAt,
+	}
+}
+
+func toExternalTransferResponses(items []domainbilling.ExternalTransfer) []ExternalTransferResponse {
+	results := make([]ExternalTransferResponse, 0, len(items))
+	for _, item := range items {
+		results = append(results, toExternalTransferResponse(item))
+	}
+	return results
 }
 
 func toBillingAccountViewResponse(item *appbilling.BillingAccountView) *BillingAccountResponse {
@@ -889,6 +1323,30 @@ func toRedemptionResponse(item appbilling.RedemptionApplyView) RedemptionRespons
 		BalanceTransactionID: item.Redemption.BalanceTransactionID,
 		CreatedAt:            item.Redemption.CreatedAt,
 	}
+}
+
+func toRedemptionRecordResponse(item domainbilling.Redemption) RedemptionResponse {
+	return RedemptionResponse{
+		ID:                   item.ID,
+		CodeID:               item.CodeID,
+		UserID:               item.UserID,
+		Mode:                 item.Mode,
+		RewardType:           item.RewardType,
+		CreditUSD:            nanousdToUSD(item.CreditNanousd),
+		CreditNanousd:        item.CreditNanousd,
+		PlanID:               item.PlanID,
+		SubscriptionID:       item.SubscriptionID,
+		BalanceTransactionID: item.BalanceTransactionID,
+		CreatedAt:            item.CreatedAt,
+	}
+}
+
+func toRedemptionRecordResponses(items []domainbilling.Redemption) []RedemptionResponse {
+	results := make([]RedemptionResponse, 0, len(items))
+	for _, item := range items {
+		results = append(results, toRedemptionRecordResponse(item))
+	}
+	return results
 }
 
 func toUsageLedgerResponse(u domainbilling.UsageLedger) UsageLedgerResponse {
@@ -1117,6 +1575,33 @@ func planUpdateInputFromRequest(req UpdateBillingPlanRequest) appbilling.PlanUpd
 	}
 }
 
+func planCreateInputFromRequest(req CreateBillingPlanRequest) appbilling.PlanCreateInput {
+	return appbilling.PlanCreateInput{
+		Code:                req.Code,
+		Name:                req.Name,
+		Description:         req.Description,
+		PeriodCreditNanousd: usdToNanousd(req.PeriodCreditUSD),
+		DiscountPercent:     req.DiscountPercent,
+		Currency:            req.Currency,
+		AmountCents:         usdToCents(req.AmountUSD),
+		BillingInterval:     req.BillingInterval,
+	}
+}
+
+func toBillingRiskSummaryResponse(item *appbilling.RiskSummaryView) BillingRiskSummaryResponse {
+	if item == nil {
+		return BillingRiskSummaryResponse{}
+	}
+	return BillingRiskSummaryResponse{
+		MultiAccountClusterCount: item.MultiAccountClusterCount,
+		HighRiskClusterCount:     item.HighRiskClusterCount,
+		IgnoredClusterCount:      item.IgnoredClusterCount,
+		UniqueFingerprintCount:   item.UniqueFingerprintCount,
+		UniqueIPCount:            item.UniqueIPCount,
+		GeneratedAt:              item.GeneratedAt,
+	}
+}
+
 func usdToNanousd(value float64) int64 {
 	if value <= 0 {
 		return 0
@@ -1135,5 +1620,9 @@ func nanousdToUSD(value int64) float64 {
 	if value <= 0 {
 		return 0
 	}
+	return float64(value) / 1000000000
+}
+
+func nanousdToUSDSigned(value int64) float64 {
 	return float64(value) / 1000000000
 }

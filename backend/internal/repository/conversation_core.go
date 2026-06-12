@@ -33,6 +33,7 @@ type AssistantMessageCompletionUpdate struct {
 type ConversationMetadataRepository interface {
 	CreateConversation(ctx context.Context, item *domainconversation.Conversation) error
 	ListConversationsByUser(ctx context.Context, userID uint, offset int, limit int, statusFilter string, starredFilter string, shareFilter string, projectFilter string) ([]domainconversation.Conversation, int64, error)
+	SearchConversationsByUser(ctx context.Context, userID uint, query string, offset int, limit int) ([]domainconversation.ConversationSearchResult, int64, error)
 	GetConversationByUser(ctx context.Context, conversationID uint, userID uint) (*domainconversation.Conversation, error)
 	GetConversationByPublicID(ctx context.Context, publicID string, userID uint) (*domainconversation.Conversation, error)
 	CreateConversationProject(ctx context.Context, item *domainconversation.ConversationProject) error
@@ -43,6 +44,11 @@ type ConversationMetadataRepository interface {
 	ReorderConversationProjects(ctx context.Context, userID uint, publicIDs []string) error
 	UpdateConversationProjectAssignmentByPublicID(ctx context.Context, userID uint, conversationPublicID string, projectID *uint) (*domainconversation.Conversation, error)
 	BatchUpdateConversationProjectByPublicIDs(ctx context.Context, userID uint, conversationPublicIDs []string, projectID *uint) (int64, error)
+	ListProjectDocuments(ctx context.Context, userID uint, projectPublicID string) ([]domainconversation.ProjectDocument, error)
+	AddProjectDocuments(ctx context.Context, userID uint, projectPublicID string, fileIDs []string) ([]domainconversation.ProjectDocument, error)
+	DeleteProjectDocument(ctx context.Context, userID uint, projectPublicID string, fileID string) error
+	MarkProjectDocumentIndexStatus(ctx context.Context, userID uint, projectPublicID string, fileID string, indexStatus string) (*domainconversation.ProjectDocument, error)
+	ListProjectDocumentFilesByProjectID(ctx context.Context, userID uint, projectID uint) ([]domainconversation.FileObject, error)
 	GetActiveConversationShareByConversation(ctx context.Context, userID uint, conversationID uint) (*domainconversation.ConversationShare, error)
 	GetLatestConversationShareByConversation(ctx context.Context, userID uint, conversationID uint) (*domainconversation.ConversationShare, error)
 	GetActiveConversationShareByShareID(ctx context.Context, shareID string) (*domainconversation.ConversationShare, *domainconversation.Conversation, error)
@@ -55,6 +61,9 @@ type ConversationMetadataRepository interface {
 	UpdateConversationStarByPublicID(ctx context.Context, userID uint, publicID string, starred bool) (*domainconversation.Conversation, error)
 	UpdateConversationArchiveByPublicID(ctx context.Context, userID uint, publicID string, archived bool) (*domainconversation.Conversation, error)
 	DeleteConversationByPublicID(ctx context.Context, userID uint, publicID string, deleteFiles bool) ([]string, error)
+	GetConversationDraft(ctx context.Context, userID uint, conversationPublicID string) (*domainconversation.ConversationDraft, error)
+	UpsertConversationDraft(ctx context.Context, item *domainconversation.ConversationDraft) (*domainconversation.ConversationDraft, error)
+	DeleteConversationDraft(ctx context.Context, userID uint, conversationPublicID string) error
 	GetUserByID(ctx context.Context, userID uint) (*domainuser.User, error)
 	IncrementMessageCount(ctx context.Context, conversationID uint, delta int) error
 	UpdateConversationLastResponseID(ctx context.Context, conversationID uint, responseID string) error
@@ -72,6 +81,7 @@ type MessageRepository interface {
 	UpdateMessageUsage(ctx context.Context, messageID uint, inputTokens int64, outputTokens int64, cacheReadTokens int64, cacheWriteTokens int64, reasoningTokens int64) error
 	UpdateMessageState(ctx context.Context, messageID uint, status string, errorCode string, errorMessage string) error
 	UpdateAssistantMessageContent(ctx context.Context, userID uint, publicID string, content string, editedAt time.Time) (*domainconversation.Message, error)
+	SoftDeleteMessageForUser(ctx context.Context, userID uint, publicID string, deletedAt time.Time) (*domainconversation.Message, error)
 	CancelPendingGenerationMessagesByRunID(ctx context.Context, userID uint, runID string, errorCode string, errorMessage string) (bool, error)
 	InterruptPendingAssistantMessageByRunID(ctx context.Context, userID uint, runID string, errorCode string, errorMessage string) (bool, error)
 	UpdateAssistantMessageCompletion(ctx context.Context, messageID uint, content string, outputTokens int64, reasoningTokens int64, latencyMS int64, status string, errorCode string, errorMessage string) error
@@ -93,12 +103,22 @@ type MessageFeedbackRepository interface {
 	DeleteMessageFeedback(ctx context.Context, userID uint, messageID uint) error
 	GetUserMessageFeedbackMap(ctx context.Context, userID uint, messageIDs []uint) (map[uint]string, error)
 	GetMessageFeedbackCounts(ctx context.Context, messageIDs []uint) (map[uint]map[string]int64, error)
+	UpsertMessageBookmark(ctx context.Context, item *domainconversation.MessageBookmark) error
+	DeleteMessageBookmark(ctx context.Context, userID uint, messageID uint) error
+	GetUserMessageBookmarkMap(ctx context.Context, userID uint, messageIDs []uint) (map[uint]domainconversation.MessageBookmark, error)
+	ListMessageBookmarks(ctx context.Context, userID uint, query string, offset int, limit int) ([]domainconversation.MessageBookmarkListItem, int64, error)
 }
 
 // ConversationTraceRepository 封装附件、运行轨迹与工具调用能力。
 type ConversationTraceRepository interface {
 	CreateAttachments(ctx context.Context, items []domainconversation.Attachment) error
 	CreateConversationRun(ctx context.Context, item *domainconversation.Run) error
+	ListModelAvailability(ctx context.Context, since time.Time) ([]domainconversation.ModelAvailability, error)
+	CreateModerationEvent(ctx context.Context, item *domainconversation.ModerationEvent) error
+	ListModerationEvents(ctx context.Context, offset int, limit int) ([]domainconversation.ModerationEvent, int64, error)
+	CountFlaggedModerationEvents(ctx context.Context, userID uint, since time.Time) (int64, error)
+	GetModerationEvent(ctx context.Context, id uint) (*domainconversation.ModerationEvent, error)
+	UpdateModerationEventReview(ctx context.Context, id uint, status string, reviewedBy uint, reviewedAt *time.Time, note string) (*domainconversation.ModerationEvent, error)
 	UpsertConversationMessageTrace(ctx context.Context, item *domainconversation.MessageTrace) error
 	ListConversationMessageTracesByMessageIDs(ctx context.Context, messageIDs []uint) ([]domainconversation.MessageTrace, error)
 	UpsertConversationMessageTraceEvent(ctx context.Context, item *domainconversation.MessageTraceEventRow) error

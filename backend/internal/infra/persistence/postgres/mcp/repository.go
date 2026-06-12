@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	domainmcp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/mcp"
@@ -21,11 +22,20 @@ func NewRepo(db *gorm.DB) *Repo {
 
 func (r *Repo) CreateServer(ctx context.Context, input repository.CreateMCPServerInput) (*domainmcp.Server, error) {
 	item := model.MCPServer{
-		Name:         input.Name,
-		BaseURL:      input.BaseURL,
-		AuthTokenEnc: input.AuthTokenEnc,
-		HeadersJSON:  input.HeadersJSON,
-		Status:       input.Status,
+		OwnerUserID:          input.OwnerUserID,
+		Name:                 input.Name,
+		BaseURL:              input.BaseURL,
+		AuthTokenEnc:         input.AuthTokenEnc,
+		HeadersJSON:          input.HeadersJSON,
+		Status:               input.Status,
+		TimeoutSeconds:       input.TimeoutSeconds,
+		OAuthClientID:        input.OAuthClientID,
+		OAuthClientSecretEnc: input.OAuthClientSecretEnc,
+		OAuthAuthURL:         input.OAuthAuthURL,
+		OAuthTokenURL:        input.OAuthTokenURL,
+		OAuthScopes:          input.OAuthScopes,
+		OAuthAccessTokenEnc:  input.OAuthAccessTokenEnc,
+		OAuthRefreshTokenEnc: input.OAuthRefreshTokenEnc,
 	}
 	if err := r.db.WithContext(ctx).Create(&item).Error; err != nil {
 		return nil, err
@@ -51,6 +61,33 @@ func (r *Repo) UpdateServer(ctx context.Context, serverID uint, input repository
 	if input.Status != nil {
 		updates["status"] = *input.Status
 	}
+	if input.TimeoutSeconds != nil {
+		updates["timeout_seconds"] = *input.TimeoutSeconds
+	}
+	if input.OAuthClientID != nil {
+		updates["oauth_client_id"] = *input.OAuthClientID
+	}
+	if input.OAuthClientSecretEnc != nil {
+		updates["oauth_client_secret_enc"] = *input.OAuthClientSecretEnc
+	}
+	if input.OAuthAuthURL != nil {
+		updates["oauth_auth_url"] = *input.OAuthAuthURL
+	}
+	if input.OAuthTokenURL != nil {
+		updates["oauth_token_url"] = *input.OAuthTokenURL
+	}
+	if input.OAuthScopes != nil {
+		updates["oauth_scopes"] = *input.OAuthScopes
+	}
+	if input.OAuthAccessTokenEnc != nil {
+		updates["oauth_access_token_enc"] = *input.OAuthAccessTokenEnc
+	}
+	if input.OAuthRefreshTokenEnc != nil {
+		updates["oauth_refresh_token_enc"] = *input.OAuthRefreshTokenEnc
+	}
+	if input.OAuthStatus != nil {
+		updates["oauth_status"] = *input.OAuthStatus
+	}
 	if input.LastError != nil {
 		updates["last_error"] = *input.LastError
 	}
@@ -67,6 +104,24 @@ func (r *Repo) ListServers(ctx context.Context) ([]domainmcp.Server, error) {
 	if err := r.db.WithContext(ctx).Order("id asc").Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	return r.hydrateServerActiveCounts(ctx, rows)
+}
+
+func (r *Repo) ListServersForUser(ctx context.Context, userID uint, includePlatform bool) ([]domainmcp.Server, error) {
+	var rows []model.MCPServer
+	query := r.db.WithContext(ctx).Order("owner_user_id asc, id asc")
+	if includePlatform {
+		query = query.Where("owner_user_id = ? OR owner_user_id = 0", userID)
+	} else {
+		query = query.Where("owner_user_id = ?", userID)
+	}
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return r.hydrateServerActiveCounts(ctx, rows)
+}
+
+func (r *Repo) hydrateServerActiveCounts(ctx context.Context, rows []model.MCPServer) ([]domainmcp.Server, error) {
 	activeCounts := map[uint]int{}
 	if len(rows) > 0 {
 		serverIDs := make([]uint, 0, len(rows))
@@ -107,6 +162,21 @@ func (r *Repo) GetServer(ctx context.Context, serverID uint) (*domainmcp.Server,
 	return &item, nil
 }
 
+func (r *Repo) GetServerForUser(ctx context.Context, serverID uint, userID uint, includePlatform bool) (*domainmcp.Server, error) {
+	var row model.MCPServer
+	query := r.db.WithContext(ctx).Where("id = ?", serverID)
+	if includePlatform {
+		query = query.Where("owner_user_id = ? OR owner_user_id = 0", userID)
+	} else {
+		query = query.Where("owner_user_id = ?", userID)
+	}
+	if err := query.First(&row).Error; err != nil {
+		return nil, err
+	}
+	item := toDomainServer(row)
+	return &item, nil
+}
+
 func (r *Repo) DeleteServer(ctx context.Context, serverID uint) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("server_id = ?", serverID).Delete(&model.MCPTool{}).Error; err != nil {
@@ -130,6 +200,9 @@ func (r *Repo) ReplaceServerTools(ctx context.Context, serverID uint, tools []do
 				Description:     tool.Description,
 				InputSchemaJSON: tool.InputSchemaJSON,
 				Status:          tool.Status,
+				DefaultEnabled:  tool.DefaultEnabled,
+				RequiresConfirm: tool.RequiresConfirm,
+				ToolKind:        defaultToolKind(tool.ToolKind),
 			})
 		}
 		if len(rows) > 0 {
@@ -189,6 +262,27 @@ func (r *Repo) ListToolsByIDs(ctx context.Context, toolIDs []uint) ([]domainmcp.
 	return items, nil
 }
 
+func (r *Repo) ListToolsByIDsForUser(ctx context.Context, toolIDs []uint, userID uint) ([]domainmcp.Tool, error) {
+	if len(toolIDs) == 0 {
+		return []domainmcp.Tool{}, nil
+	}
+	var rows []model.MCPTool
+	if err := r.db.WithContext(ctx).
+		Model(&model.MCPTool{}).
+		Select("mcp_tools.*").
+		Joins("JOIN mcp_servers ON mcp_servers.id = mcp_tools.server_id").
+		Where("mcp_tools.id IN ? AND (mcp_servers.owner_user_id = ? OR mcp_servers.owner_user_id = 0)", toolIDs, userID).
+		Order("mcp_tools.id asc").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	items := make([]domainmcp.Tool, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, toDomainTool(row))
+	}
+	return items, nil
+}
+
 func (r *Repo) UpdateTool(ctx context.Context, toolID uint, input repository.UpdateMCPToolInput) (*domainmcp.Tool, error) {
 	updates := map[string]interface{}{}
 	if input.DisplayName != nil {
@@ -199,6 +293,12 @@ func (r *Repo) UpdateTool(ctx context.Context, toolID uint, input repository.Upd
 	}
 	if input.Status != nil {
 		updates["status"] = *input.Status
+	}
+	if input.DefaultEnabled != nil {
+		updates["default_enabled"] = *input.DefaultEnabled
+	}
+	if input.RequiresConfirm != nil {
+		updates["requires_confirm"] = *input.RequiresConfirm
 	}
 	if len(updates) > 0 {
 		if err := r.db.WithContext(ctx).Model(&model.MCPTool{}).Where("id = ?", toolID).Updates(updates).Error; err != nil {
@@ -223,20 +323,72 @@ func (r *Repo) UpdateServerToolsStatus(ctx context.Context, serverID uint, toolI
 	return r.ListTools(ctx, serverID, false)
 }
 
+func (r *Repo) GetToolPreference(ctx context.Context, userID uint, conversationPublicID string) (*domainmcp.ToolPreference, error) {
+	var row model.MCPToolPreference
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND conversation_public_id = ?", userID, conversationPublicID).
+		First(&row).Error; err != nil {
+		return nil, err
+	}
+	item := toDomainToolPreference(row)
+	return &item, nil
+}
+
+func (r *Repo) UpsertToolPreference(ctx context.Context, input repository.UpsertMCPToolPreferenceInput) (*domainmcp.ToolPreference, error) {
+	selectedJSON := encodeUintList(input.SelectedToolIDs)
+	confirmedJSON := encodeUintList(input.ConfirmedToolIDs)
+	row := model.MCPToolPreference{
+		UserID:               input.UserID,
+		ConversationPublicID: input.ConversationPublicID,
+		SelectedToolIDsJSON:  selectedJSON,
+		ConfirmedToolIDsJSON: confirmedJSON,
+		WebSearchEnabled:     input.WebSearchEnabled,
+		CodeSandboxEnabled:   input.CodeSandboxEnabled,
+		ResearchMaxLLMCalls:  input.ResearchMaxLLMCalls,
+		ResearchMaxToolCalls: input.ResearchMaxToolCalls,
+	}
+	if err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "user_id"}, {Name: "conversation_public_id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"selected_tool_ids_json",
+			"confirmed_tool_ids_json",
+			"web_search_enabled",
+			"code_sandbox_enabled",
+			"research_max_llm_calls",
+			"research_max_tool_calls",
+			"updated_at",
+		}),
+	}).Create(&row).Error; err != nil {
+		return nil, err
+	}
+	return r.GetToolPreference(ctx, input.UserID, input.ConversationPublicID)
+}
+
 func toDomainServer(row model.MCPServer) domainmcp.Server {
 	return domainmcp.Server{
-		ID:              row.ID,
-		Name:            row.Name,
-		BaseURL:         row.BaseURL,
-		AuthTokenEnc:    row.AuthTokenEnc,
-		HeadersJSON:     row.HeadersJSON,
-		Status:          row.Status,
-		ToolCount:       row.ToolCount,
-		ActiveToolCount: 0,
-		LastSyncedAt:    row.LastSyncedAt,
-		LastError:       row.LastError,
-		CreatedAt:       row.CreatedAt,
-		UpdatedAt:       row.UpdatedAt,
+		ID:                   row.ID,
+		OwnerUserID:          row.OwnerUserID,
+		Name:                 row.Name,
+		BaseURL:              row.BaseURL,
+		AuthTokenEnc:         row.AuthTokenEnc,
+		HeadersJSON:          row.HeadersJSON,
+		Status:               row.Status,
+		TimeoutSeconds:       row.TimeoutSeconds,
+		OAuthClientID:        row.OAuthClientID,
+		OAuthClientSecretEnc: row.OAuthClientSecretEnc,
+		OAuthAuthURL:         row.OAuthAuthURL,
+		OAuthTokenURL:        row.OAuthTokenURL,
+		OAuthScopes:          row.OAuthScopes,
+		OAuthAccessTokenEnc:  row.OAuthAccessTokenEnc,
+		OAuthRefreshTokenEnc: row.OAuthRefreshTokenEnc,
+		OAuthTokenExpiresAt:  row.OAuthTokenExpiresAt,
+		OAuthStatus:          row.OAuthStatus,
+		ToolCount:            row.ToolCount,
+		ActiveToolCount:      0,
+		LastSyncedAt:         row.LastSyncedAt,
+		LastError:            row.LastError,
+		CreatedAt:            row.CreatedAt,
+		UpdatedAt:            row.UpdatedAt,
 	}
 }
 
@@ -249,7 +401,64 @@ func toDomainTool(row model.MCPTool) domainmcp.Tool {
 		Description:     row.Description,
 		InputSchemaJSON: row.InputSchemaJSON,
 		Status:          row.Status,
+		DefaultEnabled:  row.DefaultEnabled,
+		RequiresConfirm: row.RequiresConfirm,
+		ToolKind:        defaultToolKind(row.ToolKind),
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	}
+}
+
+func toDomainToolPreference(row model.MCPToolPreference) domainmcp.ToolPreference {
+	return domainmcp.ToolPreference{
+		ID:                   row.ID,
+		UserID:               row.UserID,
+		ConversationPublicID: row.ConversationPublicID,
+		SelectedToolIDs:      decodeUintList(row.SelectedToolIDsJSON),
+		ConfirmedToolIDs:     decodeUintList(row.ConfirmedToolIDsJSON),
+		WebSearchEnabled:     row.WebSearchEnabled,
+		CodeSandboxEnabled:   row.CodeSandboxEnabled,
+		ResearchMaxLLMCalls:  row.ResearchMaxLLMCalls,
+		ResearchMaxToolCalls: row.ResearchMaxToolCalls,
+		CreatedAt:            row.CreatedAt,
+		UpdatedAt:            row.UpdatedAt,
+	}
+}
+
+func encodeUintList(items []uint) string {
+	if items == nil {
+		items = []uint{}
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return "[]"
+	}
+	return string(raw)
+}
+
+func decodeUintList(raw string) []uint {
+	var items []uint
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return []uint{}
+	}
+	result := make([]uint, 0, len(items))
+	seen := map[uint]struct{}{}
+	for _, item := range items {
+		if item == 0 {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	return result
+}
+
+func defaultToolKind(value string) string {
+	if value == "" {
+		return "remote"
+	}
+	return value
 }

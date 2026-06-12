@@ -81,6 +81,53 @@ func (h *Handler) UpdateMessage(c *gin.Context) {
 	response.Success(c, toMessageResponseWithRun(*item, run))
 }
 
+// DeleteMessage godoc
+// @Summary 删除消息
+// @Description 将当前用户的一条消息标记为已删除；后续列表、导出和分享默认不再返回
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "消息 public_id"
+// @Success 200 {object} MessageResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /messages/{id} [delete]
+func (h *Handler) DeleteMessage(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid message id")
+		return
+	}
+
+	item, err := h.service.SoftDeleteMessage(c.Request.Context(), userID, publicID)
+	if err != nil {
+		switch {
+		case errors.Is(err, appconversation.ErrMessageEditStateInvalid):
+			response.Error(c, http.StatusBadRequest, "message delete state invalid")
+			return
+		case errors.Is(err, appconversation.ErrMessageNotFound):
+			response.Error(c, http.StatusNotFound, "message not found")
+			return
+		default:
+			response.Error(c, http.StatusInternalServerError, "delete message failed")
+			return
+		}
+	}
+
+	h.recordAudit(c, "delete_message",
+		"message",
+		item.PublicID,
+		map[string]interface{}{
+			"role": item.Role,
+		},
+	)
+
+	response.Success(c, toMessageResponse(*item))
+}
+
 // SetMessageFeedback godoc
 // @Summary 设置消息反馈
 // @Description 对 assistant 消息设置点赞/点踩，传空 feedback 表示取消反馈
@@ -136,6 +183,126 @@ func (h *Handler) SetMessageFeedback(c *gin.Context) {
 	)
 
 	response.Success(c, toMessageFeedbackResponse(result))
+}
+
+// ListMessageBookmarks godoc
+// @Summary 收藏消息列表
+// @Description 查询当前用户收藏的消息
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param q query string false "搜索关键词"
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Success 200 {object} MessageBookmarkListResponseDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /message-bookmarks [get]
+func (h *Handler) ListMessageBookmarks(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	page, pageSize := pageParams(c)
+
+	items, total, err := h.service.ListMessageBookmarks(c.Request.Context(), userID, c.Query("q"), page, pageSize)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list message bookmarks failed")
+		return
+	}
+	results := make([]MessageBookmarkListItemResponse, 0, len(items))
+	for index := range items {
+		results = append(results, toMessageBookmarkListItemResponse(items[index]))
+	}
+	response.SuccessPage(c, total, results)
+}
+
+// SetMessageBookmark godoc
+// @Summary 设置消息收藏
+// @Description 收藏或取消收藏当前用户消息
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "消息 public_id"
+// @Param body body SetMessageBookmarkRequest true "收藏参数"
+// @Success 200 {object} MessageBookmarkResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /messages/{id}/bookmark [put]
+func (h *Handler) SetMessageBookmark(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid message id")
+		return
+	}
+
+	var req SetMessageBookmarkRequest
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+
+	result, err := h.service.SetMessageBookmark(c.Request.Context(), userID, publicID, req.Bookmarked, req.Note, req.Tags)
+	if err != nil {
+		if errors.Is(err, appconversation.ErrMessageNotFound) {
+			response.Error(c, http.StatusNotFound, "message not found")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "set message bookmark failed")
+		return
+	}
+
+	h.recordAudit(c, "set_message_bookmark",
+		"message",
+		result.MessagePublicID,
+		map[string]interface{}{
+			"bookmarked": result.Bookmarked,
+		},
+	)
+
+	response.Success(c, toMessageBookmarkResponse(result))
+}
+
+// DeleteMessageBookmark godoc
+// @Summary 取消消息收藏
+// @Description 取消收藏当前用户消息
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "消息 public_id"
+// @Success 200 {object} MessageBookmarkResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /messages/{id}/bookmark [delete]
+func (h *Handler) DeleteMessageBookmark(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid message id")
+		return
+	}
+
+	result, err := h.service.SetMessageBookmark(c.Request.Context(), userID, publicID, false, "", nil)
+	if err != nil {
+		if errors.Is(err, appconversation.ErrMessageNotFound) {
+			response.Error(c, http.StatusNotFound, "message not found")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "delete message bookmark failed")
+		return
+	}
+
+	h.recordAudit(c, "delete_message_bookmark",
+		"message",
+		result.MessagePublicID,
+		map[string]interface{}{
+			"bookmarked": false,
+		},
+	)
+
+	response.Success(c, toMessageBookmarkResponse(result))
 }
 
 // ListMessages godoc

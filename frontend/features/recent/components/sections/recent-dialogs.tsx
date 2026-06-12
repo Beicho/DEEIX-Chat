@@ -47,6 +47,7 @@ type RecentDialogsProps = {
   onCloseDeleteDialog: () => void;
   onCloseShareDialog: () => void;
   onShareChange: (share: ConversationShareDTO) => void;
+  onExportImage: (item: ConversationDTO) => void | Promise<void>;
   onCloseBulkConfirm: () => void;
   onConfirmBulkAction: () => void | Promise<void>;
 };
@@ -68,6 +69,7 @@ export function RecentDialogs({
   onCloseDeleteDialog,
   onCloseShareDialog,
   onShareChange,
+  onExportImage,
   onCloseBulkConfirm,
   onConfirmBulkAction,
 }: RecentDialogsProps) {
@@ -181,6 +183,7 @@ export function RecentDialogs({
           onOpenChange={(open) => !open && onCloseShareDialog()}
           conversationPublicID={shareTarget.publicID}
           conversationTitle={shareTarget.title || t("untitled")}
+          onExportImage={() => onExportImage(shareTarget)}
           onShareChange={onShareChange}
         />
       ) : null}

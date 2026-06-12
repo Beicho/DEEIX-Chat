@@ -2,17 +2,28 @@ package model
 
 import "time"
 
-// MCPServer 存储管理员配置的 MCP 服务。
+// MCPServer 存储平台或用户配置的 MCP 服务。
 type MCPServer struct {
 	ControlPlaneModel
-	Name         string     `gorm:"size:128;not null;default:'';comment:MCP服务名称"`
-	BaseURL      string     `gorm:"size:512;not null;default:'';comment:MCP服务地址"`
-	AuthTokenEnc string     `gorm:"type:text;not null;default:'';comment:加密后的鉴权Token"`
-	HeadersJSON  string     `gorm:"type:text;not null;default:'{}';comment:附加请求头JSON"`
-	Status       string     `gorm:"size:32;not null;default:'active';index:idx_mcp_servers_status;comment:服务状态(active/inactive)"`
-	ToolCount    int        `gorm:"not null;default:0;comment:最近发现工具数量"`
-	LastSyncedAt *time.Time `gorm:"comment:最近同步工具时间"`
-	LastError    string     `gorm:"type:text;not null;default:'';comment:最近同步或调用错误"`
+	OwnerUserID          uint       `gorm:"not null;default:0;index:idx_mcp_servers_owner;comment:归属用户ID，0表示平台级"`
+	Name                 string     `gorm:"size:128;not null;default:'';comment:MCP服务名称"`
+	BaseURL              string     `gorm:"size:512;not null;default:'';comment:MCP服务地址"`
+	AuthTokenEnc         string     `gorm:"type:text;not null;default:'';comment:加密后的鉴权Token"`
+	HeadersJSON          string     `gorm:"type:text;not null;default:'{}';comment:附加请求头JSON"`
+	Status               string     `gorm:"size:32;not null;default:'active';index:idx_mcp_servers_status;comment:服务状态(active/inactive)"`
+	TimeoutSeconds       int        `gorm:"not null;default:0;comment:工具调用超时秒数，0表示使用全局默认"`
+	OAuthClientID        string     `gorm:"size:255;not null;default:'';comment:OAuth客户端ID"`
+	OAuthClientSecretEnc string     `gorm:"type:text;not null;default:'';comment:加密后的OAuth客户端密钥"`
+	OAuthAuthURL         string     `gorm:"size:512;not null;default:'';comment:OAuth授权地址"`
+	OAuthTokenURL        string     `gorm:"size:512;not null;default:'';comment:OAuth换取Token地址"`
+	OAuthScopes          string     `gorm:"size:512;not null;default:'';comment:OAuth授权范围"`
+	OAuthAccessTokenEnc  string     `gorm:"type:text;not null;default:'';comment:加密后的OAuth访问Token"`
+	OAuthRefreshTokenEnc string     `gorm:"type:text;not null;default:'';comment:加密后的OAuth刷新Token"`
+	OAuthTokenExpiresAt  *time.Time `gorm:"comment:OAuth访问Token过期时间"`
+	OAuthStatus          string     `gorm:"size:32;not null;default:'';comment:OAuth连接状态"`
+	ToolCount            int        `gorm:"not null;default:0;comment:最近发现工具数量"`
+	LastSyncedAt         *time.Time `gorm:"comment:最近同步工具时间"`
+	LastError            string     `gorm:"type:text;not null;default:'';comment:最近同步或调用错误"`
 }
 
 func (MCPServer) TableName() string {
@@ -28,8 +39,28 @@ type MCPTool struct {
 	Description     string `gorm:"type:text;not null;default:'';comment:工具说明"`
 	InputSchemaJSON string `gorm:"type:text;not null;default:'{}';comment:输入JSON Schema"`
 	Status          string `gorm:"size:32;not null;default:'inactive';index:idx_mcp_tools_status;comment:工具状态(active/inactive)"`
+	DefaultEnabled  bool   `gorm:"not null;default:false;comment:是否默认启用"`
+	RequiresConfirm bool   `gorm:"not null;default:false;comment:执行前是否需要用户确认"`
+	ToolKind        string `gorm:"size:32;not null;default:'remote';comment:工具类型(remote/builtin)"`
 }
 
 func (MCPTool) TableName() string {
 	return "mcp_tools"
+}
+
+// MCPToolPreference 存储用户默认或单会话工具选择偏好。
+type MCPToolPreference struct {
+	ControlPlaneModel
+	UserID               uint   `gorm:"not null;default:0;uniqueIndex:idx_mcp_tool_pref_user_conversation,priority:1;index:idx_mcp_tool_pref_user;comment:用户ID"`
+	ConversationPublicID string `gorm:"size:64;not null;default:'';uniqueIndex:idx_mcp_tool_pref_user_conversation,priority:2;comment:会话公开ID，空串表示用户默认"`
+	SelectedToolIDsJSON  string `gorm:"type:text;not null;default:'[]';comment:已选择工具ID JSON"`
+	ConfirmedToolIDsJSON string `gorm:"type:text;not null;default:'[]';comment:已确认工具ID JSON"`
+	WebSearchEnabled     bool   `gorm:"not null;default:false;comment:是否启用联网搜索"`
+	CodeSandboxEnabled   bool   `gorm:"not null;default:false;comment:是否启用代码运行"`
+	ResearchMaxLLMCalls  int    `gorm:"not null;default:0;comment:本轮研究最大模型请求次数"`
+	ResearchMaxToolCalls int    `gorm:"not null;default:0;comment:本轮研究最大工具调用次数"`
+}
+
+func (MCPToolPreference) TableName() string {
+	return "mcp_tool_preferences"
 }

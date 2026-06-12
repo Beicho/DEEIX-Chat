@@ -14,13 +14,18 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
 	conversationShareStatusNone    = "none"
 	conversationShareStatusActive  = "active"
 	conversationShareStatusRevoked = "revoked"
+	conversationShareStatusExpired = "expired"
+	conversationShareScopeCurrent  = "current"
+	conversationShareScopeFull     = "full"
 	shareMetadataDescriptionLimit  = 160
+	conversationSharePasswordCost  = bcrypt.DefaultCost
 )
 
 var (
@@ -34,15 +39,28 @@ var (
 
 // ConversationShareResult 是当前用户管理分享时返回的分享状态。
 type ConversationShareResult struct {
-	ShareID        string
-	Status         string
-	TitleSnapshot  string
-	ModelSnapshot  string
-	MessageCount   int
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	RevokedAt      *time.Time
-	LastAccessedAt *time.Time
+	ShareID         string
+	Status          string
+	TitleSnapshot   string
+	ModelSnapshot   string
+	MessageCount    int
+	ShareScope      string
+	HasPassword     bool
+	IncludeThinking bool
+	ExpiresAt       *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	RevokedAt       *time.Time
+	LastAccessedAt  *time.Time
+}
+
+// ConversationShareOptions controls the public share snapshot that is created.
+type ConversationShareOptions struct {
+	DefaultMessagePublicIDs []string
+	Scope                   string
+	ExpiresInDays           int
+	Password                string
+	IncludeThinking         bool
 }
 
 // PublicSharedConversationResult 是公开分享页可读取的快照内容。
@@ -50,6 +68,10 @@ type PublicSharedConversationResult struct {
 	ShareID           string
 	Title             string
 	Model             string
+	ShareScope        string
+	RequiresPassword  bool
+	Verified          bool
+	ExpiresAt         *time.Time
 	CreatedAt         time.Time
 	LastAccessedAt    *time.Time
 	Messages          []model.Message
@@ -98,27 +120,31 @@ func (s *Service) GetConversationShare(ctx context.Context, userID uint, convers
 }
 
 // CreateConversationShare 创建公开快照，默认包含会话全部分支消息。
-func (s *Service) CreateConversationShare(ctx context.Context, userID uint, conversationPublicID string, defaultMessagePublicIDs []string) (*ConversationShareResult, error) {
-	return s.createConversationShare(ctx, userID, conversationPublicID, defaultMessagePublicIDs, false)
+func (s *Service) CreateConversationShare(ctx context.Context, userID uint, conversationPublicID string, options ConversationShareOptions) (*ConversationShareResult, error) {
+	return s.createConversationShare(ctx, userID, conversationPublicID, options, false)
 }
 
 // RegenerateConversationShare 关闭旧链接并生成新的公开快照。
-func (s *Service) RegenerateConversationShare(ctx context.Context, userID uint, conversationPublicID string, defaultMessagePublicIDs []string) (*ConversationShareResult, error) {
-	return s.createConversationShare(ctx, userID, conversationPublicID, defaultMessagePublicIDs, true)
+func (s *Service) RegenerateConversationShare(ctx context.Context, userID uint, conversationPublicID string, options ConversationShareOptions) (*ConversationShareResult, error) {
+	return s.createConversationShare(ctx, userID, conversationPublicID, options, true)
 }
 
-func (s *Service) createConversationShare(ctx context.Context, userID uint, conversationPublicID string, defaultMessagePublicIDs []string, regenerated bool) (*ConversationShareResult, error) {
+func (s *Service) createConversationShare(ctx context.Context, userID uint, conversationPublicID string, options ConversationShareOptions, regenerated bool) (*ConversationShareResult, error) {
 	conversation, err := s.repo.GetConversationByPublicID(ctx, strings.TrimSpace(conversationPublicID), userID)
 	if err != nil {
 		return nil, ErrConversationNotFound
 	}
 
-	messageIDs, defaultMessageIDs, err := s.resolveShareMessageIDs(ctx, conversation.ID, defaultMessagePublicIDs)
+	normalizedScope := normalizeConversationShareScope(options.Scope)
+	messageIDs, defaultMessageIDs, err := s.resolveShareMessageIDs(ctx, conversation.ID, options.DefaultMessagePublicIDs, normalizedScope)
 	if err != nil {
 		return nil, err
 	}
 	if len(messageIDs) == 0 {
 		return nil, ErrInvalidConversationShare
+	}
+	if err = s.moderateConversationShare(ctx, userID, conversation.ID, messageIDs); err != nil {
+		return nil, err
 	}
 
 	encoded, err := json.Marshal(messageIDs)
@@ -128,6 +154,19 @@ func (s *Service) createConversationShare(ctx context.Context, userID uint, conv
 	encodedDefault, err := json.Marshal(defaultMessageIDs)
 	if err != nil {
 		return nil, err
+	}
+	passwordHash := ""
+	if password := strings.TrimSpace(options.Password); password != "" {
+		hashed, hashErr := bcrypt.GenerateFromPassword([]byte(password), conversationSharePasswordCost)
+		if hashErr != nil {
+			return nil, hashErr
+		}
+		passwordHash = string(hashed)
+	}
+	var expiresAt *time.Time
+	if options.ExpiresInDays > 0 {
+		value := time.Now().UTC().Add(time.Duration(options.ExpiresInDays) * 24 * time.Hour)
+		expiresAt = &value
 	}
 	var regeneratedAt *time.Time
 	if regenerated {
@@ -143,6 +182,10 @@ func (s *Service) createConversationShare(ctx context.Context, userID uint, conv
 		ModelSnapshot:         conversation.Model,
 		MessageIDsJSON:        string(encoded),
 		DefaultMessageIDsJSON: string(encodedDefault),
+		ShareScope:            normalizedScope,
+		PasswordHash:          passwordHash,
+		IncludeThinking:       options.IncludeThinking,
+		ExpiresAt:             expiresAt,
 		RegeneratedAt:         regeneratedAt,
 	}
 	if err = s.repo.ReplaceActiveConversationShare(ctx, share); err != nil {
@@ -160,13 +203,53 @@ func (s *Service) createConversationShare(ctx context.Context, userID uint, conv
 	return toConversationShareResult(share), nil
 }
 
+func (s *Service) moderateConversationShare(ctx context.Context, userID uint, conversationID uint, messageIDs []string) error {
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	messages, err := s.repo.ListMessagesForShare(ctx, conversationID, messageIDs)
+	if err != nil {
+		return err
+	}
+	if len(messages) == 0 {
+		return ErrInvalidConversationShare
+	}
+	var builder strings.Builder
+	for _, message := range messages {
+		content := strings.TrimSpace(message.Content)
+		if content == "" {
+			continue
+		}
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString(strings.TrimSpace(message.Role))
+		builder.WriteString(": ")
+		builder.WriteString(content)
+		if builder.Len() >= 12000 {
+			break
+		}
+	}
+	return s.checkContentForPolicy(ctx, userID, conversationID, 0, "", builder.String(), "share")
+}
+
 func normalizeConversationSharePersistenceError(err error) error {
 	if err == nil {
 		return nil
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
-	if strings.Contains(message, "default_message_ids_json") && strings.Contains(message, "does not exist") {
-		return ErrConversationShareSchemaOutdated
+	if strings.Contains(message, "does not exist") || strings.Contains(message, "no such column") {
+		for _, column := range []string{
+			"default_message_ids_json",
+			"share_scope",
+			"password_hash",
+			"include_thinking",
+			"expires_at",
+		} {
+			if strings.Contains(message, column) {
+				return ErrConversationShareSchemaOutdated
+			}
+		}
 	}
 	return err
 }
@@ -219,7 +302,7 @@ func (s *Service) RevokeConversationShares(ctx context.Context, userID uint, con
 }
 
 // GetPublicSharedConversation 读取公开分享快照。原会话软删除后，仓储查询会自然返回不存在。
-func (s *Service) GetPublicSharedConversation(ctx context.Context, shareID string) (*PublicSharedConversationResult, error) {
+func (s *Service) GetPublicSharedConversation(ctx context.Context, shareID string, password string) (*PublicSharedConversationResult, error) {
 	normalizedShareID := strings.TrimSpace(shareID)
 	if normalizedShareID == "" {
 		return nil, ErrConversationShareNotFound
@@ -230,6 +313,30 @@ func (s *Service) GetPublicSharedConversation(ctx context.Context, shareID strin
 			return nil, ErrConversationShareNotFound
 		}
 		return nil, err
+	}
+	if shareExpired(share, time.Now().UTC()) {
+		return nil, ErrConversationShareNotFound
+	}
+	verified := true
+	if strings.TrimSpace(share.PasswordHash) != "" {
+		if strings.TrimSpace(password) == "" {
+			return &PublicSharedConversationResult{
+				ShareID:          share.ShareID,
+				Title:            strings.TrimSpace(share.TitleSnapshot),
+				Model:            strings.TrimSpace(share.ModelSnapshot),
+				ShareScope:       normalizeConversationShareScope(share.ShareScope),
+				RequiresPassword: true,
+				Verified:         false,
+				ExpiresAt:        share.ExpiresAt,
+				CreatedAt:        share.CreatedAt,
+				LastAccessedAt:   share.LastAccessedAt,
+				Messages:         []model.Message{},
+				RunModels:        map[string]PublicSharedRunModel{},
+			}, nil
+		}
+		if err = bcrypt.CompareHashAndPassword([]byte(share.PasswordHash), []byte(strings.TrimSpace(password))); err != nil {
+			return nil, ErrConversationSharePasswordInvalid
+		}
 	}
 	messageIDs := decodeShareMessageIDs(share.MessageIDsJSON)
 	if len(messageIDs) == 0 {
@@ -242,8 +349,10 @@ func (s *Service) GetPublicSharedConversation(ctx context.Context, shareID strin
 	if len(messages) == 0 {
 		return nil, ErrConversationShareNotFound
 	}
-	if err = s.hydrateMessageProcessTraces(ctx, messages); err != nil {
-		return nil, err
+	if share.IncludeThinking {
+		if err = s.hydrateMessageProcessTraces(ctx, messages); err != nil {
+			return nil, err
+		}
 	}
 	runModels, err := s.loadPublicSharedRunModels(ctx, share.UserID, conversation.ID, messages)
 	if err != nil {
@@ -262,6 +371,10 @@ func (s *Service) GetPublicSharedConversation(ctx context.Context, shareID strin
 		ShareID:           share.ShareID,
 		Title:             title,
 		Model:             platformModel,
+		ShareScope:        normalizeConversationShareScope(share.ShareScope),
+		RequiresPassword:  strings.TrimSpace(share.PasswordHash) != "",
+		Verified:          verified,
+		ExpiresAt:         share.ExpiresAt,
 		CreatedAt:         share.CreatedAt,
 		LastAccessedAt:    share.LastAccessedAt,
 		Messages:          messages,
@@ -272,9 +385,16 @@ func (s *Service) GetPublicSharedConversation(ctx context.Context, shareID strin
 
 // GetPublicShareMetadata returns a small public title/summary for social link previews.
 func (s *Service) GetPublicShareMetadata(ctx context.Context, shareID string) (string, string, error) {
-	result, err := s.GetPublicSharedConversation(ctx, shareID)
+	result, err := s.GetPublicSharedConversation(ctx, shareID, "")
 	if err != nil {
 		return "", "", err
+	}
+	if result.RequiresPassword && !result.Verified {
+		title := strings.TrimSpace(result.Title)
+		if title == "" {
+			title = "Shared conversation"
+		}
+		return title, "This shared conversation is password protected.", nil
 	}
 	title := strings.TrimSpace(result.Title)
 	if title == "" {
@@ -321,7 +441,7 @@ func truncateShareMetadataDescription(value string) string {
 }
 
 // CloneSharedConversation 将公开分享快照克隆到当前登录用户账户。
-func (s *Service) CloneSharedConversation(ctx context.Context, userID uint, shareID string) (*model.Conversation, error) {
+func (s *Service) CloneSharedConversation(ctx context.Context, userID uint, shareID string, password string) (*model.Conversation, error) {
 	normalizedShareID := strings.TrimSpace(shareID)
 	if normalizedShareID == "" {
 		return nil, ErrConversationShareNotFound
@@ -332,6 +452,17 @@ func (s *Service) CloneSharedConversation(ctx context.Context, userID uint, shar
 			return nil, ErrConversationShareNotFound
 		}
 		return nil, err
+	}
+	if shareExpired(share, time.Now().UTC()) {
+		return nil, ErrConversationShareNotFound
+	}
+	if strings.TrimSpace(share.PasswordHash) != "" {
+		if strings.TrimSpace(password) == "" {
+			return nil, ErrConversationSharePasswordRequired
+		}
+		if err = bcrypt.CompareHashAndPassword([]byte(share.PasswordHash), []byte(strings.TrimSpace(password))); err != nil {
+			return nil, ErrConversationSharePasswordInvalid
+		}
 	}
 	messageIDs := decodeShareMessageIDs(share.MessageIDsJSON)
 	if len(messageIDs) == 0 {
@@ -344,8 +475,10 @@ func (s *Service) CloneSharedConversation(ctx context.Context, userID uint, shar
 	if len(messages) == 0 {
 		return nil, ErrConversationShareNotFound
 	}
-	if err = s.hydrateMessageProcessTraces(ctx, messages); err != nil {
-		return nil, err
+	if share.IncludeThinking {
+		if err = s.hydrateMessageProcessTraces(ctx, messages); err != nil {
+			return nil, err
+		}
 	}
 
 	clonedFiles, err := s.cloneSharedFiles(ctx, share.UserID, userID, messages)
@@ -916,7 +1049,7 @@ func isStorageQuotaExceededError(err error) bool {
 	return errors.Is(err, ErrStorageQuotaExceeded) || strings.Contains(strings.ToLower(err.Error()), "storage quota exceeded")
 }
 
-func (s *Service) resolveShareMessageIDs(ctx context.Context, conversationID uint, defaultPublicIDs []string) ([]string, []string, error) {
+func (s *Service) resolveShareMessageIDs(ctx context.Context, conversationID uint, defaultPublicIDs []string, scope string) ([]string, []string, error) {
 	messages, err := s.repo.ListMessagesForShare(ctx, conversationID, nil)
 	if err != nil {
 		return nil, nil, err
@@ -937,9 +1070,29 @@ func (s *Service) resolveShareMessageIDs(ctx context.Context, conversationID uin
 				return nil, nil, ErrInvalidConversationShare
 			}
 		}
+		if normalizeConversationShareScope(scope) == conversationShareScopeCurrent {
+			return defaultIDs, defaultIDs, nil
+		}
 		return allIDs, defaultIDs, nil
 	}
-	return allIDs, publicIDsFromMessages(buildLatestVisibleMessages(messages)), nil
+	latestIDs := publicIDsFromMessages(buildLatestVisibleMessages(messages))
+	if normalizeConversationShareScope(scope) == conversationShareScopeCurrent {
+		return latestIDs, latestIDs, nil
+	}
+	return allIDs, latestIDs, nil
+}
+
+func normalizeConversationShareScope(scope string) string {
+	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case conversationShareScopeFull:
+		return conversationShareScopeFull
+	default:
+		return conversationShareScopeCurrent
+	}
+}
+
+func shareExpired(share *model.ConversationShare, now time.Time) bool {
+	return share != nil && share.ExpiresAt != nil && !share.ExpiresAt.IsZero() && !share.ExpiresAt.After(now)
 }
 
 func normalizeMessagePublicIDs(values []string) []string {
@@ -1079,7 +1232,7 @@ func (s *Service) loadPublicSharedRunModels(
 }
 
 // OpenSharedConversationFileContent 按公开分享快照范围读取附件内容。
-func (s *Service) OpenSharedConversationFileContent(ctx context.Context, shareID string, fileID string) (*appupload.FileContentResult, error) {
+func (s *Service) OpenSharedConversationFileContent(ctx context.Context, shareID string, fileID string, password string) (*appupload.FileContentResult, error) {
 	normalizedShareID := strings.TrimSpace(shareID)
 	normalizedFileID := strings.TrimSpace(fileID)
 	if normalizedShareID == "" {
@@ -1094,6 +1247,17 @@ func (s *Service) OpenSharedConversationFileContent(ctx context.Context, shareID
 			return nil, ErrConversationShareNotFound
 		}
 		return nil, err
+	}
+	if shareExpired(share, time.Now().UTC()) {
+		return nil, ErrConversationShareNotFound
+	}
+	if strings.TrimSpace(share.PasswordHash) != "" {
+		if strings.TrimSpace(password) == "" {
+			return nil, ErrConversationSharePasswordRequired
+		}
+		if err = bcrypt.CompareHashAndPassword([]byte(share.PasswordHash), []byte(strings.TrimSpace(password))); err != nil {
+			return nil, ErrConversationSharePasswordInvalid
+		}
 	}
 	messageIDs := decodeShareMessageIDs(share.MessageIDsJSON)
 	if len(messageIDs) == 0 {
@@ -1134,15 +1298,22 @@ func toConversationShareResult(share *model.ConversationShare) *ConversationShar
 	if status == "" {
 		status = conversationShareStatusNone
 	}
+	if status == conversationShareStatusActive && shareExpired(share, time.Now().UTC()) {
+		status = conversationShareStatusExpired
+	}
 	return &ConversationShareResult{
-		ShareID:        share.ShareID,
-		Status:         status,
-		TitleSnapshot:  share.TitleSnapshot,
-		ModelSnapshot:  share.ModelSnapshot,
-		MessageCount:   len(decodeShareMessageIDs(share.MessageIDsJSON)),
-		CreatedAt:      share.CreatedAt,
-		UpdatedAt:      share.UpdatedAt,
-		RevokedAt:      share.RevokedAt,
-		LastAccessedAt: share.LastAccessedAt,
+		ShareID:         share.ShareID,
+		Status:          status,
+		TitleSnapshot:   share.TitleSnapshot,
+		ModelSnapshot:   share.ModelSnapshot,
+		MessageCount:    len(decodeShareMessageIDs(share.MessageIDsJSON)),
+		ShareScope:      normalizeConversationShareScope(share.ShareScope),
+		HasPassword:     strings.TrimSpace(share.PasswordHash) != "",
+		IncludeThinking: share.IncludeThinking,
+		ExpiresAt:       share.ExpiresAt,
+		CreatedAt:       share.CreatedAt,
+		UpdatedAt:       share.UpdatedAt,
+		RevokedAt:       share.RevokedAt,
+		LastAccessedAt:  share.LastAccessedAt,
 	}
 }

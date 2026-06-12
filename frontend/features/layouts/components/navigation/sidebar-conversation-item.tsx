@@ -45,6 +45,7 @@ type SidebarConversationItemProps = {
   onShare?: (publicID: string, title: string) => void
   onExport?: (publicID: string) => void | Promise<void>
   onExportMarkdown?: (publicID: string) => void | Promise<void>
+  onExportImage?: (publicID: string) => void | Promise<void>
   onCopyMarkdown?: (publicID: string) => void | Promise<void>
   onDelete: (publicID: string, title: string) => void
   onNavigate?: () => void
@@ -69,6 +70,7 @@ export function SidebarConversationItem({
   onShare,
   onExport,
   onExportMarkdown,
+  onExportImage,
   onCopyMarkdown,
   onDelete,
   onNavigate,
@@ -89,11 +91,11 @@ export function SidebarConversationItem({
       active={active}
     >
       {isRenaming ? (
-        <div className="relative flex h-10 items-center rounded-md bg-sidebar-accent text-sm text-sidebar-accent-foreground md:h-8">
+        <div className="relative flex h-9 items-center rounded-md bg-sidebar-accent text-sm text-sidebar-accent-foreground md:h-8">
           <input
             autoFocus
             value={renameValue}
-            className="h-10 w-full bg-transparent pl-2 pr-2 outline-none md:h-8"
+            className="h-9 w-full bg-transparent pl-2 pr-2 outline-none md:h-8"
             onChange={(event) => onRenameValueChange(event.target.value)}
             onClick={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
@@ -113,7 +115,7 @@ export function SidebarConversationItem({
       ) : (
         <div
           className={cn(
-            "group relative flex h-10 items-center rounded-md text-sm transition-colors md:h-8",
+            "group relative flex h-9 items-center rounded-md text-sm transition-colors md:h-8",
             active || isRowHovered
               ? "bg-sidebar-accent text-sidebar-accent-foreground"
               : "text-sidebar-foreground",
@@ -140,7 +142,7 @@ export function SidebarConversationItem({
               <button
                 id={menuTriggerID}
                 className={cn(
-                  "absolute right-0 flex h-11 w-11 items-center justify-center rounded-md text-sidebar-foreground opacity-100 transition-[background-color,color,opacity] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:h-8 md:w-8 md:opacity-0",
+                  "absolute right-0 flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground opacity-100 transition-[background-color,color,opacity] duration-150 after:absolute after:-inset-1.5 after:content-[''] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground md:opacity-0 md:after:hidden",
                   showMenuButton && "opacity-100",
                 )}
                 onMouseEnter={() => setIsMenuHovered(true)}
@@ -186,10 +188,12 @@ export function SidebarConversationItem({
                 shareLabel={item.shareActive ? t("manageShare") : t("share")}
                 exportLabel={t("exportJSON")}
                 exportMarkdownLabel={t("exportMarkdown")}
+                exportImageLabel={t("exportImage")}
                 copyMarkdownLabel={t("copyMarkdown")}
                 onShare={onShare ? () => onShare(item.publicID, item.title) : undefined}
                 onExport={onExport ? () => onExport(item.publicID) : undefined}
                 onExportMarkdown={onExportMarkdown ? () => onExportMarkdown(item.publicID) : undefined}
+                onExportImage={onExportImage ? () => onExportImage(item.publicID) : undefined}
                 onCopyMarkdown={onCopyMarkdown ? () => onCopyMarkdown(item.publicID) : undefined}
                 onCloseMenu={() => setIsMenuOpen(false)}
               />

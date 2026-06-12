@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
-import { completeEmailRegistration, getLoginOptions, getLoginPageSettings, login, startEmailRegistration, startTwoFactorEmailVerification, verifyTwoFactorLogin } from "@/shared/api/auth";
+import { completeEmailCodeLogin, completeEmailRegistration, completePasswordReset, getLoginOptions, getLoginPageSettings, login, startEmailCodeLogin, startEmailRegistration, startPasswordReset, startTwoFactorEmailVerification, verifyTwoFactorLogin } from "@/shared/api/auth";
 import type { LoginOptionsData, LoginPageSettings, SecurityVerificationMethod } from "@/shared/api/auth.types";
 import { resolveApiBaseURL } from "@/shared/api/http-client";
 import { isPasswordPolicyValid } from "@/shared/auth/account-policy";
@@ -62,23 +62,31 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
   const [twoFactorVerificationMethods, setTwoFactorVerificationMethods] = React.useState<SecurityVerificationMethod[]>(["two_factor"]);
   const [twoFactorVerificationMethod, setTwoFactorVerificationMethod] = React.useState<SecurityVerificationMethod>("two_factor");
   const [twoFactorCode, setTwoFactorCode] = React.useState("");
-  const [twoFactorEmailDebugCode, setTwoFactorEmailDebugCode] = React.useState("");
   const [mode, setMode] = React.useState<LoginMode>("login");
   const [registerEmail, setRegisterEmail] = React.useState("");
   const [registerPassword, setRegisterPassword] = React.useState("");
   const [registerCode, setRegisterCode] = React.useState("");
-  const [registerDebugCode, setRegisterDebugCode] = React.useState("");
+  const [registerInviteCode, setRegisterInviteCode] = React.useState("");
   const [registerTurnstileToken, setRegisterTurnstileToken] = React.useState("");
   const [registerTurnstileResetSignal, setRegisterTurnstileResetSignal] = React.useState(0);
+  const [emailCodeLoginEmail, setEmailCodeLoginEmail] = React.useState("");
+  const [emailCodeLoginCode, setEmailCodeLoginCode] = React.useState("");
+  const [passwordResetEmail, setPasswordResetEmail] = React.useState("");
+  const [passwordResetCode, setPasswordResetCode] = React.useState("");
+  const [passwordResetNewPassword, setPasswordResetNewPassword] = React.useState("");
   const [codeSent, setCodeSent] = React.useState(false);
   const [configReady, setConfigReady] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const [sendingCode, setSendingCode] = React.useState(false);
   const [registerCodeResendAt, setRegisterCodeResendAt] = React.useState(0);
   const [twoFactorEmailCodeResendAt, setTwoFactorEmailCodeResendAt] = React.useState(0);
+  const [emailCodeLoginResendAt, setEmailCodeLoginResendAt] = React.useState(0);
+  const [passwordResetCodeResendAt, setPasswordResetCodeResendAt] = React.useState(0);
   const [cooldownNow, setCooldownNow] = React.useState(() => Date.now());
   const registerCodeCooldownSeconds = Math.max(0, Math.ceil((registerCodeResendAt - cooldownNow) / 1000));
   const twoFactorEmailCodeCooldownSeconds = Math.max(0, Math.ceil((twoFactorEmailCodeResendAt - cooldownNow) / 1000));
+  const emailCodeLoginCooldownSeconds = Math.max(0, Math.ceil((emailCodeLoginResendAt - cooldownNow) / 1000));
+  const passwordResetCodeCooldownSeconds = Math.max(0, Math.ceil((passwordResetCodeResendAt - cooldownNow) / 1000));
 
   const fallbackNextPath = normalizeLocalPath(settings.defaultNextPath);
   const resolvedNextPath = normalizeLocalPath(nextPath || fallbackNextPath);
@@ -89,17 +97,20 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
   );
   const emailRegistrationEnabled = options.emailEnabled && options.emailRegistrationEnabled;
   const emailVerificationEnabled = options.emailVerificationEnabled;
+  const emailCodeLoginEnabled = options.emailCodeLoginEnabled;
+  const passwordResetEnabled = options.passwordResetEnabled;
+  const inviteRegistrationRequired = options.inviteRegistrationRequired;
   const registerTurnstileSiteKey = options.turnstileSiteKey?.trim() ?? "";
   const registerTurnstileRequired = options.turnstileRegistrationEnabled && Boolean(registerTurnstileSiteKey);
   const canShowRegister = emailRegistrationEnabled;
 
   React.useEffect(() => {
-    if (registerCodeCooldownSeconds === 0 && twoFactorEmailCodeCooldownSeconds === 0) {
+    if (registerCodeCooldownSeconds === 0 && twoFactorEmailCodeCooldownSeconds === 0 && emailCodeLoginCooldownSeconds === 0 && passwordResetCodeCooldownSeconds === 0) {
       return undefined;
     }
     const timer = window.setInterval(() => setCooldownNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [registerCodeCooldownSeconds, twoFactorEmailCodeCooldownSeconds]);
+  }, [emailCodeLoginCooldownSeconds, passwordResetCodeCooldownSeconds, registerCodeCooldownSeconds, twoFactorEmailCodeCooldownSeconds]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -157,8 +168,12 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
       setMode("register");
     } else if (mode === "register" && !canShowRegister) {
       setMode("login");
+    } else if (mode === "emailCodeLogin" && !emailCodeLoginEnabled) {
+      setMode("login");
+    } else if (mode === "passwordReset" && !passwordResetEnabled) {
+      setMode("login");
     }
-  }, [canShowRegister, loginProviders.length, mode, passwordLoginEnabled]);
+  }, [canShowRegister, emailCodeLoginEnabled, loginProviders.length, mode, passwordLoginEnabled, passwordResetEnabled]);
 
   const completeAuth = React.useCallback((accessToken: string, sessionID: string) => {
     writeSessionSnapshot({ accessToken, sessionID });
@@ -198,7 +213,6 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
           setTwoFactorVerificationMethods(methods);
           setTwoFactorVerificationMethod(methods[0] ?? "two_factor");
           setTwoFactorCode("");
-          setTwoFactorEmailDebugCode("");
           return;
         }
         if (!result.accessToken) {
@@ -213,7 +227,6 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
           setTwoFactorVerificationMethods(["two_factor"]);
           setTwoFactorVerificationMethod("two_factor");
           setTwoFactorCode("");
-          setTwoFactorEmailDebugCode("");
           setTwoFactorEmailCodeResendAt(0);
           toast.error(t("toasts.challengeExpired"));
           return;
@@ -263,7 +276,6 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
     try {
       const result = await startEmailRegistration(registerEmail, registerTurnstileRequired ? registerTurnstileToken : undefined);
       setCodeSent(result.sent);
-      setRegisterDebugCode(result.debugCode ?? "");
       if (result.sent) {
         const now = Date.now();
         setCooldownNow(now);
@@ -284,10 +296,8 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
       return;
     }
     setSendingCode(true);
-    setTwoFactorEmailDebugCode("");
     try {
       const result = await startTwoFactorEmailVerification(twoFactorChallengeToken);
-      setTwoFactorEmailDebugCode(result.debugCode ?? "");
       if (result.sent) {
         const now = Date.now();
         setCooldownNow(now);
@@ -299,6 +309,10 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
       setSendingCode(false);
     }
   }, [resolveErrorMessage, sendingCode, t, twoFactorChallengeToken, twoFactorEmailCodeCooldownSeconds, twoFactorVerificationMethod]);
+
+  const resolveClientLocale = React.useCallback(() => navigator.language || "zh-CN", []);
+
+  const resolveClientTimezone = React.useCallback(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Etc/UTC", []);
 
   const onRegisterSubmit = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -320,7 +334,12 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
           registerEmail,
           registerPassword,
           emailVerificationEnabled ? registerCode : "",
-          registerTurnstileRequired && !emailVerificationEnabled ? registerTurnstileToken : undefined,
+          {
+            turnstileToken: registerTurnstileRequired && !emailVerificationEnabled ? registerTurnstileToken : undefined,
+            inviteCode: inviteRegistrationRequired ? registerInviteCode : undefined,
+            locale: resolveClientLocale(),
+            timezone: resolveClientTimezone(),
+          },
         );
         completeAuth(result.accessToken, result.sessionID);
       } catch (error) {
@@ -332,33 +351,118 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
         setSubmitting(false);
       }
     },
-    [completeAuth, emailVerificationEnabled, registerCode, registerEmail, registerPassword, registerTurnstileRequired, registerTurnstileToken, resetRegisterTurnstile, resolveErrorMessage, submitting, t],
+    [completeAuth, emailVerificationEnabled, inviteRegistrationRequired, registerCode, registerEmail, registerInviteCode, registerPassword, registerTurnstileRequired, registerTurnstileToken, resetRegisterTurnstile, resolveClientLocale, resolveClientTimezone, resolveErrorMessage, submitting, t],
   );
 
   const updateRegisterEmail = React.useCallback((value: string) => {
     setRegisterEmail(value);
     setCodeSent(false);
-    setRegisterDebugCode("");
     setRegisterCodeResendAt(0);
   }, []);
+
+  const requestEmailCodeLoginCode = React.useCallback(async () => {
+    if (!emailCodeLoginEnabled || sendingCode || emailCodeLoginCooldownSeconds > 0) {
+      return;
+    }
+    setSendingCode(true);
+    try {
+      const result = await startEmailCodeLogin(emailCodeLoginEmail);
+      if (result.sent) {
+        const now = Date.now();
+        setCooldownNow(now);
+        setEmailCodeLoginResendAt(now + VERIFICATION_CODE_RESEND_COOLDOWN_MS);
+        toast.success(t("toasts.codeSent"));
+      }
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, t("toasts.codeSendFailed")));
+    } finally {
+      setSendingCode(false);
+    }
+  }, [emailCodeLoginCooldownSeconds, emailCodeLoginEmail, emailCodeLoginEnabled, resolveErrorMessage, sendingCode, t]);
+
+  const onEmailCodeLoginSubmit = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const result = await completeEmailCodeLogin(emailCodeLoginEmail, emailCodeLoginCode);
+      if (result.twoFactorRequired) {
+        const methods: SecurityVerificationMethod[] = result.verificationMethods?.length ? result.verificationMethods : ["two_factor"];
+        setTwoFactorChallengeToken(result.twoFactorChallengeToken ?? "");
+        setTwoFactorVerificationMethods(methods);
+        setTwoFactorVerificationMethod(methods[0] ?? "two_factor");
+        setTwoFactorCode("");
+        setMode("login");
+        return;
+      }
+      completeAuth(result.accessToken, result.sessionID);
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, t("toasts.loginRetry")));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [completeAuth, emailCodeLoginCode, emailCodeLoginEmail, resolveErrorMessage, submitting, t]);
+
+  const requestPasswordResetCode = React.useCallback(async () => {
+    if (!passwordResetEnabled || sendingCode || passwordResetCodeCooldownSeconds > 0) {
+      return;
+    }
+    setSendingCode(true);
+    try {
+      const result = await startPasswordReset(passwordResetEmail);
+      if (result.sent) {
+        const now = Date.now();
+        setCooldownNow(now);
+        setPasswordResetCodeResendAt(now + VERIFICATION_CODE_RESEND_COOLDOWN_MS);
+        toast.success(t("toasts.codeSent"));
+      }
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, t("toasts.codeSendFailed")));
+    } finally {
+      setSendingCode(false);
+    }
+  }, [passwordResetCodeCooldownSeconds, passwordResetEmail, passwordResetEnabled, resolveErrorMessage, sendingCode, t]);
+
+  const onPasswordResetSubmit = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting) {
+      return;
+    }
+    if (!isPasswordPolicyValid(passwordResetNewPassword)) {
+      toast.error(t("toasts.passwordInvalid"));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await completePasswordReset(passwordResetEmail, passwordResetCode, passwordResetNewPassword);
+      toast.success(t("toasts.passwordResetDone"));
+      setMode("login");
+      setPasswordResetCode("");
+      setPasswordResetNewPassword("");
+    } catch (error) {
+      toast.error(resolveErrorMessage(error, t("toasts.passwordResetFailed")));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [passwordResetCode, passwordResetEmail, passwordResetNewPassword, resolveErrorMessage, submitting, t]);
 
   const cancelTwoFactorChallenge = React.useCallback(() => {
     setTwoFactorChallengeToken("");
     setTwoFactorVerificationMethods(["two_factor"]);
     setTwoFactorVerificationMethod("two_factor");
     setTwoFactorCode("");
-    setTwoFactorEmailDebugCode("");
     setTwoFactorEmailCodeResendAt(0);
   }, []);
 
   const switchTwoFactorVerificationMethod = React.useCallback((method: SecurityVerificationMethod) => {
     setTwoFactorVerificationMethod(method);
     setTwoFactorCode("");
-    setTwoFactorEmailDebugCode("");
   }, []);
 
   const toggleLoginMode = React.useCallback(() => {
-    if (mode === "register") {
+    if (mode !== "login") {
       setMode("login");
       return;
     }
@@ -370,31 +474,51 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
   return {
     codeSent,
     configReady,
+    emailCodeLoginCode,
+    emailCodeLoginCooldownSeconds,
+    emailCodeLoginEmail,
+    emailCodeLoginEnabled,
     emailRegistrationEnabled,
     emailVerificationEnabled,
     handleProviderLogin,
+    inviteRegistrationRequired,
     loginProviders,
     mode,
+    onEmailCodeLoginSubmit,
     onLoginSubmit,
+    onPasswordResetSubmit,
     onRegisterSubmit,
     options,
     password,
     passwordLoginEnabled,
+    passwordResetCode,
+    passwordResetCodeCooldownSeconds,
+    passwordResetEmail,
+    passwordResetEnabled,
+    passwordResetNewPassword,
     registerCode,
     registerCodeCooldownSeconds,
-    registerDebugCode,
     registerEmail,
+    registerInviteCode,
     registerPassword,
     registerTurnstileRequired,
     registerTurnstileResetSignal,
     registerTurnstileSiteKey,
     registerTurnstileToken,
+    requestEmailCodeLoginCode,
+    requestPasswordResetCode,
     requestRegisterCode,
     requestTwoFactorEmailCode,
     sendingCode,
+    setEmailCodeLoginCode: (value: string) => setEmailCodeLoginCode(normalizeRegisterCode(value)),
+    setEmailCodeLoginEmail,
     setMode,
     setPassword,
+    setPasswordResetCode: (value: string) => setPasswordResetCode(normalizeRegisterCode(value)),
+    setPasswordResetEmail,
+    setPasswordResetNewPassword,
     setRegisterCode: (value: string) => setRegisterCode(normalizeRegisterCode(value)),
+    setRegisterInviteCode,
     setRegisterPassword,
     setRegisterTurnstileToken,
     setTwoFactorCode: (value: string) => setTwoFactorCode(twoFactorVerificationMethod === "email" ? normalizeRegisterCode(value) : normalizeTwoFactorInput(value)),
@@ -405,7 +529,6 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
     twoFactorChallengeToken,
     twoFactorCode,
     twoFactorEmailCodeCooldownSeconds,
-    twoFactorEmailDebugCode,
     twoFactorVerificationMethod,
     twoFactorVerificationMethods,
     updateRegisterEmail,

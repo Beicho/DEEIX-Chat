@@ -2,6 +2,11 @@ package channel
 
 import "github.com/gin-gonic/gin"
 
+// RegisterPublicRoutes 注册无需登录的模型目录路由。
+func (m *Module) RegisterPublicRoutes(publicGroup *gin.RouterGroup) {
+	publicGroup.GET("/public/models", m.Handler.ListPublicModels)
+}
+
 // RegisterRoutes 注册用户侧模型目录路由。
 func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 	authRequired.GET("/models", m.Handler.ListPublicModels)

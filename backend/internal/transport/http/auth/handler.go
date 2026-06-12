@@ -179,6 +179,10 @@ func (h *Handler) CompleteEmailRegistration(c *gin.Context) {
 		response.InvalidRequestBody(c, err)
 		return
 	}
+	locale := strings.TrimSpace(req.Locale)
+	if locale == "" {
+		locale = c.GetHeader("Accept-Language")
+	}
 	result, err := h.service.RegisterWithEmail(
 		c.Request.Context(),
 		req.Email,
@@ -186,11 +190,74 @@ func (h *Handler) CompleteEmailRegistration(c *gin.Context) {
 		req.Code,
 		req.TurnstileToken,
 		c.ClientIP(),
+		req.InviteCode,
+		locale,
+		req.Timezone,
 		middleware.MustRequestID(c),
 		middleware.ResolveSessionAuditContext(c),
 	)
 	if err != nil {
 		if writeAccountSuspendedError(c, err) {
+			return
+		}
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	h.writeRefreshTokenCookie(c, result)
+	response.Success(c, toLoginResponse(result))
+}
+
+func (h *Handler) StartPasswordReset(c *gin.Context) {
+	var req PasswordResetStartRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	result, err := h.service.RequestPasswordReset(c.Request.Context(), req.Email, middleware.MustRequestID(c), middleware.ResolveSessionAuditContext(c))
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	response.Success(c, toEmailVerificationStartResponse(result))
+}
+
+func (h *Handler) CompletePasswordReset(c *gin.Context) {
+	var req PasswordResetCompleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	if err := h.service.CompletePasswordReset(c.Request.Context(), req.Email, req.Code, req.NewPassword, middleware.MustRequestID(c), middleware.ResolveSessionAuditContext(c)); err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	response.Success(c, ChangePasswordResponse{Changed: true})
+}
+
+func (h *Handler) StartEmailCodeLogin(c *gin.Context) {
+	var req EmailCodeLoginStartRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	result, err := h.service.RequestEmailCodeLogin(c.Request.Context(), req.Email, middleware.MustRequestID(c), middleware.ResolveSessionAuditContext(c))
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	response.Success(c, toEmailVerificationStartResponse(result))
+}
+
+func (h *Handler) CompleteEmailCodeLogin(c *gin.Context) {
+	var req EmailCodeLoginCompleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	result, err := h.service.CompleteEmailCodeLogin(c.Request.Context(), req.Email, req.Code, middleware.MustRequestID(c), middleware.ResolveSessionAuditContext(c))
+	if err != nil {
+		if errors.Is(err, appauth.ErrInvalidCredentials) {
+			response.Error(c, http.StatusUnauthorized, "invalid username or password")
 			return
 		}
 		response.ErrorFrom(c, http.StatusBadRequest, err)
@@ -239,10 +306,12 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 	err := h.service.ChangePassword(
 		c.Request.Context(),
 		userID,
+		middleware.MustSessionID(c),
 		req.CurrentPassword,
 		req.NewPassword,
 		req.VerificationMethod,
 		req.Code,
+		req.RevokeOtherSessions == nil || *req.RevokeOtherSessions,
 		middleware.MustRequestID(c),
 		middleware.ResolveSessionAuditContext(c),
 	)
@@ -254,7 +323,6 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
-	h.clearRefreshTokenCookie(c)
 	response.Success(c, ChangePasswordResponse{Changed: true})
 }
 
@@ -777,6 +845,12 @@ func (h *Handler) CreateIdentityProvider(c *gin.Context) {
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
+	h.recordAudit(c, middleware.MustUserID(c), "create_identity_provider", "identity_provider", item.PublicID, map[string]interface{}{
+		"name":                 item.Name,
+		"type":                 item.Type,
+		"login_enabled":        item.LoginEnabled,
+		"registration_enabled": item.RegistrationEnabled,
+	})
 	response.Success(c, toIdentityProviderResponse(*item))
 }
 
@@ -795,6 +869,12 @@ func (h *Handler) UpdateIdentityProvider(c *gin.Context) {
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
+	h.recordAudit(c, middleware.MustUserID(c), "update_identity_provider", "identity_provider", item.PublicID, map[string]interface{}{
+		"name":                 item.Name,
+		"type":                 item.Type,
+		"login_enabled":        item.LoginEnabled,
+		"registration_enabled": item.RegistrationEnabled,
+	})
 	response.Success(c, toIdentityProviderResponse(*item))
 }
 
@@ -808,6 +888,7 @@ func (h *Handler) ReorderIdentityProviders(c *gin.Context) {
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
+	h.recordAudit(c, middleware.MustUserID(c), "reorder_identity_provider", "identity_provider", "", map[string]interface{}{"provider_ids": req.ProviderIDs})
 	response.Success(c, IdentityProviderReorderResponse{Updated: true})
 }
 
@@ -832,7 +913,51 @@ func (h *Handler) DeleteIdentityProvider(c *gin.Context) {
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
+	h.recordAudit(c, middleware.MustUserID(c), "delete_identity_provider", "identity_provider", c.Param("provider_id"), map[string]bool{"force": force})
 	response.Success(c, IdentityProviderDeleteResponse{Deleted: true})
+}
+
+func (h *Handler) ListInvitationCodes(c *gin.Context) {
+	items, err := h.service.ListInvitationCodes(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	response.Success(c, InvitationCodeListResponse{Results: toInvitationCodeResponses(items), Total: len(items)})
+}
+
+func (h *Handler) CreateInvitationCode(c *gin.Context) {
+	var req InvitationCodeCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	item, err := h.service.CreateInvitationCode(c.Request.Context(), middleware.MustUserID(c), req.Label, req.MaxUses, req.ExpiresAt)
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	h.recordAudit(c, middleware.MustUserID(c), "create_invitation_code", "invitation_code", item.PublicID, map[string]interface{}{
+		"label":      item.Label,
+		"max_uses":   item.MaxUses,
+		"expires_at": item.ExpiresAt,
+	})
+	response.Success(c, toInvitationCodeResponse(*item))
+}
+
+func (h *Handler) UpdateInvitationCode(c *gin.Context) {
+	var req InvitationCodeUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	item, err := h.service.SetInvitationCodeEnabled(c.Request.Context(), c.Param("code_id"), req.Enabled, middleware.MustUserID(c))
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	h.recordAudit(c, middleware.MustUserID(c), "update_invitation_code", "invitation_code", item.PublicID, map[string]bool{"enabled": item.Enabled})
+	response.Success(c, toInvitationCodeResponse(*item))
 }
 
 // RefreshToken godoc

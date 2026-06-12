@@ -147,6 +147,7 @@ export type ChatAreaMessage = {
   myFeedback?: "up" | "down" | null;
   thumbsUpCount?: number;
   thumbsDownCount?: number;
+  bookmarked?: boolean;
   branchNavigator?: ChatMessageBranchNavigator;
   attachments?: MessageAttachment[];
   // Token usage for assistant messages.

@@ -1,0 +1,81 @@
+{
+  "metadata": {
+    "title": "DEEIX Chat · Multi-model AI workspace",
+    "description": "Compare models, manage knowledge, and use a focused AI workspace across desktop and mobile."
+  },
+  "nav": {
+    "status": "Status",
+    "signIn": "Sign in",
+    "start": "Start chat"
+  },
+  "hero": {
+    "eyebrow": "Multi-model AI workspace",
+    "title": "Chat, compare, and build with the right model.",
+    "description": "DEEIX Chat brings model selection, project materials, sharing, billing, and mobile-first chat into one focused workspace.",
+    "primary": "Start chat",
+    "secondary": "View status"
+  },
+  "stats": {
+    "models": "Available models",
+    "plans": "Plans",
+    "mobile": "Mobile ready",
+    "mobileValue": "PWA"
+  },
+  "preview": {
+    "title": "Example workspace",
+    "question": "Which model should handle a document-heavy task?",
+    "answer": "Start with a reasoning model, keep project materials attached, then compare with a faster option before sharing.",
+    "note": "Model, materials, and sharing controls stay in the same chat flow."
+  },
+  "features": {
+    "title": "Built around real chat work",
+    "description": "Core tools stay close to the conversation, so you can move from idea to reusable result without switching products.",
+    "items": {
+      "models": {
+        "title": "Model choice",
+        "description": "Search models, keep recent picks, and switch by task."
+      },
+      "projects": {
+        "title": "Project materials",
+        "description": "Keep files with a project and reference them in related chats."
+      },
+      "sharing": {
+        "title": "Share and export",
+        "description": "Export conversations as text or images and share controlled links."
+      },
+      "mobile": {
+        "title": "Mobile flow",
+        "description": "Bottom sheets, safe areas, and compact touch targets keep chat usable on phones."
+      }
+    }
+  },
+  "models": {
+    "title": "Model catalog",
+    "description": "A quick look at currently enabled models. Sign in to see the full picker and pricing details.",
+    "empty": "Model list is unavailable right now.",
+    "free": "Included",
+    "from": "From {price}"
+  },
+  "plans": {
+    "title": "Plans",
+    "description": "Pick a plan in the app. Prices and allowances update from the current billing settings.",
+    "empty": "Plan list is unavailable right now.",
+    "monthlyCredit": "{credit} credit per period",
+    "price": "{price} / {interval}",
+    "intervals": {
+      "month": "month",
+      "year": "year",
+      "lifetime": "lifetime"
+    }
+  },
+  "cta": {
+    "title": "Ready to work in one chat workspace?",
+    "description": "Sign in and start with the model that fits the task.",
+    "button": "Open DEEIX Chat"
+  },
+  "common": {
+    "loading": "Loading",
+    "fallbackPrice": "See app",
+    "siteName": "DEEIX Chat"
+  }
+}

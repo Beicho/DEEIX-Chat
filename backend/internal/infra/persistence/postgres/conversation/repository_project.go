@@ -8,6 +8,7 @@ import (
 	models "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // CreateConversationProject 创建会话项目分组。
@@ -210,6 +211,188 @@ func (r *Repo) BatchUpdateConversationProjectByPublicIDs(
 		return 0, translateError(result.Error)
 	}
 	return result.RowsAffected, nil
+}
+
+// ListProjectDocuments 查询当前用户指定项目的资料。
+func (r *Repo) ListProjectDocuments(ctx context.Context, userID uint, projectPublicID string) ([]domainconversation.ProjectDocument, error) {
+	project, err := r.GetConversationProjectByPublicID(ctx, userID, projectPublicID)
+	if err != nil {
+		return nil, err
+	}
+	return r.listProjectDocumentsByProjectID(ctx, userID, project.ID)
+}
+
+// AddProjectDocuments 添加当前用户指定项目的资料引用。
+func (r *Repo) AddProjectDocuments(ctx context.Context, userID uint, projectPublicID string, fileIDs []string) ([]domainconversation.ProjectDocument, error) {
+	if len(fileIDs) == 0 {
+		return []domainconversation.ProjectDocument{}, nil
+	}
+	project, err := r.GetConversationProjectByPublicID(ctx, userID, projectPublicID)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]models.FileObject, 0, len(fileIDs))
+	if err = r.db.WithContext(ctx).
+		Where("user_id = ? AND status = ? AND file_id IN ?", userID, "active", fileIDs).
+		Find(&files).Error; err != nil {
+		return nil, translateError(err)
+	}
+	if len(files) != len(fileIDs) {
+		return nil, repository.ErrNotFound
+	}
+	fileByID := make(map[string]models.FileObject, len(files))
+	for _, file := range files {
+		fileByID[file.FileID] = file
+	}
+	rows := make([]models.ProjectDocument, 0, len(fileIDs))
+	for _, fileID := range fileIDs {
+		file := fileByID[strings.TrimSpace(fileID)]
+		rows = append(rows, models.ProjectDocument{
+			UserID:      userID,
+			ProjectID:   project.ID,
+			FileObjID:   file.ID,
+			FileID:      file.FileID,
+			IndexStatus: projectDocumentIndexStatusFromFile(file),
+			Status:      "active",
+		})
+	}
+	if err = r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "project_id"}, {Name: "file_id"}, {Name: "user_id"}},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"file_obj_id":  gorm.Expr("excluded.file_obj_id"),
+				"index_status": gorm.Expr("excluded.index_status"),
+				"status":       "active",
+				"deleted_at":   nil,
+			}),
+		}).
+		Create(&rows).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return r.listProjectDocumentsByProjectID(ctx, userID, project.ID)
+}
+
+// DeleteProjectDocument 从项目资料库移除一个文件引用。
+func (r *Repo) DeleteProjectDocument(ctx context.Context, userID uint, projectPublicID string, fileID string) error {
+	project, err := r.GetConversationProjectByPublicID(ctx, userID, projectPublicID)
+	if err != nil {
+		return err
+	}
+	result := r.db.WithContext(ctx).
+		Where("user_id = ? AND project_id = ? AND file_id = ?", userID, project.ID, strings.TrimSpace(fileID)).
+		Delete(&models.ProjectDocument{})
+	if result.Error != nil {
+		return translateError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return repository.ErrNotFound
+	}
+	return nil
+}
+
+// MarkProjectDocumentIndexStatus 标记项目资料索引状态。
+func (r *Repo) MarkProjectDocumentIndexStatus(ctx context.Context, userID uint, projectPublicID string, fileID string, indexStatus string) (*domainconversation.ProjectDocument, error) {
+	project, err := r.GetConversationProjectByPublicID(ctx, userID, projectPublicID)
+	if err != nil {
+		return nil, err
+	}
+	result := r.db.WithContext(ctx).
+		Model(&models.ProjectDocument{}).
+		Where("user_id = ? AND project_id = ? AND file_id = ?", userID, project.ID, strings.TrimSpace(fileID)).
+		Update("index_status", strings.TrimSpace(indexStatus))
+	if result.Error != nil {
+		return nil, translateError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, repository.ErrNotFound
+	}
+	items, err := r.listProjectDocumentsByProjectID(ctx, userID, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].FileID == strings.TrimSpace(fileID) {
+			return &items[i], nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+
+// ListProjectDocumentFilesByProjectID 查询会话所属项目可用于上下文的资料文件。
+func (r *Repo) ListProjectDocumentFilesByProjectID(ctx context.Context, userID uint, projectID uint) ([]domainconversation.FileObject, error) {
+	if projectID == 0 {
+		return []domainconversation.FileObject{}, nil
+	}
+	files := make([]models.FileObject, 0)
+	if err := r.db.WithContext(ctx).
+		Table("file_objects").
+		Select("file_objects.*").
+		Joins("JOIN project_documents ON project_documents.file_obj_id = file_objects.id").
+		Where("project_documents.user_id = ? AND project_documents.project_id = ? AND project_documents.deleted_at IS NULL", userID, projectID).
+		Where("project_documents.status = ? AND file_objects.status = ?", "active", "active").
+		Order("project_documents.id ASC").
+		Find(&files).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return toFileObjectDomains(files), nil
+}
+
+func (r *Repo) listProjectDocumentsByProjectID(ctx context.Context, userID uint, projectID uint) ([]domainconversation.ProjectDocument, error) {
+	type row struct {
+		models.ProjectDocument
+		FileName      string `gorm:"column:file_name"`
+		FileSize      int64  `gorm:"column:size_bytes"`
+		FileCategory  string `gorm:"column:file_category"`
+		ExtractStatus string `gorm:"column:extract_status"`
+		EmbedStatus   string `gorm:"column:embed_status"`
+	}
+	rows := make([]row, 0)
+	if err := r.db.WithContext(ctx).
+		Table("project_documents").
+		Select("project_documents.*, file_objects.file_name, file_objects.size_bytes, file_objects.file_category, file_objects.extract_status, file_objects.embed_status").
+		Joins("JOIN file_objects ON file_objects.id = project_documents.file_obj_id").
+		Where("project_documents.deleted_at IS NULL").
+		Where("project_documents.user_id = ? AND project_documents.project_id = ? AND project_documents.status = ? AND file_objects.status = ?", userID, projectID, "active", "active").
+		Order("project_documents.id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, translateError(err)
+	}
+	results := make([]domainconversation.ProjectDocument, 0, len(rows))
+	for _, item := range rows {
+		results = append(results, domainconversation.ProjectDocument{
+			ID:            item.ID,
+			UserID:        item.UserID,
+			ProjectID:     item.ProjectID,
+			FileObjID:     item.FileObjID,
+			FileID:        item.FileID,
+			FileName:      item.FileName,
+			FileSize:      item.FileSize,
+			FileCategory:  item.FileCategory,
+			ExtractStatus: item.ExtractStatus,
+			EmbedStatus:   item.EmbedStatus,
+			IndexStatus:   item.IndexStatus,
+			Status:        item.Status,
+			CreatedAt:     item.CreatedAt,
+			UpdatedAt:     item.UpdatedAt,
+		})
+	}
+	return results, nil
+}
+
+func projectDocumentIndexStatusFromFile(file models.FileObject) string {
+	switch strings.TrimSpace(file.EmbedStatus) {
+	case "ready":
+		return "ready"
+	case "failed":
+		return "failed"
+	case "processing":
+		return "indexing"
+	default:
+		if strings.TrimSpace(file.ExtractStatus) == "ready" {
+			return "ready"
+		}
+		return "pending"
+	}
 }
 
 func toConversationProjectDomain(item models.ConversationProject) domainconversation.ConversationProject {

@@ -52,9 +52,33 @@ type ConversationExportResponse struct {
 	Compatibility           ConversationExportCompatibilityResponse `json:"compatibility"`
 }
 
+type ConversationSearchResultResponse struct {
+	Conversation    ConversationResponse `json:"conversation"`
+	MessagePublicID string               `json:"messagePublicID"`
+	MessageRole     string               `json:"messageRole"`
+	Snippet         string               `json:"snippet"`
+	MatchedTitle    bool                 `json:"matchedTitle"`
+	MatchedAt       time.Time            `json:"matchedAt"`
+}
+
+// ConversationDraftResponse 对外输入框草稿响应 DTO。
+type ConversationDraftResponse struct {
+	ConversationPublicID string          `json:"conversationPublicID"`
+	Draft                string          `json:"draft"`
+	Attachments          json.RawMessage `json:"attachments"`
+	CreatedAt            *time.Time      `json:"createdAt"`
+	UpdatedAt            *time.Time      `json:"updatedAt"`
+}
+
 type ConversationExportCompatibilityResponse struct {
 	Format string `json:"format"`
 	Notes  string `json:"notes"`
+}
+
+type ConversationImportResponse struct {
+	ImportedConversationCount int                    `json:"importedConversationCount"`
+	ImportedMessageCount      int                    `json:"importedMessageCount"`
+	Conversations             []ConversationResponse `json:"conversations"`
 }
 
 func toConversationResponse(item *model.Conversation) ConversationResponse {
@@ -90,6 +114,41 @@ func toConversationResponse(item *model.Conversation) ConversationResponse {
 		CreatedAt:           item.CreatedAt,
 		UpdatedAt:           item.UpdatedAt,
 	}
+}
+
+func toConversationSearchResultResponse(item model.ConversationSearchResult) ConversationSearchResultResponse {
+	return ConversationSearchResultResponse{
+		Conversation:    toConversationResponse(&item.Conversation),
+		MessagePublicID: item.MessagePublicID,
+		MessageRole:     item.MessageRole,
+		Snippet:         item.MessageSnippet,
+		MatchedTitle:    item.MatchedTitle,
+		MatchedAt:       item.MatchedAt,
+	}
+}
+
+func toConversationDraftResponse(item *model.ConversationDraft) ConversationDraftResponse {
+	if item == nil {
+		return ConversationDraftResponse{Attachments: json.RawMessage("[]")}
+	}
+	attachments := strings.TrimSpace(item.AttachmentsJSON)
+	if attachments == "" || !json.Valid([]byte(attachments)) {
+		attachments = "[]"
+	}
+	return ConversationDraftResponse{
+		ConversationPublicID: item.ConversationPublicID,
+		Draft:                item.Draft,
+		Attachments:          json.RawMessage(attachments),
+		CreatedAt:            nullableResponseTime(item.CreatedAt),
+		UpdatedAt:            nullableResponseTime(item.UpdatedAt),
+	}
+}
+
+func nullableResponseTime(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
 }
 
 func toConversationExportResponse(item *appconversation.ConversationExportResult) ConversationExportResponse {
@@ -131,6 +190,21 @@ func toConversationExportResponse(item *appconversation.ConversationExportResult
 	}
 }
 
+func toConversationImportResponse(item *appconversation.ConversationImportResult) ConversationImportResponse {
+	if item == nil {
+		return ConversationImportResponse{}
+	}
+	conversations := make([]ConversationResponse, 0, len(item.Conversations))
+	for index := range item.Conversations {
+		conversations = append(conversations, toConversationResponse(&item.Conversations[index]))
+	}
+	return ConversationImportResponse{
+		ImportedConversationCount: item.ImportedConversationCount,
+		ImportedMessageCount:      item.ImportedMessageCount,
+		Conversations:             conversations,
+	}
+}
+
 // ConversationProjectResponse 对外会话项目响应 DTO。
 type ConversationProjectResponse struct {
 	PublicID     string    `json:"publicID"`
@@ -163,6 +237,43 @@ func toConversationProjectResponse(item *model.ConversationProject) Conversation
 	}
 }
 
+// ProjectDocumentResponse 对外项目资料响应 DTO。
+type ProjectDocumentResponse struct {
+	FileID        string    `json:"fileID"`
+	FileName      string    `json:"fileName"`
+	FileSize      int64     `json:"fileSize"`
+	FileCategory  string    `json:"fileCategory"`
+	ExtractStatus string    `json:"extractStatus"`
+	EmbedStatus   string    `json:"embedStatus"`
+	IndexStatus   string    `json:"indexStatus"`
+	Status        string    `json:"status"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+func toProjectDocumentResponse(item model.ProjectDocument) ProjectDocumentResponse {
+	return ProjectDocumentResponse{
+		FileID:        item.FileID,
+		FileName:      item.FileName,
+		FileSize:      item.FileSize,
+		FileCategory:  item.FileCategory,
+		ExtractStatus: item.ExtractStatus,
+		EmbedStatus:   item.EmbedStatus,
+		IndexStatus:   item.IndexStatus,
+		Status:        item.Status,
+		CreatedAt:     item.CreatedAt,
+		UpdatedAt:     item.UpdatedAt,
+	}
+}
+
+func toProjectDocumentResponses(items []model.ProjectDocument) []ProjectDocumentResponse {
+	results := make([]ProjectDocumentResponse, 0, len(items))
+	for _, item := range items {
+		results = append(results, toProjectDocumentResponse(item))
+	}
+	return results
+}
+
 // BatchSetConversationProjectResponse 批量设置会话项目归属响应 DTO。
 type BatchSetConversationProjectResponse struct {
 	Updated int64 `json:"updated"`
@@ -170,15 +281,19 @@ type BatchSetConversationProjectResponse struct {
 
 // ConversationShareResponse 会话分享响应 DTO。
 type ConversationShareResponse struct {
-	ShareID        string     `json:"shareID"`
-	Status         string     `json:"status"`
-	TitleSnapshot  string     `json:"titleSnapshot"`
-	ModelSnapshot  string     `json:"modelSnapshot"`
-	MessageCount   int        `json:"messageCount"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
-	RevokedAt      *time.Time `json:"revokedAt"`
-	LastAccessedAt *time.Time `json:"lastAccessedAt"`
+	ShareID         string     `json:"shareID"`
+	Status          string     `json:"status"`
+	TitleSnapshot   string     `json:"titleSnapshot"`
+	ModelSnapshot   string     `json:"modelSnapshot"`
+	MessageCount    int        `json:"messageCount"`
+	Scope           string     `json:"scope"`
+	HasPassword     bool       `json:"hasPassword"`
+	IncludeThinking bool       `json:"includeThinking"`
+	ExpiresAt       *time.Time `json:"expiresAt"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
+	RevokedAt       *time.Time `json:"revokedAt"`
+	LastAccessedAt  *time.Time `json:"lastAccessedAt"`
 }
 
 func toConversationShareResponse(item *appconversation.ConversationShareResult) ConversationShareResponse {
@@ -186,15 +301,19 @@ func toConversationShareResponse(item *appconversation.ConversationShareResult) 
 		return ConversationShareResponse{Status: "none"}
 	}
 	return ConversationShareResponse{
-		ShareID:        item.ShareID,
-		Status:         item.Status,
-		TitleSnapshot:  item.TitleSnapshot,
-		ModelSnapshot:  item.ModelSnapshot,
-		MessageCount:   item.MessageCount,
-		CreatedAt:      item.CreatedAt,
-		UpdatedAt:      item.UpdatedAt,
-		RevokedAt:      item.RevokedAt,
-		LastAccessedAt: item.LastAccessedAt,
+		ShareID:         item.ShareID,
+		Status:          item.Status,
+		TitleSnapshot:   item.TitleSnapshot,
+		ModelSnapshot:   item.ModelSnapshot,
+		MessageCount:    item.MessageCount,
+		Scope:           item.ShareScope,
+		HasPassword:     item.HasPassword,
+		IncludeThinking: item.IncludeThinking,
+		ExpiresAt:       item.ExpiresAt,
+		CreatedAt:       item.CreatedAt,
+		UpdatedAt:       item.UpdatedAt,
+		RevokedAt:       item.RevokedAt,
+		LastAccessedAt:  item.LastAccessedAt,
 	}
 }
 
@@ -279,6 +398,10 @@ type PublicSharedConversationResponse struct {
 	ShareID                 string                        `json:"shareID"`
 	Title                   string                        `json:"title"`
 	Model                   string                        `json:"model"`
+	Scope                   string                        `json:"scope"`
+	RequiresPassword        bool                          `json:"requiresPassword"`
+	Verified                bool                          `json:"verified"`
+	ExpiresAt               *time.Time                    `json:"expiresAt"`
 	CreatedAt               time.Time                     `json:"createdAt"`
 	LastAccessedAt          *time.Time                    `json:"lastAccessedAt"`
 	DefaultMessagePublicIDs []string                      `json:"defaultMessagePublicIDs"`
@@ -294,6 +417,10 @@ func toPublicSharedConversationResponse(item *appconversation.PublicSharedConver
 		ShareID:                 item.ShareID,
 		Title:                   item.Title,
 		Model:                   item.Model,
+		Scope:                   item.ShareScope,
+		RequiresPassword:        item.RequiresPassword,
+		Verified:                item.Verified,
+		ExpiresAt:               item.ExpiresAt,
 		CreatedAt:               item.CreatedAt,
 		LastAccessedAt:          item.LastAccessedAt,
 		DefaultMessagePublicIDs: item.DefaultMessageIDs,
@@ -711,6 +838,7 @@ type MessageResponse struct {
 	MyFeedback        string                       `json:"myFeedback"`
 	ThumbsUpCount     int64                        `json:"thumbsUpCount"`
 	ThumbsDownCount   int64                        `json:"thumbsDownCount"`
+	Bookmarked        bool                         `json:"bookmarked"`
 	BillingCost       *MessageBillingCostResponse  `json:"billingCost,omitempty"`
 	ProcessTrace      *MessageProcessTraceResponse `json:"processTrace,omitempty"`
 	EditedAt          *time.Time                   `json:"editedAt"`
@@ -937,6 +1065,7 @@ func toMessageResponseWithRunAndFallback(m model.Message, run model.Run, fallbac
 		MyFeedback:        m.MyFeedback,
 		ThumbsUpCount:     m.ThumbsUpCount,
 		ThumbsDownCount:   m.ThumbsDownCount,
+		Bookmarked:        m.Bookmarked,
 		BillingCost:       toMessageBillingCostResponse(m),
 		ProcessTrace:      toMessageProcessTraceResponse(m.ProcessTrace),
 		EditedAt:          m.EditedAt,
@@ -986,6 +1115,54 @@ func toMessageFeedbackResponse(r *appconversation.MessageFeedbackResult) Message
 		MyFeedback:      r.MyFeedback,
 		ThumbsUpCount:   r.ThumbsUpCount,
 		ThumbsDownCount: r.ThumbsDownCount,
+	}
+}
+
+// MessageBookmarkResponse 消息收藏响应 DTO。
+type MessageBookmarkResponse struct {
+	MessageID       uint     `json:"messageID"`
+	MessagePublicID string   `json:"messagePublicID"`
+	Bookmarked      bool     `json:"bookmarked"`
+	Note            string   `json:"note"`
+	Tags            []string `json:"tags"`
+}
+
+func toMessageBookmarkResponse(r *appconversation.MessageBookmarkResult) MessageBookmarkResponse {
+	if r == nil {
+		return MessageBookmarkResponse{Tags: []string{}}
+	}
+	return MessageBookmarkResponse{
+		MessageID:       r.MessageID,
+		MessagePublicID: r.MessagePublicID,
+		Bookmarked:      r.Bookmarked,
+		Note:            r.Note,
+		Tags:            r.Tags,
+	}
+}
+
+type MessageBookmarkListItemResponse struct {
+	ID           uint                 `json:"id"`
+	Conversation ConversationResponse `json:"conversation"`
+	Message      MessageResponse      `json:"message"`
+	Note         string               `json:"note"`
+	Tags         []string             `json:"tags"`
+	CreatedAt    time.Time            `json:"createdAt"`
+	UpdatedAt    time.Time            `json:"updatedAt"`
+}
+
+func toMessageBookmarkListItemResponse(item model.MessageBookmarkListItem) MessageBookmarkListItemResponse {
+	tags := []string{}
+	if raw := strings.TrimSpace(item.Bookmark.TagsJSON); raw != "" && raw != "[]" {
+		_ = json.Unmarshal([]byte(raw), &tags)
+	}
+	return MessageBookmarkListItemResponse{
+		ID:           item.Bookmark.ID,
+		Conversation: toConversationResponse(&item.Conversation),
+		Message:      toMessageResponse(item.Message),
+		Note:         item.Bookmark.Note,
+		Tags:         tags,
+		CreatedAt:    item.Bookmark.CreatedAt,
+		UpdatedAt:    item.Bookmark.UpdatedAt,
 	}
 }
 
@@ -1216,6 +1393,21 @@ type ConversationListResponseDoc struct {
 	} `json:"data"`
 }
 
+// ConversationSearchResponseDoc 会话搜索分页响应文档。
+type ConversationSearchResponseDoc struct {
+	ErrorMsg string `json:"errorMsg"`
+	Data     struct {
+		Total   int64                              `json:"total"`
+		Results []ConversationSearchResultResponse `json:"results"`
+	} `json:"data"`
+}
+
+// ConversationDraftResponseDoc 会话草稿响应文档。
+type ConversationDraftResponseDoc struct {
+	ErrorMsg string                    `json:"errorMsg"`
+	Data     ConversationDraftResponse `json:"data"`
+}
+
 // ConversationProjectResponseDoc 会话项目响应文档。
 type ConversationProjectResponseDoc struct {
 	ErrorMsg string                      `json:"errorMsg"`
@@ -1259,6 +1451,21 @@ type MessageResponseDoc struct {
 type MessageFeedbackResponseDoc struct {
 	ErrorMsg string                  `json:"errorMsg"`
 	Data     MessageFeedbackResponse `json:"data"`
+}
+
+// MessageBookmarkResponseDoc 设置消息收藏响应文档。
+type MessageBookmarkResponseDoc struct {
+	ErrorMsg string                  `json:"errorMsg"`
+	Data     MessageBookmarkResponse `json:"data"`
+}
+
+// MessageBookmarkListResponseDoc 消息收藏分页响应文档。
+type MessageBookmarkListResponseDoc struct {
+	ErrorMsg string `json:"errorMsg"`
+	Data     struct {
+		Total   int64                             `json:"total"`
+		Results []MessageBookmarkListItemResponse `json:"results"`
+	} `json:"data"`
 }
 
 // ConversationRunListResponseDoc 运行日志分页响应文档。

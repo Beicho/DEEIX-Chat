@@ -27,6 +27,8 @@ import { fetchSharedFileContent, type FileContentResult } from "@/shared/api/fil
 import type { PreviewDialogFile } from "@/features/files/components/preview/file-preview-dialog";
 import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AppLogo } from "@/shared/components/app-logo";
 import { useOptionalAuthSession } from "@/shared/auth/auth-session-context";
@@ -34,6 +36,7 @@ import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { resolveShareCanonicalPath } from "@/features/share/model/share-metadata";
+import { ApiError } from "@/shared/api/http-client";
 
 function formatSharedAt(value: string, locale: string): string {
   const date = new Date(value);
@@ -99,6 +102,7 @@ function toReadOnlyMessageDTO(item: PublicSharedMessageDTO): MessageDTO {
     errorMessage: item.errorMessage || "",
     attachments: item.attachments || "[]",
     processTrace: item.processTrace,
+    bookmarked: false,
     myFeedback: "",
     thumbsUpCount: 0,
     thumbsDownCount: 0,
@@ -217,6 +221,10 @@ export function PublicSharePage() {
   const [errorMsg, setErrorMsg] = React.useState("");
   const [branchSelections, setBranchSelections] = React.useState<Record<string, string>>({});
   const [resolvedAccessToken, setResolvedAccessToken] = React.useState("");
+  const [sharePassword, setSharePassword] = React.useState("");
+  const [verifiedSharePassword, setVerifiedSharePassword] = React.useState("");
+  const [passwordError, setPasswordError] = React.useState("");
+  const [unlocking, setUnlocking] = React.useState(false);
   const [cloning, setCloning] = React.useState(false);
 
   React.useEffect(() => {
@@ -225,11 +233,28 @@ export function PublicSharePage() {
     }
   }, [pathShareID, router, shareID]);
 
+  const loadShare = React.useCallback(
+    async (password: string) => {
+      const result = await getSharedConversation(shareID, password);
+      if (!result.requiresPassword || result.verified) {
+        setVerifiedSharePassword(password.trim());
+        setPasswordError("");
+      } else {
+        setVerifiedSharePassword("");
+      }
+      setData(result);
+      return result;
+    },
+    [shareID],
+  );
+
   React.useEffect(() => {
     let cancelled = false;
-    async function loadShare() {
+    async function loadInitialShare() {
       setLoading(true);
       setErrorMsg("");
+      setPasswordError("");
+      setVerifiedSharePassword("");
       try {
         const result = await getSharedConversation(shareID);
         if (!cancelled) {
@@ -247,7 +272,7 @@ export function PublicSharePage() {
       }
     }
     if (shareID) {
-      void loadShare();
+      void loadInitialShare();
     } else {
       setLoading(false);
       setErrorMsg(t("notFoundDescription"));
@@ -330,8 +355,8 @@ export function PublicSharePage() {
   );
 
   const loadSharedContent = React.useCallback(
-    (file: PreviewDialogFile) => fetchSharedFileContent(shareID, file.fileID),
-    [shareID],
+    (file: PreviewDialogFile) => fetchSharedFileContent(shareID, file.fileID, verifiedSharePassword),
+    [shareID, verifiedSharePassword],
   );
   const accessToken = authSession?.accessToken || resolvedAccessToken;
   const loginNextPath = React.useMemo(() => {
@@ -351,14 +376,35 @@ export function PublicSharePage() {
     }
     setCloning(true);
     try {
-      const conversation = await cloneSharedConversation(accessToken, shareID);
+      const conversation = await cloneSharedConversation(accessToken, shareID, verifiedSharePassword);
       router.push(`/chat?conversation_id=${encodeURIComponent(conversation.publicID)}`);
     } catch (error) {
-      toast.error(t("cloneFailed"), { description: resolveErrorMessage(error, t("cloneFailed")) });
+      const fallback = error instanceof ApiError && error.errorCode === "share.password_invalid"
+        ? t("passwordInvalid")
+        : t("cloneFailed");
+      toast.error(t("cloneFailed"), { description: resolveErrorMessage(error, fallback) });
     } finally {
       setCloning(false);
     }
-  }, [accessToken, loginNextPath, resolveErrorMessage, router, shareID, t]);
+  }, [accessToken, loginNextPath, resolveErrorMessage, router, shareID, t, verifiedSharePassword]);
+
+  const handleUnlockShare = React.useCallback(async () => {
+    if (!shareID || !sharePassword.trim() || unlocking) {
+      return;
+    }
+    setUnlocking(true);
+    setPasswordError("");
+    try {
+      await loadShare(sharePassword);
+    } catch (error) {
+      const fallback = error instanceof ApiError && error.errorCode === "share.password_invalid"
+        ? t("passwordInvalid")
+        : t("notFoundDescription");
+      setPasswordError(resolveErrorMessage(error, fallback));
+    } finally {
+      setUnlocking(false);
+    }
+  }, [loadShare, resolveErrorMessage, shareID, sharePassword, t, unlocking]);
 
   if (loading) {
     return <PublicShareSkeleton />;
@@ -375,6 +421,7 @@ export function PublicSharePage() {
   }
 
   const createdAt = formatSharedAt(data.createdAt, locale);
+  const locked = data.requiresPassword && !data.verified;
 
   return (
     <main className="h-full min-h-0 w-full overflow-y-auto bg-background text-foreground">
@@ -392,24 +439,60 @@ export function PublicSharePage() {
           </Link>
         </header>
 
-        <div className="space-y-7">
-          {visibleMessages.map((message) => (
-            <div key={message.publicID} className="min-w-0">
-              <PublicSharedMessage
-                item={message}
-                loadContent={loadSharedContent}
-                onCycleBranch={onCycleBranch}
-              />
+        {locked ? (
+          <section className="mx-auto mt-8 w-full max-w-sm rounded-xl border border-border bg-card p-4 text-card-foreground shadow-sm">
+            <div className="space-y-2">
+              <h2 className="text-sm font-semibold">{t("passwordTitle")}</h2>
+              <p className="text-xs leading-5 text-muted-foreground">{t("passwordDescription")}</p>
             </div>
-          ))}
-        </div>
+            <form
+              className="mt-4 space-y-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleUnlockShare();
+              }}
+            >
+              <div className="space-y-1">
+                <Label htmlFor="share-password">{t("passwordLabel")}</Label>
+                <Input
+                  id="share-password"
+                  type="password"
+                  value={sharePassword}
+                  onChange={(event) => {
+                    setSharePassword(event.target.value);
+                    setPasswordError("");
+                  }}
+                  placeholder={t("passwordPlaceholder")}
+                  autoComplete="off"
+                  className="h-9"
+                />
+                {passwordError ? <p className="text-xs text-destructive">{passwordError}</p> : null}
+              </div>
+              <Button type="submit" className="h-9 w-full" disabled={!sharePassword.trim() || unlocking}>
+                {unlocking ? t("unlocking") : t("unlock")}
+              </Button>
+            </form>
+          </section>
+        ) : (
+          <div className="space-y-7">
+            {visibleMessages.map((message) => (
+              <div key={message.publicID} className="min-w-0">
+                <PublicSharedMessage
+                  item={message}
+                  loadContent={loadSharedContent}
+                  onCycleBranch={onCycleBranch}
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="pointer-events-none fixed inset-x-0 bottom-5 z-30 flex justify-center">
           <Button
             type="button"
             className="pointer-events-auto h-9 rounded-full bg-primary/90 px-5 shadow-lg shadow-primary/20 hover:bg-primary"
             onClick={handleContinueConversation}
-            disabled={cloning}
+            disabled={cloning || locked}
           >
             {accessToken ? (cloning ? t("continuing") : t("continueConversation")) : t("signInToContinue")}
           </Button>

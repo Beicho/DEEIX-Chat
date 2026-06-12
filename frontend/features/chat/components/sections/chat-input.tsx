@@ -86,6 +86,11 @@ type ChatInputProps = {
   selectedPlatformModelName: string;
   availableTools: MCPToolDTO[];
   selectedToolIDs: number[];
+  confirmedToolIDs: number[];
+  webSearchEnabled: boolean;
+  codeSandboxEnabled: boolean;
+  researchMaxLLMCalls: number;
+  researchMaxToolCalls: number;
   htmlVisualPromptEnabled: boolean;
   maxSelectedTools: number;
   toolsLoading: boolean;
@@ -98,6 +103,11 @@ type ChatInputProps = {
   onDraftChange: (value: string) => void;
   onModelChange: (platformModelName: string) => void;
   onSelectedToolsChange: (toolIDs: number[]) => void;
+  onConfirmedToolsChange: (toolIDs: number[]) => void;
+  onWebSearchEnabledChange: (enabled: boolean) => void;
+  onCodeSandboxEnabledChange: (enabled: boolean) => void;
+  onResearchMaxLLMCallsChange: (value: number) => void;
+  onResearchMaxToolCallsChange: (value: number) => void;
   onHTMLVisualPromptChange: (enabled: boolean) => void;
   onOptionsChange: React.Dispatch<React.SetStateAction<ConversationOptions>>;
   onOptionsReset: (defaults?: ConversationOptions) => void;
@@ -237,6 +247,11 @@ function ChatInputComponent({
   selectedPlatformModelName,
   availableTools,
   selectedToolIDs,
+  confirmedToolIDs,
+  webSearchEnabled,
+  codeSandboxEnabled,
+  researchMaxLLMCalls,
+  researchMaxToolCalls,
   htmlVisualPromptEnabled,
   maxSelectedTools,
   toolsLoading,
@@ -249,6 +264,11 @@ function ChatInputComponent({
   onDraftChange,
   onModelChange,
   onSelectedToolsChange,
+  onConfirmedToolsChange,
+  onWebSearchEnabledChange,
+  onCodeSandboxEnabledChange,
+  onResearchMaxLLMCallsChange,
+  onResearchMaxToolCallsChange,
   onHTMLVisualPromptChange,
   onOptionsChange,
   onOptionsReset,
@@ -365,7 +385,7 @@ function ChatInputComponent({
   const composerModeIndicator = resolveComposerModeIndicator(submitDecision, tComposer);
   const ComposerModeIcon = composerModeIndicator?.icon;
   const modelOptionPolicyDisabled = modelOptionPolicy?.mode?.trim() === "disabled";
-  const showMCPToolsButton = availableTools.length > 0 && !isMediaMode;
+  const showMCPToolsButton = !isMediaMode;
   const showHTMLVisualPromptButton = !isMediaMode;
   const onSelectUploadTool = React.useCallback(() => {
     fileInputRef.current?.click();
@@ -479,7 +499,7 @@ function ChatInputComponent({
                 <span className="flex-1">{tComposer("ragAllDisabled")}</span>
                 <button
                   type="button"
-                  className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:size-7"
+                  className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground after:absolute after:-inset-2 after:content-[''] md:after:hidden"
                   onClick={() => setRagWarnDismissed(true)}
                   aria-label={tComposer("closeHint")}
                 >
@@ -496,7 +516,7 @@ function ChatInputComponent({
                   >
                     <button
                       type="button"
-                      className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-md py-1 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/35"
+                      className="relative flex h-full min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/35 after:absolute after:-inset-y-1 after:inset-x-0 after:content-['']"
                       onClick={() => setPreviewAttachment(item)}
                       aria-label={tComposer("previewAttachment", { name: item.fileName })}
                     >
@@ -549,7 +569,7 @@ function ChatInputComponent({
                     </button>
                     <button
                       type="button"
-                      className="inline-flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35 md:size-7"
+                      className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35 after:absolute after:-inset-2 after:content-[''] md:after:hidden"
                       onClick={() => onRemoveAttachment(item.fileID)}
                       aria-label={tComposer("removeAttachment", { name: item.fileName })}
                     >
@@ -612,7 +632,7 @@ function ChatInputComponent({
                     <div key={template.id} className="group/template flex items-start gap-1 rounded-xl hover:bg-accent/60">
                       <button
                         type="button"
-                        className="flex min-h-11 min-w-0 flex-1 flex-col rounded-xl px-3 py-2 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/35"
+                        className="relative flex min-h-9 min-w-0 flex-1 flex-col rounded-xl px-2.5 py-1.5 text-left outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/35 after:absolute after:-inset-y-1 after:inset-x-0 after:content-['']"
                         onClick={() => applyPromptTemplate(template)}
                       >
                         <span className="flex w-full min-w-0 items-center gap-2">
@@ -736,7 +756,7 @@ function ChatInputComponent({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="size-11 rounded-md text-muted-foreground hover:text-foreground md:size-8"
+                  className="relative size-8 rounded-md text-muted-foreground hover:text-foreground after:absolute after:-inset-1.5 after:content-[''] md:after:hidden"
                   disabled={sending || loading || uploading}
                   aria-label={tComposer("openTools")}
                   onMouseEnter={() => setIsPlusHovered(true)}
@@ -824,9 +844,19 @@ function ChatInputComponent({
               <ChatMCP
                 availableTools={availableTools}
                 selectedToolIDs={selectedToolIDs}
+                confirmedToolIDs={confirmedToolIDs}
+                webSearchEnabled={webSearchEnabled}
+                codeSandboxEnabled={codeSandboxEnabled}
+                researchMaxLLMCalls={researchMaxLLMCalls}
+                researchMaxToolCalls={researchMaxToolCalls}
                 maxSelectedTools={maxSelectedTools}
                 disabled={sending || loading || uploading || toolsLoading}
                 onSelectedToolsChange={onSelectedToolsChange}
+                onConfirmedToolsChange={onConfirmedToolsChange}
+                onWebSearchEnabledChange={onWebSearchEnabledChange}
+                onCodeSandboxEnabledChange={onCodeSandboxEnabledChange}
+                onResearchMaxLLMCallsChange={onResearchMaxLLMCallsChange}
+                onResearchMaxToolCallsChange={onResearchMaxToolCallsChange}
               />
             ) : null}
 
@@ -838,7 +868,7 @@ function ChatInputComponent({
                     variant="ghost"
                     size="icon-sm"
                     className={cn(
-                      "size-11 rounded-md text-muted-foreground hover:text-foreground md:size-8",
+                      "relative size-8 rounded-md text-muted-foreground hover:text-foreground after:absolute after:-inset-1.5 after:content-[''] md:after:hidden",
                       htmlVisualPromptEnabled && "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
                     )}
                     disabled={sending || loading || uploading}
@@ -897,7 +927,7 @@ function ChatInputComponent({
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="size-11 rounded-md text-muted-foreground hover:text-foreground md:size-8"
+              className="relative size-8 rounded-md text-muted-foreground hover:text-foreground after:absolute after:-inset-1.5 after:content-[''] md:after:hidden"
               disabled={loading || uploading || (!sending && !hasSendableContent && !speechInput.supported)}
               onClick={sending ? onStopMessage : hasSendableContent ? onSendMessage : speechInput.toggle}
               onMouseEnter={() => setIsVoiceHovered(true)}

@@ -2,6 +2,13 @@
 
 import * as React from "react";
 
+import {
+  deleteConversationDraft,
+  getConversationDraft,
+  upsertConversationDraft,
+} from "@/shared/api/conversation";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import type { ConversationDraftDTO } from "@/shared/api/conversation.types";
 import type { PendingAttachment } from "@/features/chat/types/chat-runtime";
 
 const CHAT_COMPOSER_STORAGE_KEY = "deeix-chat:chat-composer:v1";
@@ -38,6 +45,7 @@ type ComposerState = {
   conversationKey: string;
   draft: string;
   attachments: PendingAttachment[];
+  updatedAt: string | null;
 };
 
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
@@ -92,10 +100,10 @@ function isPersistedAttachment(value: unknown): value is PersistedAttachment {
 
   const item = value as Record<string, unknown>;
   return (
-      typeof item.fileID === "string" &&
-      typeof item.fileName === "string" &&
-      typeof item.mimeType === "string" &&
-      typeof item.sizeBytes === "number"
+    typeof item.fileID === "string" &&
+    typeof item.fileName === "string" &&
+    typeof item.mimeType === "string" &&
+    typeof item.sizeBytes === "number"
   );
 }
 
@@ -159,11 +167,40 @@ function createEmptyComposerState(conversationKey: string): ComposerState {
     conversationKey,
     draft: "",
     attachments: [],
+    updatedAt: null,
   };
 }
 
 function hasComposerContent(state: Pick<ComposerState, "draft" | "attachments">): boolean {
   return state.draft.trim().length > 0 || state.attachments.length > 0;
+}
+
+function composerFingerprint(state: Pick<ComposerState, "draft" | "attachments">): string {
+  return JSON.stringify({
+    draft: state.draft,
+    attachments: sanitizeAttachments(state.attachments),
+  });
+}
+
+function isRemoteDraftNewer(remoteUpdatedAt: string | null, localUpdatedAt: string | null): boolean {
+  if (!remoteUpdatedAt) {
+    return false;
+  }
+  if (!localUpdatedAt) {
+    return true;
+  }
+  const remoteTime = Date.parse(remoteUpdatedAt);
+  const localTime = Date.parse(localUpdatedAt);
+  return Number.isFinite(remoteTime) && (!Number.isFinite(localTime) || remoteTime > localTime);
+}
+
+function composerStateFromDraftDTO(conversationKey: string, dto: ConversationDraftDTO): ComposerState {
+  return {
+    conversationKey,
+    draft: dto.draft ?? "",
+    attachments: restoreAttachments(dto.attachments ?? []),
+    updatedAt: dto.updatedAt ?? null,
+  };
 }
 
 // ComposerStorageOps centralizes localStorage access and avoids repeated readComposerStore() calls.
@@ -174,6 +211,7 @@ const ComposerStorageOps = {
       conversationKey,
       draft: entry?.draft ?? "",
       attachments: restoreAttachments(entry?.attachments ?? []),
+      updatedAt: entry?.updatedAt ?? null,
     };
   },
 
@@ -226,21 +264,38 @@ export function useConversationComposerState(
   const conversationKey = React.useMemo(() => resolveConversationComposerKey(conversationID), [conversationID]);
   const [state, setState] = React.useState<ComposerState>(() => createEmptyComposerState(conversationKey));
   const [hydratedConversationKey, setHydratedConversationKey] = React.useState<string | null>(null);
+  const [serverHydratedConversationKey, setServerHydratedConversationKey] = React.useState<string | null>(null);
+  const serverHydrateSeqRef = React.useRef(0);
+  const serverSyncTimerRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     if (resetToken <= 0 || conversationID) {
       return;
     }
     ComposerStorageOps.removeEntry(conversationKey);
+    void resolveAccessToken().then((accessToken) => {
+      if (accessToken) {
+        return deleteConversationDraft(accessToken, conversationKey).catch(() => undefined);
+      }
+      return undefined;
+    });
     setHydratedConversationKey(conversationKey);
+    setServerHydratedConversationKey(conversationKey);
     setState(createEmptyComposerState(conversationKey));
   }, [conversationID, conversationKey, resetToken]);
 
   useIsomorphicLayoutEffect(() => {
     if (!preserveDrafts) {
       ComposerStorageOps.removeEntry(conversationKey);
+      void resolveAccessToken().then((accessToken) => {
+        if (accessToken) {
+          return deleteConversationDraft(accessToken, conversationKey).catch(() => undefined);
+        }
+        return undefined;
+      });
       setState((prev) => (prev.conversationKey === conversationKey ? prev : createEmptyComposerState(conversationKey)));
       setHydratedConversationKey(conversationKey);
+      setServerHydratedConversationKey(conversationKey);
       return;
     }
 
@@ -277,6 +332,61 @@ export function useConversationComposerState(
   }, [conversationKey, preserveDrafts]);
 
   React.useEffect(() => {
+    if (!preserveDrafts) {
+      return;
+    }
+
+    const seq = serverHydrateSeqRef.current + 1;
+    serverHydrateSeqRef.current = seq;
+    setServerHydratedConversationKey(null);
+    const localState = ComposerStorageOps.readEntry(conversationKey);
+    const localFingerprint = composerFingerprint(localState);
+    let cancelled = false;
+
+    void resolveAccessToken()
+      .then((accessToken) => {
+        if (!accessToken || cancelled || serverHydrateSeqRef.current !== seq) {
+          return null;
+        }
+        return getConversationDraft(accessToken, conversationKey).catch(() => null);
+      })
+      .then((remoteDraft) => {
+        if (!remoteDraft || cancelled || serverHydrateSeqRef.current !== seq) {
+          return;
+        }
+
+        const remoteState = composerStateFromDraftDTO(conversationKey, remoteDraft);
+        if (!hasComposerContent(remoteState)) {
+          return;
+        }
+
+        setHydratedConversationKey(conversationKey);
+        setState((prev) => {
+          const current = prev.conversationKey === conversationKey ? prev : createEmptyComposerState(conversationKey);
+          const currentFingerprint = composerFingerprint(current);
+          if (currentFingerprint !== localFingerprint && hasComposerContent(current)) {
+            return prev;
+          }
+          if (!hasComposerContent(current) || isRemoteDraftNewer(remoteState.updatedAt, localState.updatedAt)) {
+            ComposerStorageOps.writeEntry(conversationKey, remoteState.draft, remoteState.attachments);
+            return remoteState;
+          }
+          return prev;
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled && serverHydrateSeqRef.current === seq) {
+          setServerHydratedConversationKey(conversationKey);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationKey, preserveDrafts]);
+
+  React.useEffect(() => {
     if (hydratedConversationKey !== state.conversationKey) {
       return;
     }
@@ -286,6 +396,58 @@ export function useConversationComposerState(
     }
     ComposerStorageOps.writeEntry(state.conversationKey, state.draft, state.attachments);
   }, [hydratedConversationKey, preserveDrafts, state]);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (serverSyncTimerRef.current) {
+      clearTimeout(serverSyncTimerRef.current);
+      serverSyncTimerRef.current = null;
+    }
+    if (
+      hydratedConversationKey !== state.conversationKey ||
+      serverHydratedConversationKey !== state.conversationKey ||
+      !preserveDrafts
+    ) {
+      return;
+    }
+
+    const snapshot = {
+      conversationKey: state.conversationKey,
+      draft: state.draft,
+      attachments: sanitizeAttachments(state.attachments),
+    };
+
+    serverSyncTimerRef.current = window.setTimeout(() => {
+      void resolveAccessToken().then((accessToken) => {
+        if (!accessToken) {
+          return undefined;
+        }
+        if (!snapshot.draft.trim() && snapshot.attachments.length === 0) {
+          return deleteConversationDraft(accessToken, snapshot.conversationKey).catch(() => undefined);
+        }
+        return upsertConversationDraft(accessToken, snapshot.conversationKey, {
+          draft: snapshot.draft,
+          attachments: snapshot.attachments,
+        }).catch(() => undefined);
+      });
+    }, 800);
+
+    return () => {
+      if (serverSyncTimerRef.current) {
+        clearTimeout(serverSyncTimerRef.current);
+        serverSyncTimerRef.current = null;
+      }
+    };
+  }, [
+    hydratedConversationKey,
+    preserveDrafts,
+    serverHydratedConversationKey,
+    state.attachments,
+    state.conversationKey,
+    state.draft,
+  ]);
 
   const visibleState = state.conversationKey === conversationKey ? state : createEmptyComposerState(conversationKey);
 
@@ -297,6 +459,7 @@ export function useConversationComposerState(
         typeof value === "function"
           ? value(prev.conversationKey === conversationKey ? prev.draft : "")
           : value,
+      updatedAt: new Date().toISOString(),
     }));
   }, [conversationKey]);
 
@@ -308,6 +471,7 @@ export function useConversationComposerState(
         typeof value === "function"
           ? value(prev.conversationKey === conversationKey ? prev.attachments : [])
           : value,
+      updatedAt: new Date().toISOString(),
     }));
   }, [conversationKey]);
 
@@ -324,6 +488,7 @@ export function useConversationComposerState(
           prev.conversationKey === targetConversationKey ? prev.attachments : [],
           items,
         ),
+        updatedAt: new Date().toISOString(),
       }));
       return;
     }
@@ -333,6 +498,16 @@ export function useConversationComposerState(
     }
 
     ComposerStorageOps.appendAttachments(targetConversationKey, items);
+    const nextEntry = ComposerStorageOps.readEntry(targetConversationKey);
+    void resolveAccessToken().then((accessToken) => {
+      if (!accessToken) {
+        return undefined;
+      }
+      return upsertConversationDraft(accessToken, targetConversationKey, {
+        draft: nextEntry.draft,
+        attachments: sanitizeAttachments(nextEntry.attachments),
+      }).catch(() => undefined);
+    });
   }, [conversationKey, preserveDrafts]);
 
   return {

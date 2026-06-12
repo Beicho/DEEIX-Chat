@@ -24,7 +24,7 @@ function isPathWithin(pathname: string, basePath: string): boolean {
 }
 
 function isPublicPath(pathname: string): boolean {
-  return pathname === "/login" || isPathWithin(pathname, "/auth");
+  return pathname === "/" || pathname === "/login" || pathname === "/status" || isPathWithin(pathname, "/auth");
 }
 
 function OptionalShareWorkspace({ children }: { children: React.ReactNode }) {

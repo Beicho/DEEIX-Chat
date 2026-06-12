@@ -1162,6 +1162,21 @@ func (r *Repo) RevokeAllSessions(ctx context.Context, userID uint, reason string
 		Error)
 }
 
+// RevokeOtherSessions 吊销除当前会话以外的活跃会话。
+func (r *Repo) RevokeOtherSessions(ctx context.Context, userID uint, currentSessionID string, reason string) error {
+	now := time.Now()
+	query := r.db.WithContext(ctx).
+		Model(&model.UserSession{}).
+		Where("user_id = ? AND revoked_at IS NULL", userID)
+	if strings.TrimSpace(currentSessionID) != "" {
+		query = query.Where("session_id <> ?", strings.TrimSpace(currentSessionID))
+	}
+	return translateError(query.Updates(map[string]interface{}{
+		"revoked_at":    now,
+		"revoke_reason": reason,
+	}).Error)
+}
+
 // ListActiveSessionsByUserID 查询用户当前活跃会话。
 func (r *Repo) ListActiveSessionsByUserID(ctx context.Context, userID uint, now time.Time) ([]domainuser.Session, error) {
 	items := make([]model.UserSession, 0)
@@ -1707,6 +1722,87 @@ func (r *Repo) MarkContactVerificationVerified(ctx context.Context, verification
 	return nil
 }
 
+func (r *Repo) ListInvitationCodes(ctx context.Context, now time.Time) ([]domainuser.InvitationCode, error) {
+	items := make([]model.InvitationCode, 0)
+	if err := r.db.WithContext(ctx).
+		Order("id DESC").
+		Find(&items).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return toDomainInvitationCodes(items), nil
+}
+
+func (r *Repo) CreateInvitationCode(ctx context.Context, item *domainuser.InvitationCode) (*domainuser.InvitationCode, error) {
+	dbItem := toModelInvitationCode(item)
+	if err := r.db.WithContext(ctx).Create(dbItem).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return toDomainInvitationCode(*dbItem), nil
+}
+
+func (r *Repo) UpdateInvitationCodeEnabled(ctx context.Context, publicID string, enabled bool, actorUserID uint, now time.Time) (*domainuser.InvitationCode, error) {
+	updates := map[string]interface{}{"enabled": enabled}
+	if enabled {
+		updates["disabled_at"] = nil
+		updates["disabled_by"] = nil
+	} else {
+		updates["disabled_at"] = now
+		updates["disabled_by"] = actorUserID
+	}
+	result := r.db.WithContext(ctx).
+		Model(&model.InvitationCode{}).
+		Where("public_id = ?", strings.TrimSpace(publicID)).
+		Updates(updates)
+	if result.Error != nil {
+		return nil, translateError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, repository.ErrNotFound
+	}
+	var item model.InvitationCode
+	if err := r.db.WithContext(ctx).Where("public_id = ?", strings.TrimSpace(publicID)).First(&item).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return toDomainInvitationCode(item), nil
+}
+
+func (r *Repo) ConsumeInvitationCode(ctx context.Context, codeHash string, now time.Time) (*domainuser.InvitationCode, error) {
+	var consumed model.InvitationCode
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var item model.InvitationCode
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("code_hash = ?", strings.TrimSpace(codeHash)).
+			First(&item).Error; err != nil {
+			return translateError(err)
+		}
+		if !item.Enabled {
+			return repository.ErrNotFound
+		}
+		if item.ExpiresAt != nil && !item.ExpiresAt.After(now) {
+			return repository.ErrNotFound
+		}
+		if item.MaxUses > 0 && item.UsedCount >= item.MaxUses {
+			return repository.ErrNotFound
+		}
+		if err := tx.Model(&model.InvitationCode{}).
+			Where("id = ?", item.ID).
+			Updates(map[string]interface{}{
+				"used_count":   gorm.Expr("used_count + ?", 1),
+				"last_used_at": now,
+			}).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.Where("id = ?", item.ID).First(&consumed).Error; err != nil {
+			return translateError(err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return toDomainInvitationCode(consumed), nil
+}
+
 func toDomainUsers(items []model.User) []domainuser.User {
 	results := make([]domainuser.User, 0, len(items))
 	for _, item := range items {
@@ -1990,6 +2086,57 @@ func toModelContactVerification(item *domainuser.ContactVerification) *model.Use
 		VerifiedAt:   item.VerifiedAt,
 		ConsumedAt:   item.ConsumedAt,
 		AttemptCount: item.AttemptCount,
+	}
+}
+
+func toDomainInvitationCodes(items []model.InvitationCode) []domainuser.InvitationCode {
+	results := make([]domainuser.InvitationCode, 0, len(items))
+	for _, item := range items {
+		results = append(results, *toDomainInvitationCode(item))
+	}
+	return results
+}
+
+func toDomainInvitationCode(item model.InvitationCode) *domainuser.InvitationCode {
+	return &domainuser.InvitationCode{
+		ID:         item.ID,
+		PublicID:   item.PublicID,
+		CodeHash:   item.CodeHash,
+		Label:      item.Label,
+		MaxUses:    item.MaxUses,
+		UsedCount:  item.UsedCount,
+		Enabled:    item.Enabled,
+		ExpiresAt:  item.ExpiresAt,
+		LastUsedAt: item.LastUsedAt,
+		CreatedBy:  item.CreatedBy,
+		DisabledAt: item.DisabledAt,
+		DisabledBy: item.DisabledBy,
+		CreatedAt:  item.CreatedAt,
+		UpdatedAt:  item.UpdatedAt,
+	}
+}
+
+func toModelInvitationCode(item *domainuser.InvitationCode) *model.InvitationCode {
+	if item == nil {
+		return &model.InvitationCode{}
+	}
+	return &model.InvitationCode{
+		BaseModel: model.BaseModel{
+			ID:        item.ID,
+			CreatedAt: item.CreatedAt,
+			UpdatedAt: item.UpdatedAt,
+		},
+		PublicID:   item.PublicID,
+		CodeHash:   item.CodeHash,
+		Label:      item.Label,
+		MaxUses:    item.MaxUses,
+		UsedCount:  item.UsedCount,
+		Enabled:    item.Enabled,
+		ExpiresAt:  item.ExpiresAt,
+		LastUsedAt: item.LastUsedAt,
+		CreatedBy:  item.CreatedBy,
+		DisabledAt: item.DisabledAt,
+		DisabledBy: item.DisabledBy,
 	}
 }
 

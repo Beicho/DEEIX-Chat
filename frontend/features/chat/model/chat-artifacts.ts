@@ -1,6 +1,6 @@
 import type { ChatAreaMessage } from "@/features/chat/types/messages";
 
-export type ArtifactPreviewKind = "html" | "css" | "javascript";
+export type ArtifactPreviewKind = "html" | "css" | "javascript" | "svg" | "mermaid" | "markdown" | "react";
 
 export type ChatArtifact = {
   id: string;
@@ -22,6 +22,27 @@ export type OpenCodeArtifactInput = {
   kind: ArtifactPreviewKind;
 };
 
+export type ArtifactPreviewLabels = {
+  htmlTitle: string;
+  cssTitle: string;
+  cssEyebrow: string;
+  cssHeading: string;
+  cssDescription: string;
+  cssPrimaryAction: string;
+  cssSecondaryAction: string;
+  cssCardTitle: string;
+  cssCardDescription: string;
+  cssMetricTitle: string;
+  jsTitle: string;
+  svgTitle: string;
+  markdownTitle: string;
+  mermaidTitle: string;
+  reactTitle: string;
+  unknownError: string;
+  reactMissingComponent: string;
+  reactUnsupportedImport: string;
+};
+
 const HTML_LIKE_RE = /^\s*(?:<!doctype\s+html|<html\b|<head\b|<body\b|<(?:article|canvas|div|main|section|style|script|svg)\b)/i;
 const SCRIPT_CLOSE_RE = /<\/script/gi;
 const STYLE_CLOSE_RE = /<\/style/gi;
@@ -39,7 +60,7 @@ const ARTIFACT_CSP = [
   "frame-src 'none'",
   "child-src 'none'",
   "worker-src 'none'",
-  "connect-src 'none'",
+  "connect-src https://esm.sh",
   "manifest-src 'none'",
   "prefetch-src 'none'",
   "navigate-to 'none'",
@@ -47,7 +68,7 @@ const ARTIFACT_CSP = [
   "media-src data: blob:",
   "font-src data:",
   "style-src 'unsafe-inline'",
-  "script-src 'unsafe-inline'",
+  "script-src 'unsafe-inline' https://esm.sh",
 ].join("; ");
 
 function normalizeLanguage(language: string): string {
@@ -76,6 +97,10 @@ export function resolveArtifactPreviewKind(language: string, code: string): Arti
   if (["html", "htm", "xhtml"].includes(normalized)) return "html";
   if (["css", "scss", "sass", "less"].includes(normalized)) return "css";
   if (["js", "javascript", "mjs", "cjs"].includes(normalized)) return "javascript";
+  if (["svg"].includes(normalized)) return "svg";
+  if (["mermaid", "mmd"].includes(normalized)) return "mermaid";
+  if (["md", "markdown"].includes(normalized)) return "markdown";
+  if (["jsx", "tsx", "react"].includes(normalized)) return "react";
   if ((!normalized || normalized === "markdown") && HTML_LIKE_RE.test(code)) return "html";
   return null;
 }
@@ -96,11 +121,15 @@ function escapeStyleContent(value: string): string {
   return value.replace(STYLE_CLOSE_RE, "<\\/style");
 }
 
-function artifactRuntimeScript(): string {
+function scriptStringLiteral(value: string): string {
+  return escapeScriptContent(JSON.stringify(value));
+}
+
+function artifactRuntimeScript(labels: Pick<ArtifactPreviewLabels, "unknownError">): string {
   return `<script>
 (() => {
   const formatError = (value) => {
-    if (!value) return "Unknown preview error";
+    if (!value) return ${scriptStringLiteral(labels.unknownError)};
     if (value && value.stack) return String(value.stack);
     if (value && value.message) return String(value.message);
     return String(value);
@@ -109,7 +138,7 @@ function artifactRuntimeScript(): string {
     const message = formatError(value);
     const node = document.createElement("pre");
     node.textContent = message;
-    node.style.cssText = "margin:16px;padding:12px;border:1px solid #ef4444;border-radius:8px;background:#fef2f2;color:#991b1b;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;";
+    node.style.cssText = "margin:16px;padding:12px;border:1px solid CanvasText;border-radius:8px;background:Canvas;color:CanvasText;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;";
     document.body.appendChild(node);
   };
   window.addEventListener("error", (event) => showError(event.error || event.message));
@@ -139,19 +168,19 @@ body {
 </style>`;
 }
 
-function previewHead(title: string): string {
+function previewHead(title: string, labels: Pick<ArtifactPreviewLabels, "unknownError">): string {
   return [
     `<meta charset="utf-8">`,
     `<meta name="viewport" content="width=device-width, initial-scale=1">`,
     `<meta http-equiv="Content-Security-Policy" content="${ARTIFACT_CSP}">`,
     `<title>${escapeHTML(title)}</title>`,
     artifactPreviewResetStyle(),
-    artifactRuntimeScript(),
+    artifactRuntimeScript(labels),
   ].join("");
 }
 
-function htmlPreviewDocument(code: string): string {
-  const safeHead = previewHead("Artifact Preview");
+function htmlPreviewDocument(code: string, labels: ArtifactPreviewLabels): string {
+  const safeHead = previewHead(labels.htmlTitle, labels);
   const userHead = HEAD_BLOCK_RE.exec(code)?.[1]?.trim() ?? "";
   const bodyMatch = BODY_BLOCK_RE.exec(code);
   const body = bodyMatch
@@ -166,26 +195,26 @@ function htmlPreviewDocument(code: string): string {
   return `<!doctype html><html><head>${safeHead}${userHead}</head><body>${body}</body></html>`;
 }
 
-function cssPreviewDocument(code: string): string {
+function cssPreviewDocument(code: string, labels: ArtifactPreviewLabels): string {
   return `<!doctype html>
 <html>
 <head>
-${previewHead("CSS Preview")}
+${previewHead(labels.cssTitle, labels)}
 <style>${escapeStyleContent(code)}</style>
 </head>
 <body>
   <main class="artifact-preview">
     <section class="preview-panel">
-      <p class="eyebrow">DEEIX Artifact</p>
-      <h1>Preview Surface</h1>
-      <p>Generated CSS is applied to this isolated document.</p>
+      <p class="eyebrow">${escapeHTML(labels.cssEyebrow)}</p>
+      <h1>${escapeHTML(labels.cssHeading)}</h1>
+      <p>${escapeHTML(labels.cssDescription)}</p>
       <div class="preview-row">
-        <button type="button">Primary action</button>
-        <button type="button" class="secondary">Secondary</button>
+        <button type="button">${escapeHTML(labels.cssPrimaryAction)}</button>
+        <button type="button" class="secondary">${escapeHTML(labels.cssSecondaryAction)}</button>
       </div>
       <div class="preview-grid">
-        <article><strong>Card</strong><span>Sample content</span></article>
-        <article><strong>Metric</strong><span>128</span></article>
+        <article><strong>${escapeHTML(labels.cssCardTitle)}</strong><span>${escapeHTML(labels.cssCardDescription)}</span></article>
+        <article><strong>${escapeHTML(labels.cssMetricTitle)}</strong><span>128</span></article>
       </div>
     </section>
   </main>
@@ -193,15 +222,15 @@ ${previewHead("CSS Preview")}
 </html>`;
 }
 
-function javascriptPreviewDocument(code: string): string {
+function javascriptPreviewDocument(code: string, labels: ArtifactPreviewLabels): string {
   return `<!doctype html>
 <html>
 <head>
-${previewHead("JavaScript Preview")}
+${previewHead(labels.jsTitle, labels)}
 <style>
-body { margin: 0; font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #111827; background: #ffffff; }
+body { margin: 0; font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: CanvasText; background: Canvas; }
 #root { min-height: 100vh; padding: 20px; box-sizing: border-box; }
-.artifact-console { position: fixed; inset-inline: 12px; bottom: 12px; max-height: 32vh; overflow: auto; border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb; color: #374151; padding: 10px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+.artifact-console { position: fixed; inset-inline: 12px; bottom: 12px; max-height: 32vh; overflow: auto; border: 1px solid ButtonBorder; border-radius: 8px; background: Canvas; color: CanvasText; padding: 10px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -231,15 +260,171 @@ body { margin: 0; font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "
 </html>`;
 }
 
-export function buildArtifactPreviewDocument(kind: ArtifactPreviewKind, code: string): string {
-  if (kind === "css") return cssPreviewDocument(code);
-  if (kind === "javascript") return javascriptPreviewDocument(code);
-  return htmlPreviewDocument(code);
+function svgPreviewDocument(code: string, labels: ArtifactPreviewLabels): string {
+  return `<!doctype html>
+<html>
+<head>
+${previewHead(labels.svgTitle, labels)}
+<style>
+body { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: Canvas; }
+svg { max-width: 100%; max-height: calc(100vh - 40px); }
+</style>
+</head>
+<body>${code}</body>
+</html>`;
+}
+
+function markdownToHTML(markdown: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const html: string[] = [];
+  let inList = false;
+  let inCode = false;
+  const closeList = () => {
+    if (inList) {
+      html.push("</ul>");
+      inList = false;
+    }
+  };
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) {
+      if (inCode) {
+        html.push("</code></pre>");
+        inCode = false;
+      } else {
+        closeList();
+        html.push("<pre><code>");
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      html.push(`${escapeHTML(line)}\n`);
+      continue;
+    }
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    if (heading) {
+      closeList();
+      const level = heading[1].length;
+      html.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+    const listItem = /^\s*[-*]\s+(.+)$/.exec(line);
+    if (listItem) {
+      if (!inList) {
+        html.push("<ul>");
+        inList = true;
+      }
+      html.push(`<li>${inlineMarkdown(listItem[1])}</li>`);
+      continue;
+    }
+    if (!line.trim()) {
+      closeList();
+      continue;
+    }
+    closeList();
+    html.push(`<p>${inlineMarkdown(line)}</p>`);
+  }
+  closeList();
+  if (inCode) {
+    html.push("</code></pre>");
+  }
+  return html.join("\n");
+}
+
+function inlineMarkdown(value: string): string {
+  return escapeHTML(value)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+}
+
+function markdownPreviewDocument(code: string, labels: ArtifactPreviewLabels): string {
+  return `<!doctype html>
+<html>
+<head>
+${previewHead(labels.markdownTitle, labels)}
+<style>
+body { max-width: 760px; margin: 0 auto; padding: 24px; font: 15px/1.65 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: CanvasText; background: Canvas; }
+h1, h2, h3 { line-height: 1.2; margin: 1.2em 0 .55em; }
+p, ul, pre { margin: 0 0 1em; }
+pre { overflow: auto; padding: 12px; border-radius: 8px; background: Canvas; border: 1px solid ButtonBorder; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+a { color: LinkText; }
+</style>
+</head>
+<body>${markdownToHTML(code)}</body>
+</html>`;
+}
+
+function mermaidPreviewDocument(code: string, labels: ArtifactPreviewLabels): string {
+  return `<!doctype html>
+<html>
+<head>
+${previewHead(labels.mermaidTitle, labels)}
+<style>
+body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 20px; background: Canvas; color: CanvasText; }
+#mermaid-root { width: min(100%, 960px); overflow: auto; }
+</style>
+</head>
+<body>
+<div id="mermaid-root" class="mermaid">${escapeHTML(code)}</div>
+<script type="module">
+import mermaid from "https://esm.sh/mermaid@11";
+mermaid.initialize({ startOnLoad: true, securityLevel: "strict" });
+</script>
+</body>
+</html>`;
+}
+
+function reactPreviewDocument(code: string, labels: ArtifactPreviewLabels): string {
+  return `<!doctype html>
+<html>
+<head>
+${previewHead(labels.reactTitle, labels)}
+<style>
+body { margin: 0; font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: CanvasText; background: Canvas; }
+#root { min-height: 100vh; padding: 20px; box-sizing: border-box; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+import React from "https://esm.sh/react@19";
+import { createRoot } from "https://esm.sh/react-dom@19/client";
+import Babel from "https://esm.sh/@babel/standalone@7";
+const source = ${JSON.stringify(code)};
+const compiled = Babel.transform(source, { presets: [["env", { modules: "commonjs" }], "react", "typescript"], filename: "artifact.tsx" }).code;
+const module = { exports: {} };
+const exports = module.exports;
+const require = (name) => {
+  if (name === "react") return React;
+  throw new Error(${scriptStringLiteral(labels.reactUnsupportedImport)} + " " + name);
+};
+const App = new Function("React", "module", "exports", "require", compiled + "\\nreturn module.exports.default || exports.default || (typeof App !== 'undefined' ? App : null);")(React, module, exports, require);
+if (!App) throw new Error(${scriptStringLiteral(labels.reactMissingComponent)});
+createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>`;
+}
+
+export function buildArtifactPreviewDocument(kind: ArtifactPreviewKind, code: string, labels: ArtifactPreviewLabels): string {
+  if (kind === "css") return cssPreviewDocument(code, labels);
+  if (kind === "javascript") return javascriptPreviewDocument(code, labels);
+  if (kind === "svg") return svgPreviewDocument(code, labels);
+  if (kind === "mermaid") return mermaidPreviewDocument(code, labels);
+  if (kind === "markdown") return markdownPreviewDocument(code, labels);
+  if (kind === "react") return reactPreviewDocument(code, labels);
+  return htmlPreviewDocument(code, labels);
 }
 
 export function resolveArtifactDownloadName(kind: ArtifactPreviewKind): string {
   if (kind === "css") return "artifact-css-preview.html";
   if (kind === "javascript") return "artifact-js-preview.html";
+  if (kind === "svg") return "artifact-svg-preview.html";
+  if (kind === "mermaid") return "artifact-mermaid-preview.html";
+  if (kind === "markdown") return "artifact-markdown-preview.html";
+  if (kind === "react") return "artifact-react-preview.html";
   return "artifact-preview.html";
 }
 

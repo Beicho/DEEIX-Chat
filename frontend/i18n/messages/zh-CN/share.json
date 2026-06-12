@@ -6,5 +6,12 @@
   "signInToContinue": "登录 DEEIX Chat 继续对话",
   "notFoundTitle": "分享不可用",
   "notFoundDescription": "分享不存在、已关闭，或原会话已被删除。",
+  "passwordTitle": "需要访问密码",
+  "passwordDescription": "输入分享者设置的密码后即可查看内容。",
+  "passwordLabel": "访问密码",
+  "passwordPlaceholder": "输入访问密码",
+  "unlock": "查看分享",
+  "unlocking": "正在验证...",
+  "passwordInvalid": "访问密码不正确。",
   "cloneFailed": "继续对话失败"
 }

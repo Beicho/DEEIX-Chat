@@ -881,7 +881,7 @@ function ModelOptionFilterBadge({
     <span
       data-filtered={status === "filtered"}
       data-inactive={status === "inactive"}
-      className="shrink-0 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] leading-none text-emerald-700 data-[filtered=true]:bg-muted data-[filtered=true]:text-muted-foreground data-[inactive=true]:bg-muted data-[inactive=true]:text-muted-foreground"
+      className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] leading-none text-foreground data-[filtered=true]:text-muted-foreground data-[inactive=true]:text-muted-foreground"
     >
       {status === "inactive" ? inactiveLabel : status === "filtered" ? ignoredLabel : passedLabel}
     </span>
@@ -1231,7 +1231,7 @@ export function ChatModelConfig({
                                 passedLabel={tComposer("willPass")}
                               />
                               {!toolOption.protocolMatched ? (
-                                <span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] leading-none text-amber-700">
+                                <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] leading-none text-foreground">
                                   {tComposer("nativeToolMayNotApply")}
                                 </span>
                               ) : null}
@@ -1246,7 +1246,7 @@ export function ChatModelConfig({
                               {tComposer("toolProtocols")}：{protocolLabels || "-"}
                             </p>
                             {!toolOption.protocolMatched ? (
-                              <p className="mt-1 text-amber-700">{tComposer("nativeToolMayNotApplyHelp")}</p>
+                              <p className="mt-1 text-foreground">{tComposer("nativeToolMayNotApplyHelp")}</p>
                             ) : null}
                           </TooltipContent>
                         </Tooltip>

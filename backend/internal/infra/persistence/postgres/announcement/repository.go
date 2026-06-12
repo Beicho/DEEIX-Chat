@@ -24,13 +24,13 @@ func NewRepo(db *gorm.DB) *Repo {
 }
 
 // ListActiveAnnouncements 查询当前可展示公告。
-func (r *Repo) ListActiveAnnouncements(ctx context.Context, userID uint, now time.Time) ([]domainannouncement.Announcement, error) {
+func (r *Repo) ListActiveAnnouncements(ctx context.Context, userID uint, now time.Time, includeDismissed bool) ([]domainannouncement.Announcement, error) {
 	type announcementRow struct {
 		model.Announcement
 		UserClosedAt *time.Time `gorm:"column:user_closed_at"`
 	}
 	items := make([]announcementRow, 0)
-	if err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Model(&model.Announcement{}).
 		Select("system_announcements.*, states.closed_at AS user_closed_at").
 		Joins(`LEFT JOIN announcement_user_states states
@@ -40,8 +40,11 @@ func (r *Repo) ListActiveAnnouncements(ctx context.Context, userID uint, now tim
 				AND states.announcement_updated_at = system_announcements.updated_at`, userID).
 		Where("status = ?", domainannouncement.StatusActive).
 		Where("(starts_at IS NULL OR starts_at <= ?)", now).
-		Where("(expires_at IS NULL OR expires_at > ?)", now).
-		Where("(states.dismissed_until IS NULL OR states.dismissed_until <= ?)", now).
+		Where("(expires_at IS NULL OR expires_at > ?)", now)
+	if !includeDismissed {
+		query = query.Where("(states.dismissed_until IS NULL OR states.dismissed_until <= ?)", now)
+	}
+	if err := query.
 		Order("CASE WHEN states.closed_at IS NULL THEN 0 ELSE 1 END ASC, pinned DESC, priority DESC, updated_at DESC, id DESC").
 		Find(&items).Error; err != nil {
 		return nil, translateError(err)
@@ -113,6 +116,23 @@ func (r *Repo) CreateAnnouncement(ctx context.Context, item *domainannouncement.
 		CreatedByUserID: item.CreatedByUserID,
 	}
 	if err := r.db.WithContext(ctx).Create(&record).Error; err != nil {
+		return nil, translateError(err)
+	}
+	result := toDomain(record)
+	return &result, nil
+}
+
+// GetAnnouncementByTitle 查询指定标题的公告，用于自动草稿去重。
+func (r *Repo) GetAnnouncementByTitle(ctx context.Context, title string) (*domainannouncement.Announcement, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return nil, repository.ErrInvalidInput
+	}
+	var record model.Announcement
+	if err := r.db.WithContext(ctx).
+		Where("title = ?", title).
+		Order("id DESC").
+		First(&record).Error; err != nil {
 		return nil, translateError(err)
 	}
 	result := toDomain(record)
@@ -291,6 +311,8 @@ func normalizeStatus(status string) string {
 		return domainannouncement.StatusActive
 	case domainannouncement.StatusInactive:
 		return domainannouncement.StatusInactive
+	case domainannouncement.StatusDraft:
+		return domainannouncement.StatusDraft
 	default:
 		return ""
 	}

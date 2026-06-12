@@ -6,12 +6,23 @@ import "github.com/gin-gonic/gin"
 func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 	authRequired.POST("/conversations", m.Handler.CreateConversation)
 	authRequired.GET("/conversations", m.Handler.ListConversations)
+	authRequired.GET("/conversations/export", m.Handler.ExportConversationTakeout)
+	authRequired.POST("/conversations/import", m.Handler.ImportConversationTakeout)
+	authRequired.GET("/conversations/search", m.Handler.SearchConversations)
 	authRequired.POST("/conversations/shares/revoke", m.Handler.RevokeConversationShares)
+	authRequired.GET("/conversation-drafts/:id", m.Handler.GetConversationDraft)
+	authRequired.PUT("/conversation-drafts/:id", m.Handler.UpsertConversationDraft)
+	authRequired.DELETE("/conversation-drafts/:id", m.Handler.DeleteConversationDraft)
 	authRequired.GET("/conversation-projects", m.Handler.ListConversationProjects)
 	authRequired.POST("/conversation-projects", m.Handler.CreateConversationProject)
 	authRequired.POST("/conversation-projects/reorder", m.Handler.ReorderConversationProjects)
 	authRequired.PATCH("/conversation-projects/:id", m.Handler.UpdateConversationProject)
 	authRequired.DELETE("/conversation-projects/:id", m.Handler.DeleteConversationProject)
+	authRequired.GET("/conversation-projects/:id/documents", m.Handler.ListProjectDocuments)
+	authRequired.POST("/conversation-projects/:id/documents", m.Handler.AddProjectDocuments)
+	authRequired.DELETE("/conversation-projects/:id/documents/:file_id", m.Handler.DeleteProjectDocument)
+	authRequired.POST("/conversation-projects/:id/documents/:file_id/reindex", m.Handler.ReindexProjectDocument)
+	authRequired.PATCH("/conversation-projects/:id/documents/:file_id/index", m.Handler.MarkProjectDocumentIndexStatus)
 	authRequired.POST("/conversations/project", m.Handler.BatchSetConversationProject)
 	authRequired.GET("/conversations/:id", m.Handler.GetConversation)
 	authRequired.GET("/conversations/:id/export", m.Handler.ExportConversation)
@@ -34,8 +45,12 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 	authRequired.GET("/context-artifacts/:id", m.Handler.GetContextArtifact)
 	authRequired.GET("/conversation-runs/:run_id/stream", m.Handler.ResumeMessageGenerationStream)
 	authRequired.POST("/conversation-runs/:run_id/cancel", m.Handler.CancelMessageGeneration)
+	authRequired.GET("/message-bookmarks", m.Handler.ListMessageBookmarks)
 	authRequired.PATCH("/messages/:id", m.Handler.UpdateMessage)
+	authRequired.DELETE("/messages/:id", m.Handler.DeleteMessage)
 	authRequired.PUT("/messages/:id/feedback", m.Handler.SetMessageFeedback)
+	authRequired.PUT("/messages/:id/bookmark", m.Handler.SetMessageBookmark)
+	authRequired.DELETE("/messages/:id/bookmark", m.Handler.DeleteMessageBookmark)
 	authRequired.POST("/files", m.Handler.UploadFile)
 	authRequired.GET("/files", m.Handler.ListFiles)
 	authRequired.GET("/files/:file_id/processing", m.Handler.GetFileProcessingStatus)
@@ -48,6 +63,14 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 
 // RegisterPublicRoutes 注册不需要登录的会话公开路由。
 func (m *Module) RegisterPublicRoutes(public *gin.RouterGroup) {
+	public.GET("/status/model-availability", m.Handler.GetModelAvailability)
 	public.GET("/shared-conversations/:share_id", m.Handler.GetPublicSharedConversation)
 	public.GET("/shared-conversations/:share_id/files/:file_id/content", m.Handler.GetPublicSharedFileContent)
+}
+
+// RegisterAdminRoutes registers conversation admin routes.
+func (m *Module) RegisterAdminRoutes(adminGroup *gin.RouterGroup) {
+	adminGroup.GET("/moderation/events", m.Handler.ListModerationEvents)
+	adminGroup.PATCH("/moderation/events/:id/review", m.Handler.UpdateModerationReview)
+	adminGroup.POST("/moderation/events/:id/release", m.Handler.ReleaseModerationDisposition)
 }

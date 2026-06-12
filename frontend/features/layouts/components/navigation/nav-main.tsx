@@ -22,12 +22,13 @@ export function NavMain() {
   const { requestNewConversation } = useChatSession()
   const { items, loadingInitial } = useSidebarRecents()
   const isCollapsed = !isMobile && state === "collapsed"
-  const searchLoading = loadingInitial && items.length === 0
 
   const search = useNavigationSearch({
     items,
     maxResults: MAX_SEARCH_RESULTS,
+    untitled: t("newChat"),
   })
+  const searchLoading = (loadingInitial && items.length === 0) || search.loading
 
   const onCloseMobileSidebar = React.useCallback(() => {
     setOpenMobile(false)

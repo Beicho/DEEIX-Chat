@@ -23,7 +23,8 @@
   "previewEmpty": "Preview",
   "status": {
     "active": "Active",
-    "inactive": "Inactive"
+    "inactive": "Inactive",
+    "draft": "Draft"
   },
   "pinned": {
     "yes": "Pinned",

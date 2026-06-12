@@ -1,0 +1,25 @@
+{
+  "title": "通知",
+  "description": "查看近期更新和消息。",
+  "open": "打开通知",
+  "refresh": "刷新",
+  "markAllRead": "全部已读",
+  "read": "已读",
+  "unread": "未读",
+  "unreadCount": "{count} 条未读",
+  "countOverflow": "99+",
+  "emptyTitle": "暂无通知",
+  "emptyDescription": "新的更新会显示在这里。",
+  "emptyBody": "暂无详情。",
+  "partialList": "已显示 {count} / {total} 条。",
+  "sources": {
+    "announcement": "公告",
+    "system": "通知"
+  },
+  "toast": {
+    "loadFailed": "通知加载失败",
+    "markReadFailed": "已读状态保存失败",
+    "markAllReadFailed": "通知状态保存失败",
+    "retryLater": "请稍后重试。"
+  }
+}

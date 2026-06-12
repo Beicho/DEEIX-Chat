@@ -18,6 +18,7 @@ type ExecuteToolInput struct {
 	ToolName       string
 	ArgumentsJSON  string
 	MCPConfig      *mcp.CallConfig
+	BuiltInKind    string
 }
 
 func (s *Service) executeToolCall(ctx context.Context, input ExecuteToolInput) (string, error) {
@@ -25,13 +26,16 @@ func (s *Service) executeToolCall(ctx context.Context, input ExecuteToolInput) (
 	if toolName == "" {
 		return "", fmt.Errorf("tool name is required")
 	}
+	cfg := s.cfg.Snapshot()
+	if strings.TrimSpace(input.BuiltInKind) != "" {
+		return s.executeBuiltInToolCall(ctx, input)
+	}
 	if input.MCPConfig == nil {
 		return "", fmt.Errorf("tool %s is not enabled for this run", toolName)
 	}
 	if s.mcpClient == nil {
 		return "", fmt.Errorf("mcp client is not configured")
 	}
-	cfg := s.cfg.Snapshot()
 
 	limit := cfg.MCPMaxConcurrentCalls
 	if limit <= 0 {
@@ -49,8 +53,14 @@ func (s *Service) executeToolCall(ctx context.Context, input ExecuteToolInput) (
 	})
 }
 
-func (s *Service) resolveMaxToolCallsPerRun() int {
-	maxCalls := s.cfg.Snapshot().MCPMaxToolCallsPerRun
+func (s *Service) resolveMaxToolCallsPerRun(overrides ...int) int {
+	maxCalls := 0
+	if len(overrides) > 0 {
+		maxCalls = overrides[0]
+	}
+	if maxCalls <= 0 {
+		maxCalls = s.cfg.Snapshot().MCPMaxToolCallsPerRun
+	}
 	if maxCalls <= 0 {
 		maxCalls = 8
 	}
@@ -79,8 +89,14 @@ func (s *Service) ValidateSelectedToolIDs(toolIDs []uint) error {
 	return nil
 }
 
-func (s *Service) resolveMaxLLMCallsPerRun() int {
-	maxCalls := s.cfg.Snapshot().MCPMaxLLMCallsPerRun
+func (s *Service) resolveMaxLLMCallsPerRun(overrides ...int) int {
+	maxCalls := 0
+	if len(overrides) > 0 {
+		maxCalls = overrides[0]
+	}
+	if maxCalls <= 0 {
+		maxCalls = s.cfg.Snapshot().MCPMaxLLMCallsPerRun
+	}
 	if maxCalls <= 0 {
 		maxCalls = 5
 	}

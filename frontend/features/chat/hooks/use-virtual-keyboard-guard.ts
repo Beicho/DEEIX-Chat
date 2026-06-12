@@ -6,13 +6,15 @@ export function useVirtualKeyboardGuard({
   composerRef,
   messageViewportRef,
   onScrollToLatest,
+  disabled = false,
 }: {
   composerRef: { current: HTMLElement | null };
   messageViewportRef: { current: HTMLElement | null };
   onScrollToLatest: () => void;
+  disabled?: boolean;
 }) {
   React.useEffect(() => {
-    if (typeof window === "undefined" || typeof document === "undefined") {
+    if (disabled || typeof window === "undefined" || typeof document === "undefined") {
       return;
     }
 
@@ -89,5 +91,5 @@ export function useVirtualKeyboardGuard({
       }
       document.documentElement.style.removeProperty("--deeix-visual-keyboard-inset");
     };
-  }, [composerRef, messageViewportRef, onScrollToLatest]);
+  }, [composerRef, disabled, messageViewportRef, onScrollToLatest]);
 }

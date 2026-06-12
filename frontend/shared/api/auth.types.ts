@@ -80,7 +80,7 @@ export type TwoFactorDisableData = {
   disabled: boolean;
 };
 
-export type SecurityVerificationMethod = "none" | "two_factor" | "email";
+export type SecurityVerificationMethod = "none" | "two_factor" | "email" | "username";
 
 export type EmailRegistrationStartData = {
   sent: boolean;
@@ -154,9 +154,19 @@ export type LoginOptionsData = {
   emailEnabled: boolean;
   emailRegistrationEnabled: boolean;
   emailVerificationEnabled: boolean;
+  passwordResetEnabled: boolean;
+  emailCodeLoginEnabled: boolean;
+  inviteRegistrationRequired: boolean;
   turnstileRegistrationEnabled: boolean;
   turnstileSiteKey: string;
   providers: IdentityProviderDTO[];
+};
+
+export type CompleteEmailRegistrationOptions = {
+  turnstileToken?: string;
+  inviteCode?: string;
+  locale?: string;
+  timezone?: string;
 };
 
 export type MeData = {
@@ -181,6 +191,7 @@ export type ChangePasswordPayload = {
   newPassword: string;
   verificationMethod?: SecurityVerificationMethod;
   code?: string;
+  revokeOtherSessions?: boolean;
 };
 
 export type ChangePasswordData = {

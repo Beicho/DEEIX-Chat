@@ -99,6 +99,15 @@ const (
 	BalanceTransactionTypeAdminSet = "admin_set"
 	// BalanceTransactionTypeRedemption 表示兑换码入账。
 	BalanceTransactionTypeRedemption = "redemption"
+	// BalanceTransactionTypeCheckIn 表示每日签到奖励入账。
+	BalanceTransactionTypeCheckIn = "checkin"
+	// BalanceTransactionTypeNewAPITransferIn 表示从 NewAPI 单向转入余额。
+	BalanceTransactionTypeNewAPITransferIn = "newapi_transfer_in"
+
+	// BalanceTransactionRefTypeCheckIn 表示余额流水关联签到记录。
+	BalanceTransactionRefTypeCheckIn = "checkin"
+	// BalanceTransactionRefTypeExternalTransfer 表示余额流水关联外部划转记录。
+	BalanceTransactionRefTypeExternalTransfer = "external_transfer"
 )
 
 // PaymentOrder 表示一次支付单。
@@ -154,6 +163,101 @@ type BalanceTransaction struct {
 	Description         string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+}
+
+// CheckInRecord 表示用户每日签到奖励记录。
+type CheckInRecord struct {
+	ID                   uint
+	UserID               uint
+	CheckInDate          time.Time
+	RewardNanousd        int64
+	ConsecutiveDays      int
+	BalanceTransactionID uint
+	RefNo                string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+// TaskProgress 表示任务奖励预留进度结构。
+type TaskProgress struct {
+	ID                   uint
+	UserID               uint
+	TaskKey              string
+	Progress             int
+	Target               int
+	Status               string
+	RewardNanousd        int64
+	BalanceTransactionID uint
+	CompletedAt          *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+const (
+	// ExternalPlatformNewAPI 表示外部平台 NewAPI。
+	ExternalPlatformNewAPI = "newapi"
+
+	// ExternalAccountLinkStatusActive 表示绑定可用。
+	ExternalAccountLinkStatusActive = "active"
+	// ExternalAccountLinkStatusDisabled 表示绑定停用。
+	ExternalAccountLinkStatusDisabled = "disabled"
+
+	// ExternalTransferDirectionIn 表示外部余额转入本站。
+	ExternalTransferDirectionIn = "in"
+
+	// ExternalTransferStatusPending 表示划转已创建但尚未入账。
+	ExternalTransferStatusPending = "pending"
+	// ExternalTransferStatusCredited 表示本站已入账。
+	ExternalTransferStatusCredited = "credited"
+	// ExternalTransferStatusRolledBack 表示外部侧已回滚。
+	ExternalTransferStatusRolledBack = "rolled_back"
+	// ExternalTransferStatusCancelFailed 表示回滚失败，需要人工处理。
+	ExternalTransferStatusCancelFailed = "cancel_failed"
+)
+
+// ExternalAccountLink 表示本站用户与外部平台账号的绑定关系。
+type ExternalAccountLink struct {
+	ID                  uint
+	UserID              uint
+	Platform            string
+	ExternalUserID      string
+	ExternalDisplayName string
+	LinuxDOSub          string
+	Status              string
+	LinkedAt            time.Time
+	LastSyncedAt        *time.Time
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+// ExternalTransfer 表示外部余额单向划转记录。
+type ExternalTransfer struct {
+	ID                    uint
+	UserID                uint
+	LinkID                uint
+	Platform              string
+	Direction             string
+	ExternalTransferID    string
+	IdempotencyKey        string
+	ExternalAmountUSD     float64
+	CreditedAmountNanousd int64
+	BalanceTransactionID  uint
+	Status                string
+	FailureReason         string
+	RequestedAt           time.Time
+	CompletedAt           *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+// RiskSummary describes billing-facing risk signals for the admin panel.
+type RiskSummary struct {
+	MultiAccountClusterCount int64
+	HighRiskClusterCount     int64
+	IgnoredClusterCount      int64
+	UniqueFingerprintCount   int64
+	UniqueIPCount            int64
+	GeneratedAt              time.Time
 }
 
 const (

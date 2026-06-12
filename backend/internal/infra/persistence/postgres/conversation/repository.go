@@ -121,6 +121,7 @@ func (r *Repo) ListConversationsByUser(
 		WHERE shares.conversation_id = chat_conversations.id
 			AND shares.user_id = chat_conversations.user_id
 			AND shares.status = ?
+			AND (shares.expires_at IS NULL OR shares.expires_at > CURRENT_TIMESTAMP)
 	)`
 	switch shareFilter {
 	case "shared":
@@ -173,6 +174,97 @@ func (r *Repo) ListConversationsByUser(
 	return results, total, nil
 }
 
+// SearchConversationsByUser 在当前用户会话标题、标签和消息正文中搜索。
+func (r *Repo) SearchConversationsByUser(ctx context.Context, userID uint, queryText string, offset int, limit int) ([]domainconversation.ConversationSearchResult, int64, error) {
+	normalizedQuery := strings.TrimSpace(queryText)
+	if normalizedQuery == "" {
+		return []domainconversation.ConversationSearchResult{}, 0, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	like := "%" + strings.ToLower(normalizedQuery) + "%"
+	type conversationSearchRow struct {
+		models.Conversation `gorm:"embedded"`
+		MessagePublicID     string     `gorm:"column:message_public_id"`
+		MessageRole         string     `gorm:"column:message_role"`
+		MessageContent      string     `gorm:"column:message_content"`
+		MessageUpdatedAt    *time.Time `gorm:"column:message_updated_at"`
+		MatchedTitle        bool       `gorm:"column:matched_title"`
+	}
+
+	baseQuery := r.db.WithContext(ctx).
+		Table("chat_conversations AS c").
+		Joins(`LEFT JOIN chat_messages AS m
+			ON m.conversation_id = c.id
+				AND m.user_id = c.user_id
+				AND m.status <> ?
+				AND LOWER(m.content) LIKE ?`, "deleted", like).
+		Where("c.user_id = ?", userID).
+		Where("c.status <> ?", "archived").
+		Where("(LOWER(c.title) LIKE ? OR LOWER(c.labels_json) LIKE ? OR m.id IS NOT NULL)", like, like)
+
+	var total int64
+	if err := baseQuery.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+
+	rows := make([]conversationSearchRow, 0, limit)
+	if err := baseQuery.Session(&gorm.Session{}).
+		Select(`c.*,
+			m.public_id AS message_public_id,
+			m.role AS message_role,
+			m.content AS message_content,
+			m.updated_at AS message_updated_at,
+			CASE WHEN LOWER(c.title) LIKE ? OR LOWER(c.labels_json) LIKE ? THEN TRUE ELSE FALSE END AS matched_title`, like, like).
+		Order("matched_title DESC").
+		Order("COALESCE(m.updated_at, c.updated_at) DESC").
+		Order("c.id DESC").
+		Order("m.id DESC").
+		Offset(offset).
+		Limit(limit).
+		Scan(&rows).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+
+	conversations := make([]domainconversation.Conversation, 0, len(rows))
+	results := make([]domainconversation.ConversationSearchResult, 0, len(rows))
+	for _, row := range rows {
+		conversation := toConversationDomain(row.Conversation)
+		conversations = append(conversations, conversation)
+		matchedAt := conversation.UpdatedAt
+		if row.MessageUpdatedAt != nil {
+			matchedAt = *row.MessageUpdatedAt
+		}
+		results = append(results, domainconversation.ConversationSearchResult{
+			Conversation:    conversation,
+			MessagePublicID: strings.TrimSpace(row.MessagePublicID),
+			MessageRole:     strings.TrimSpace(row.MessageRole),
+			MessageSnippet:  row.MessageContent,
+			MatchedTitle:    row.MatchedTitle,
+			MatchedAt:       matchedAt,
+		})
+	}
+
+	if err := r.hydrateConversationShareSummaries(ctx, conversations); err != nil {
+		return nil, 0, err
+	}
+	if err := r.hydrateConversationProjectSummaries(ctx, conversations); err != nil {
+		return nil, 0, err
+	}
+	for index := range results {
+		results[index].Conversation = conversations[index]
+	}
+	return results, total, nil
+}
+
 func (r *Repo) hydrateConversationShareSummaries(ctx context.Context, items []domainconversation.Conversation) error {
 	if len(items) == 0 {
 		return nil
@@ -205,6 +297,10 @@ func (r *Repo) hydrateConversationShareSummaries(ctx context.Context, items []do
 		items[index].ShareStatus = strings.TrimSpace(share.Status)
 		if items[index].ShareStatus == "" {
 			items[index].ShareStatus = "none"
+		}
+		if items[index].ShareStatus == "active" && share.ExpiresAt != nil && !share.ExpiresAt.IsZero() && !share.ExpiresAt.After(time.Now().UTC()) {
+			items[index].ShareStatus = "expired"
+			continue
 		}
 		if items[index].ShareStatus == "active" {
 			items[index].ShareID = share.ShareID
@@ -325,6 +421,7 @@ func (r *Repo) GetActiveConversationShareByConversation(ctx context.Context, use
 	var item models.ConversationShare
 	if err := r.db.WithContext(ctx).
 		Where("user_id = ? AND conversation_id = ? AND status = ?", userID, conversationID, "active").
+		Where("expires_at IS NULL OR expires_at > ?", time.Now().UTC()).
 		Order("updated_at DESC").
 		Order("id DESC").
 		First(&item).Error; err != nil {
@@ -353,6 +450,7 @@ func (r *Repo) GetActiveConversationShareByShareID(ctx context.Context, shareID 
 	var share models.ConversationShare
 	if err := r.db.WithContext(ctx).
 		Where("share_id = ? AND status = ?", shareID, "active").
+		Where("expires_at IS NULL OR expires_at > ?", time.Now().UTC()).
 		First(&share).Error; err != nil {
 		return nil, nil, translateError(err)
 	}
@@ -428,6 +526,7 @@ func (r *Repo) TouchConversationShareAccess(ctx context.Context, shareID string,
 	return translateError(r.db.WithContext(ctx).
 		Model(&models.ConversationShare{}).
 		Where("share_id = ? AND status = ?", shareID, "active").
+		Where("expires_at IS NULL OR expires_at > ?", accessedAt).
 		Update("last_accessed_at", accessedAt).
 		Error)
 }
@@ -819,7 +918,7 @@ func (r *Repo) GetMessageByPublicID(
 ) (*domainconversation.Message, error) {
 	var item models.Message
 	if err := r.db.WithContext(ctx).
-		Where("conversation_id = ? AND user_id = ? AND public_id = ?", conversationID, userID, publicID).
+		Where("conversation_id = ? AND user_id = ? AND public_id = ? AND status <> ?", conversationID, userID, publicID, "deleted").
 		First(&item).Error; err != nil {
 		return nil, translateError(err)
 	}
@@ -839,7 +938,7 @@ func (r *Repo) GetMessageByPublicID(
 func (r *Repo) GetMessageByPublicIDForUser(ctx context.Context, userID uint, publicID string) (*domainconversation.Message, error) {
 	var item models.Message
 	if err := r.db.WithContext(ctx).
-		Where("user_id = ? AND public_id = ?", userID, publicID).
+		Where("user_id = ? AND public_id = ? AND status <> ?", userID, publicID, "deleted").
 		First(&item).Error; err != nil {
 		return nil, translateError(err)
 	}
@@ -928,6 +1027,62 @@ func (r *Repo) UpdateAssistantMessageContent(
 				"content":   content,
 				"edited_at": editedAt,
 			}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", item.ID).First(&item).Error
+	})
+	if err != nil {
+		return nil, translateError(err)
+	}
+
+	single := []models.Message{item}
+	if err = r.hydrateMessageRefs(ctx, single); err != nil {
+		return nil, err
+	}
+	if err = r.hydrateMessageAttachments(ctx, single); err != nil {
+		return nil, err
+	}
+	item = single[0]
+	result := toMessageDomain(item)
+	return &result, nil
+}
+
+// SoftDeleteMessageForUser 将当前用户的一条消息标记为已删除。
+func (r *Repo) SoftDeleteMessageForUser(
+	ctx context.Context,
+	userID uint,
+	publicID string,
+	deletedAt time.Time,
+) (*domainconversation.Message, error) {
+	normalizedPublicID := strings.TrimSpace(publicID)
+	if userID == 0 || normalizedPublicID == "" {
+		return nil, repository.ErrInvalidInput
+	}
+
+	var item models.Message
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.
+			Where("user_id = ? AND public_id = ? AND status <> ?", userID, normalizedPublicID, "deleted").
+			First(&item).Error; err != nil {
+			return err
+		}
+		if item.Status == "pending" {
+			return repository.ErrConflict
+		}
+		if err := tx.Model(&models.Message{}).
+			Where("id = ?", item.ID).
+			Updates(map[string]interface{}{
+				"content":       "",
+				"status":        "deleted",
+				"error_code":    "",
+				"error_message": "",
+				"edited_at":     deletedAt,
+			}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&models.Conversation{}).
+			Where("id = ?", item.ConversationID).
+			Update("updated_at", deletedAt).Error; err != nil {
 			return err
 		}
 		return tx.Where("id = ?", item.ID).First(&item).Error
@@ -1141,7 +1296,7 @@ func (r *Repo) SumMessageTokens(ctx context.Context, conversationID uint) (int64
 	if err := r.db.WithContext(ctx).
 		Model(&models.Message{}).
 		Select("COALESCE(SUM(token_usage), 0)").
-		Where("conversation_id = ?", conversationID).
+		Where("conversation_id = ? AND status <> ?", conversationID, "deleted").
 		Scan(&total).Error; err != nil {
 		return 0, translateError(err)
 	}
@@ -1155,12 +1310,12 @@ func (r *Repo) ListMessages(ctx context.Context, conversationID uint, offset int
 
 	if err := r.db.WithContext(ctx).
 		Model(&models.Message{}).
-		Where("conversation_id = ?", conversationID).
+		Where("conversation_id = ? AND status <> ?", conversationID, "deleted").
 		Count(&total).Error; err != nil {
 		return nil, 0, translateError(err)
 	}
 	if err := r.db.WithContext(ctx).
-		Where("conversation_id = ?", conversationID).
+		Where("conversation_id = ? AND status <> ?", conversationID, "deleted").
 		Order("id ASC").
 		Offset(offset).
 		Limit(limit).
@@ -1186,13 +1341,13 @@ func (r *Repo) ListMessagesBeforeID(ctx context.Context, conversationID uint, be
 
 	if err := r.db.WithContext(ctx).
 		Model(&models.Message{}).
-		Where("conversation_id = ?", conversationID).
+		Where("conversation_id = ? AND status <> ?", conversationID, "deleted").
 		Count(&total).Error; err != nil {
 		return nil, 0, translateError(err)
 	}
 
 	if err := r.db.WithContext(ctx).
-		Where("conversation_id = ? AND id < ?", conversationID, beforeID).
+		Where("conversation_id = ? AND id < ? AND status <> ?", conversationID, beforeID, "deleted").
 		Order("id DESC").
 		Limit(limit).
 		Find(&items).Error; err != nil {
@@ -1213,7 +1368,7 @@ func (r *Repo) ListMessagesBeforeID(ctx context.Context, conversationID uint, be
 // ListMessagesForShare 查询分享快照可公开展示的消息。
 func (r *Repo) ListMessagesForShare(ctx context.Context, conversationID uint, publicIDs []string) ([]domainconversation.Message, error) {
 	items := make([]models.Message, 0)
-	query := r.db.WithContext(ctx).Where("conversation_id = ?", conversationID)
+	query := r.db.WithContext(ctx).Where("conversation_id = ? AND status <> ?", conversationID, "deleted")
 	if len(publicIDs) > 0 {
 		query = query.Where("public_id IN ?", publicIDs)
 	}
@@ -1249,7 +1404,7 @@ func (r *Repo) ListMessagesForShare(ctx context.Context, conversationID uint, pu
 func (r *Repo) ListAllMessages(ctx context.Context, conversationID uint) ([]domainconversation.Message, error) {
 	items := make([]models.Message, 0)
 	if err := r.db.WithContext(ctx).
-		Where("conversation_id = ?", conversationID).
+		Where("conversation_id = ? AND status <> ?", conversationID, "deleted").
 		Order("id ASC").
 		Find(&items).Error; err != nil {
 		return nil, translateError(err)
@@ -1351,6 +1506,199 @@ func (r *Repo) GetMessageFeedbackCounts(
 	return result, nil
 }
 
+// UpsertMessageBookmark 写入或更新消息收藏。
+func (r *Repo) UpsertMessageBookmark(ctx context.Context, item *domainconversation.MessageBookmark) error {
+	entity := toMessageBookmarkModel(item)
+	return translateError(r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "user_id"},
+				{Name: "message_id"},
+			},
+			DoUpdates: clause.AssignmentColumns([]string{
+				"conversation_id",
+				"note",
+				"tags_json",
+				"updated_at",
+				"deleted_at",
+			}),
+		}).
+		Create(&entity).Error)
+}
+
+// DeleteMessageBookmark 删除当前用户的一条消息收藏。
+func (r *Repo) DeleteMessageBookmark(ctx context.Context, userID uint, messageID uint) error {
+	return translateError(r.db.WithContext(ctx).
+		Where("user_id = ? AND message_id = ?", userID, messageID).
+		Delete(&models.MessageBookmark{}).Error)
+}
+
+// GetConversationDraft 查询当前用户某个会话输入框草稿。
+func (r *Repo) GetConversationDraft(ctx context.Context, userID uint, conversationPublicID string) (*domainconversation.ConversationDraft, error) {
+	var entity models.ConversationDraft
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND conversation_public_id = ?", userID, conversationPublicID).
+		First(&entity).Error; err != nil {
+		return nil, translateError(err)
+	}
+	item := toConversationDraftDomain(entity)
+	return &item, nil
+}
+
+// UpsertConversationDraft 写入或更新当前用户某个会话输入框草稿。
+func (r *Repo) UpsertConversationDraft(ctx context.Context, item *domainconversation.ConversationDraft) (*domainconversation.ConversationDraft, error) {
+	entity := toConversationDraftModel(item)
+	now := time.Now().UTC()
+	if err := r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns: []clause.Column{
+				{Name: "user_id"},
+				{Name: "conversation_public_id"},
+			},
+			DoUpdates: clause.Assignments(map[string]interface{}{
+				"draft":            entity.Draft,
+				"attachments_json": entity.AttachmentsJSON,
+				"updated_at":       now,
+				"deleted_at":       nil,
+			}),
+		}).
+		Create(&entity).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return r.GetConversationDraft(ctx, item.UserID, item.ConversationPublicID)
+}
+
+// DeleteConversationDraft 删除当前用户某个会话输入框草稿。
+func (r *Repo) DeleteConversationDraft(ctx context.Context, userID uint, conversationPublicID string) error {
+	return translateError(r.db.WithContext(ctx).
+		Where("user_id = ? AND conversation_public_id = ?", userID, conversationPublicID).
+		Delete(&models.ConversationDraft{}).Error)
+}
+
+// GetUserMessageBookmarkMap 查询当前用户对消息列表的收藏状态。
+func (r *Repo) GetUserMessageBookmarkMap(
+	ctx context.Context,
+	userID uint,
+	messageIDs []uint,
+) (map[uint]domainconversation.MessageBookmark, error) {
+	result := make(map[uint]domainconversation.MessageBookmark, len(messageIDs))
+	if len(messageIDs) == 0 {
+		return result, nil
+	}
+
+	items := make([]models.MessageBookmark, 0, len(messageIDs))
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND message_id IN ?", userID, messageIDs).
+		Find(&items).Error; err != nil {
+		return nil, translateError(err)
+	}
+	for _, item := range items {
+		result[item.MessageID] = toMessageBookmarkDomain(item)
+	}
+	return result, nil
+}
+
+// ListMessageBookmarks 分页查询当前用户收藏的消息。
+func (r *Repo) ListMessageBookmarks(ctx context.Context, userID uint, queryText string, offset int, limit int) ([]domainconversation.MessageBookmarkListItem, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := r.db.WithContext(ctx).
+		Model(&models.MessageBookmark{}).
+		Joins("JOIN chat_messages AS m ON m.id = message_bookmarks.message_id AND m.user_id = message_bookmarks.user_id").
+		Joins("JOIN chat_conversations AS c ON c.id = message_bookmarks.conversation_id AND c.user_id = message_bookmarks.user_id").
+		Where("message_bookmarks.user_id = ?", userID)
+
+	if normalized := strings.TrimSpace(queryText); normalized != "" {
+		like := "%" + strings.ToLower(normalized) + "%"
+		query = query.Where(
+			"(LOWER(message_bookmarks.note) LIKE ? OR LOWER(message_bookmarks.tags_json) LIKE ? OR LOWER(m.content) LIKE ? OR LOWER(c.title) LIKE ?)",
+			like,
+			like,
+			like,
+			like,
+		)
+	}
+
+	var total int64
+	if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+
+	bookmarks := make([]models.MessageBookmark, 0, limit)
+	if err := query.Session(&gorm.Session{}).
+		Order("message_bookmarks.updated_at DESC").
+		Order("message_bookmarks.id DESC").
+		Offset(offset).
+		Limit(limit).
+		Find(&bookmarks).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	if len(bookmarks) == 0 {
+		return []domainconversation.MessageBookmarkListItem{}, total, nil
+	}
+
+	messageIDs := make([]uint, 0, len(bookmarks))
+	conversationIDs := make([]uint, 0, len(bookmarks))
+	for _, bookmark := range bookmarks {
+		messageIDs = append(messageIDs, bookmark.MessageID)
+		conversationIDs = append(conversationIDs, bookmark.ConversationID)
+	}
+
+	messages := make([]models.Message, 0, len(messageIDs))
+	if err := r.db.WithContext(ctx).
+		Where("id IN ? AND user_id = ?", messageIDs, userID).
+		Find(&messages).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	if err := r.hydrateMessageRefs(ctx, messages); err != nil {
+		return nil, 0, err
+	}
+	if err := r.hydrateMessageAttachments(ctx, messages); err != nil {
+		return nil, 0, err
+	}
+
+	conversations := make([]models.Conversation, 0, len(conversationIDs))
+	if err := r.db.WithContext(ctx).
+		Where("id IN ? AND user_id = ?", conversationIDs, userID).
+		Find(&conversations).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+
+	messageByID := make(map[uint]domainconversation.Message, len(messages))
+	for _, message := range messages {
+		domainMessage := toMessageDomain(message)
+		domainMessage.Bookmarked = true
+		messageByID[message.ID] = domainMessage
+	}
+	conversationByID := make(map[uint]domainconversation.Conversation, len(conversations))
+	for _, conversation := range conversations {
+		conversationByID[conversation.ID] = toConversationDomain(conversation)
+	}
+
+	results := make([]domainconversation.MessageBookmarkListItem, 0, len(bookmarks))
+	for _, bookmark := range bookmarks {
+		message, messageOK := messageByID[bookmark.MessageID]
+		conversation, conversationOK := conversationByID[bookmark.ConversationID]
+		if !messageOK || !conversationOK {
+			continue
+		}
+		results = append(results, domainconversation.MessageBookmarkListItem{
+			Bookmark:     toMessageBookmarkDomain(bookmark),
+			Conversation: conversation,
+			Message:      message,
+		})
+	}
+	return results, total, nil
+}
+
 // CreateAttachments 批量创建附件。
 func (r *Repo) CreateAttachments(ctx context.Context, items []domainconversation.Attachment) error {
 	if len(items) == 0 {
@@ -1379,6 +1727,115 @@ func (r *Repo) CreateConversationRun(ctx context.Context, item *domainconversati
 	}
 	*item = toConversationRunDomain(entity)
 	return nil
+}
+
+// ListModelAvailability 汇总公开状态页所需的模型调用结果，不返回渠道或来源信息。
+func (r *Repo) ListModelAvailability(ctx context.Context, since time.Time) ([]domainconversation.ModelAvailability, error) {
+	type row struct {
+		ModelName string  `gorm:"column:model_name"`
+		CallCount int64   `gorm:"column:call_count"`
+		Successes int64   `gorm:"column:successes"`
+		Rate      float64 `gorm:"column:success_rate"`
+	}
+	rows := make([]row, 0)
+	err := r.db.WithContext(ctx).
+		Model(&models.ConversationRun{}).
+		Select(`
+			COALESCE(NULLIF(platform_model_name, ''), NULLIF(requested_model_name, '')) AS model_name,
+			COUNT(*) AS call_count,
+			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successes,
+			CAST(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS float) / NULLIF(COUNT(*), 0) AS success_rate
+		`).
+		Where("task_type = ? AND started_at >= ?", "chat", since).
+		Where("(platform_model_name <> '' OR requested_model_name <> '')").
+		Group("model_name").
+		Order("model_name ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, translateError(err)
+	}
+	results := make([]domainconversation.ModelAvailability, 0, len(rows))
+	for _, item := range rows {
+		status := "normal"
+		switch {
+		case item.CallCount > 0 && item.Rate < 0.5:
+			status = "down"
+		case item.CallCount > 0 && item.Rate < 0.95:
+			status = "degraded"
+		}
+		results = append(results, domainconversation.ModelAvailability{
+			ModelName:   strings.TrimSpace(item.ModelName),
+			CallCount:   item.CallCount,
+			SuccessRate: item.Rate,
+			Status:      status,
+		})
+	}
+	return results, nil
+}
+
+// CreateModerationEvent 写入内容检查事件。
+func (r *Repo) CreateModerationEvent(ctx context.Context, item *domainconversation.ModerationEvent) error {
+	if item == nil {
+		return nil
+	}
+	entity := toModerationEventModel(item)
+	if err := r.db.WithContext(ctx).Create(&entity).Error; err != nil {
+		return translateError(err)
+	}
+	*item = toModerationEventDomain(entity)
+	return nil
+}
+
+// ListModerationEvents 分页列出内容检查事件。
+func (r *Repo) ListModerationEvents(ctx context.Context, offset int, limit int) ([]domainconversation.ModerationEvent, int64, error) {
+	items := make([]models.ModerationEvent, 0)
+	var total int64
+	query := r.db.WithContext(ctx).Model(&models.ModerationEvent{})
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	if err := query.Order("id DESC").Offset(offset).Limit(limit).Find(&items).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	results := make([]domainconversation.ModerationEvent, 0, len(items))
+	for _, item := range items {
+		results = append(results, toModerationEventDomain(item))
+	}
+	return results, total, nil
+}
+
+// CountFlaggedModerationEvents counts flagged content checks for one user since a point in time.
+func (r *Repo) CountFlaggedModerationEvents(ctx context.Context, userID uint, since time.Time) (int64, error) {
+	var total int64
+	err := r.db.WithContext(ctx).
+		Model(&models.ModerationEvent{}).
+		Where("user_id = ? AND flagged = ? AND created_at >= ?", userID, true, since).
+		Count(&total).Error
+	return total, translateError(err)
+}
+
+// GetModerationEvent returns one moderation event by numeric ID.
+func (r *Repo) GetModerationEvent(ctx context.Context, id uint) (*domainconversation.ModerationEvent, error) {
+	var item models.ModerationEvent
+	if err := r.db.WithContext(ctx).First(&item, id).Error; err != nil {
+		return nil, translateError(err)
+	}
+	result := toModerationEventDomain(item)
+	return &result, nil
+}
+
+// UpdateModerationEventReview stores admin review metadata for an event.
+func (r *Repo) UpdateModerationEventReview(ctx context.Context, id uint, status string, reviewedBy uint, reviewedAt *time.Time, note string) (*domainconversation.ModerationEvent, error) {
+	updates := map[string]interface{}{
+		"review_status": strings.TrimSpace(status),
+		"reviewed_by":   reviewedBy,
+		"reviewed_at":   reviewedAt,
+		"review_note":   strings.TrimSpace(note),
+	}
+	if err := r.db.WithContext(ctx).Model(&models.ModerationEvent{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return r.GetModerationEvent(ctx, id)
 }
 
 // UpsertConversationMessageTrace 写入或更新消息轨迹。
@@ -1546,7 +2003,7 @@ func (r *Repo) ListConversationRunsByRunIDs(
 func (r *Repo) GetMessageByID(ctx context.Context, conversationID uint, messageID uint) (*domainconversation.Message, error) {
 	var item models.Message
 	if err := r.db.WithContext(ctx).
-		Where("id = ? AND conversation_id = ?", messageID, conversationID).
+		Where("id = ? AND conversation_id = ? AND status <> ?", messageID, conversationID, "deleted").
 		First(&item).Error; err != nil {
 		return nil, translateError(err)
 	}
@@ -1566,7 +2023,7 @@ func (r *Repo) GetMessageByID(ctx context.Context, conversationID uint, messageI
 func (r *Repo) GetLatestMessage(ctx context.Context, conversationID uint) (*domainconversation.Message, error) {
 	var item models.Message
 	if err := r.db.WithContext(ctx).
-		Where("conversation_id = ?", conversationID).
+		Where("conversation_id = ? AND status <> ?", conversationID, "deleted").
 		Order("id DESC").
 		Limit(1).
 		First(&item).Error; err != nil {
@@ -1598,7 +2055,7 @@ func (r *Repo) ListMessageAncestors(ctx context.Context, conversationID uint, le
 WITH RECURSIVE ancestors AS (
     SELECT *, 1 AS _depth
     FROM chat_messages
-    WHERE id = ? AND conversation_id = ? AND deleted_at IS NULL
+    WHERE id = ? AND conversation_id = ? AND deleted_at IS NULL AND status <> 'deleted'
     UNION ALL
     SELECT m.*, a._depth + 1
     FROM chat_messages m
@@ -1606,6 +2063,7 @@ WITH RECURSIVE ancestors AS (
     WHERE a.parent_message_id IS NOT NULL
       AND a._depth < ?
       AND m.deleted_at IS NULL
+      AND m.status <> 'deleted'
 )
 SELECT id, conversation_id, user_id, public_id, parent_message_id, run_id,
        role, content_type, content, branch_reason, source_message_id,
@@ -1638,7 +2096,7 @@ func (r *Repo) ListRecentMessages(ctx context.Context, conversationID uint, limi
 	var total int64
 	if err := r.db.WithContext(ctx).
 		Model(&models.Message{}).
-		Where("conversation_id = ?", conversationID).
+		Where("conversation_id = ? AND status <> ?", conversationID, "deleted").
 		Count(&total).Error; err != nil {
 		return nil, 0, translateError(err)
 	}
@@ -1648,7 +2106,7 @@ func (r *Repo) ListRecentMessages(ctx context.Context, conversationID uint, limi
 	}
 	items := make([]models.Message, 0, limit)
 	if err := r.db.WithContext(ctx).
-		Where("conversation_id = ?", conversationID).
+		Where("conversation_id = ? AND status <> ?", conversationID, "deleted").
 		Order("id ASC").
 		Offset(offset).
 		Limit(limit).
@@ -2877,6 +3335,10 @@ func toConversationShareDomain(item models.ConversationShare) domainconversation
 		ModelSnapshot:         item.ModelSnapshot,
 		MessageIDsJSON:        item.MessageIDsJSON,
 		DefaultMessageIDsJSON: item.DefaultMessageIDsJSON,
+		ShareScope:            item.ShareScope,
+		PasswordHash:          item.PasswordHash,
+		IncludeThinking:       item.IncludeThinking,
+		ExpiresAt:             item.ExpiresAt,
 		RevokedAt:             item.RevokedAt,
 		RegeneratedAt:         item.RegeneratedAt,
 		LastAccessedAt:        item.LastAccessedAt,
@@ -2926,6 +3388,10 @@ func toConversationShareModel(item *domainconversation.ConversationShare) models
 		ModelSnapshot:         item.ModelSnapshot,
 		MessageIDsJSON:        item.MessageIDsJSON,
 		DefaultMessageIDsJSON: item.DefaultMessageIDsJSON,
+		ShareScope:            item.ShareScope,
+		PasswordHash:          item.PasswordHash,
+		IncludeThinking:       item.IncludeThinking,
+		ExpiresAt:             item.ExpiresAt,
 		RevokedAt:             item.RevokedAt,
 		RegeneratedAt:         item.RegeneratedAt,
 		LastAccessedAt:        item.LastAccessedAt,
@@ -2987,6 +3453,7 @@ func toMessageDomain(item models.Message) domainconversation.Message {
 		MyFeedback:       item.MyFeedback,
 		ThumbsUpCount:    item.ThumbsUpCount,
 		ThumbsDownCount:  item.ThumbsDownCount,
+		Bookmarked:       item.Bookmarked,
 		EditedAt:         item.EditedAt,
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
@@ -3042,6 +3509,64 @@ func toMessageFeedbackModel(item *domainconversation.MessageFeedback) models.Con
 		ConversationID: item.ConversationID,
 		MessageID:      item.MessageID,
 		Feedback:       item.Feedback,
+	}
+}
+
+func toMessageBookmarkModel(item *domainconversation.MessageBookmark) models.MessageBookmark {
+	if item == nil {
+		return models.MessageBookmark{}
+	}
+	return models.MessageBookmark{
+		UserID:         item.UserID,
+		ConversationID: item.ConversationID,
+		MessageID:      item.MessageID,
+		Note:           item.Note,
+		TagsJSON:       item.TagsJSON,
+	}
+}
+
+func toMessageBookmarkDomain(item models.MessageBookmark) domainconversation.MessageBookmark {
+	tagsJSON := strings.TrimSpace(item.TagsJSON)
+	if tagsJSON == "" {
+		tagsJSON = "[]"
+	}
+	return domainconversation.MessageBookmark{
+		ID:             item.ID,
+		UserID:         item.UserID,
+		ConversationID: item.ConversationID,
+		MessageID:      item.MessageID,
+		Note:           item.Note,
+		TagsJSON:       tagsJSON,
+		CreatedAt:      item.CreatedAt,
+		UpdatedAt:      item.UpdatedAt,
+	}
+}
+
+func toConversationDraftModel(item *domainconversation.ConversationDraft) models.ConversationDraft {
+	if item == nil {
+		return models.ConversationDraft{}
+	}
+	return models.ConversationDraft{
+		UserID:               item.UserID,
+		ConversationPublicID: item.ConversationPublicID,
+		Draft:                item.Draft,
+		AttachmentsJSON:      item.AttachmentsJSON,
+	}
+}
+
+func toConversationDraftDomain(item models.ConversationDraft) domainconversation.ConversationDraft {
+	attachmentsJSON := strings.TrimSpace(item.AttachmentsJSON)
+	if attachmentsJSON == "" {
+		attachmentsJSON = "[]"
+	}
+	return domainconversation.ConversationDraft{
+		ID:                   item.ID,
+		UserID:               item.UserID,
+		ConversationPublicID: item.ConversationPublicID,
+		Draft:                item.Draft,
+		AttachmentsJSON:      attachmentsJSON,
+		CreatedAt:            item.CreatedAt,
+		UpdatedAt:            item.UpdatedAt,
 	}
 }
 
@@ -3147,6 +3672,56 @@ func toConversationRunModel(item *domainconversation.Run) models.ConversationRun
 		ErrorMessage:        item.ErrorMessage,
 		StartedAt:           item.StartedAt,
 		EndedAt:             item.EndedAt,
+	}
+}
+
+func toModerationEventDomain(item models.ModerationEvent) domainconversation.ModerationEvent {
+	return domainconversation.ModerationEvent{
+		ID:             item.ID,
+		UserID:         item.UserID,
+		ConversationID: item.ConversationID,
+		MessageID:      item.MessageID,
+		RunID:          item.RunID,
+		Direction:      item.Direction,
+		Action:         item.Action,
+		Model:          item.Model,
+		Score:          item.Score,
+		Threshold:      item.Threshold,
+		Flagged:        item.Flagged,
+		CategoriesJSON: item.CategoriesJSON,
+		Reason:         item.Reason,
+		ReviewStatus:   item.ReviewStatus,
+		ReviewedBy:     item.ReviewedBy,
+		ReviewedAt:     item.ReviewedAt,
+		ReviewNote:     item.ReviewNote,
+		Disposition:    item.Disposition,
+		CreatedAt:      item.CreatedAt,
+		UpdatedAt:      item.UpdatedAt,
+	}
+}
+
+func toModerationEventModel(item *domainconversation.ModerationEvent) models.ModerationEvent {
+	if item == nil {
+		return models.ModerationEvent{}
+	}
+	return models.ModerationEvent{
+		UserID:         item.UserID,
+		ConversationID: item.ConversationID,
+		MessageID:      item.MessageID,
+		RunID:          item.RunID,
+		Direction:      item.Direction,
+		Action:         item.Action,
+		Model:          item.Model,
+		Score:          item.Score,
+		Threshold:      item.Threshold,
+		Flagged:        item.Flagged,
+		CategoriesJSON: item.CategoriesJSON,
+		Reason:         item.Reason,
+		ReviewStatus:   item.ReviewStatus,
+		ReviewedBy:     item.ReviewedBy,
+		ReviewedAt:     item.ReviewedAt,
+		ReviewNote:     item.ReviewNote,
+		Disposition:    item.Disposition,
 	}
 }
 

@@ -72,7 +72,7 @@ func (h *Handler) CreateConversationShare(c *gin.Context) {
 			return
 		}
 	}
-	result, err := h.service.CreateConversationShare(c.Request.Context(), userID, publicID, req.DefaultMessagePublicIDs)
+	result, err := h.service.CreateConversationShare(c.Request.Context(), userID, publicID, conversationShareOptionsFromRequest(req))
 	if err != nil {
 		writeConversationShareError(c, err, "create conversation share failed")
 		return
@@ -113,7 +113,7 @@ func (h *Handler) RegenerateConversationShare(c *gin.Context) {
 			return
 		}
 	}
-	result, err := h.service.RegenerateConversationShare(c.Request.Context(), userID, publicID, req.DefaultMessagePublicIDs)
+	result, err := h.service.RegenerateConversationShare(c.Request.Context(), userID, publicID, conversationShareOptionsFromRequest(req))
 	if err != nil {
 		writeConversationShareError(c, err, "regenerate conversation share failed")
 		return
@@ -209,13 +209,18 @@ func (h *Handler) GetPublicSharedConversation(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "invalid share id")
 		return
 	}
-	result, err := h.service.GetPublicSharedConversation(c.Request.Context(), shareID)
+	result, err := h.service.GetPublicSharedConversation(c.Request.Context(), shareID, sharePasswordFromRequest(c))
 	if err != nil {
-		if errors.Is(err, appconversation.ErrConversationShareNotFound) {
+		switch {
+		case errors.Is(err, appconversation.ErrConversationShareNotFound):
 			response.Error(c, http.StatusNotFound, "conversation share not found")
-			return
+		case errors.Is(err, appconversation.ErrConversationSharePasswordInvalid):
+			response.ErrorWithCode(c, http.StatusForbidden, "share.password_invalid", "share password invalid")
+		case errors.Is(err, appconversation.ErrConversationSharePasswordRequired):
+			response.ErrorWithCode(c, http.StatusForbidden, "share.password_required", "share password required")
+		default:
+			response.Error(c, http.StatusInternalServerError, "get shared conversation failed")
 		}
-		response.Error(c, http.StatusInternalServerError, "get shared conversation failed")
 		return
 	}
 	response.Success(c, toPublicSharedConversationResponse(result))
@@ -242,11 +247,22 @@ func (h *Handler) CloneSharedConversation(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "invalid share id")
 		return
 	}
-	result, err := h.service.CloneSharedConversation(c.Request.Context(), userID, shareID)
+	var req SharedConversationAccessRequest
+	if c.Request.Body != nil {
+		if err = c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+			response.InvalidRequestBody(c, err)
+			return
+		}
+	}
+	result, err := h.service.CloneSharedConversation(c.Request.Context(), userID, shareID, req.Password)
 	if err != nil {
 		switch {
 		case errors.Is(err, appconversation.ErrConversationShareNotFound):
 			response.Error(c, http.StatusNotFound, "conversation share not found")
+		case errors.Is(err, appconversation.ErrConversationSharePasswordRequired):
+			response.ErrorWithCode(c, http.StatusForbidden, "share.password_required", "share password required")
+		case errors.Is(err, appconversation.ErrConversationSharePasswordInvalid):
+			response.ErrorWithCode(c, http.StatusForbidden, "share.password_invalid", "share password invalid")
 		case errors.Is(err, appconversation.ErrFileNotFound):
 			response.Error(c, http.StatusNotFound, "shared file not found")
 		case errors.Is(err, appconversation.ErrStorageQuotaExceeded):
@@ -283,11 +299,17 @@ func (h *Handler) GetPublicSharedFileContent(c *gin.Context) {
 		return
 	}
 	fileID := c.Param("file_id")
-	result, err := h.service.OpenSharedConversationFileContent(c.Request.Context(), shareID, fileID)
+	result, err := h.service.OpenSharedConversationFileContent(c.Request.Context(), shareID, fileID, sharePasswordFromRequest(c))
 	if err != nil {
 		switch {
 		case errors.Is(err, appconversation.ErrConversationShareNotFound):
 			response.Error(c, http.StatusNotFound, "conversation share not found")
+			return
+		case errors.Is(err, appconversation.ErrConversationSharePasswordRequired):
+			response.ErrorWithCode(c, http.StatusForbidden, "share.password_required", "share password required")
+			return
+		case errors.Is(err, appconversation.ErrConversationSharePasswordInvalid):
+			response.ErrorWithCode(c, http.StatusForbidden, "share.password_invalid", "share password invalid")
 			return
 		case errors.Is(err, appconversation.ErrInvalidFileReference):
 			response.Error(c, http.StatusBadRequest, "invalid file id")
@@ -329,7 +351,29 @@ func writeConversationShareError(c *gin.Context, err error, fallback string) {
 		response.Error(c, http.StatusBadRequest, "invalid conversation share")
 	case errors.Is(err, appconversation.ErrConversationShareSchemaOutdated):
 		response.Error(c, http.StatusInternalServerError, "conversation share schema is outdated, rebuild database")
+	case errors.Is(err, appconversation.ErrConversationSharePasswordRequired):
+		response.ErrorWithCode(c, http.StatusForbidden, "share.password_required", "share password required")
+	case errors.Is(err, appconversation.ErrConversationSharePasswordInvalid):
+		response.ErrorWithCode(c, http.StatusForbidden, "share.password_invalid", "share password invalid")
 	default:
 		response.Error(c, http.StatusInternalServerError, fallback)
 	}
+}
+
+func conversationShareOptionsFromRequest(req CreateConversationShareRequest) appconversation.ConversationShareOptions {
+	return appconversation.ConversationShareOptions{
+		DefaultMessagePublicIDs: req.DefaultMessagePublicIDs,
+		Scope:                   req.Scope,
+		ExpiresInDays:           req.ExpiresInDays,
+		Password:                req.Password,
+		IncludeThinking:         req.IncludeThinking,
+	}
+}
+
+func sharePasswordFromRequest(c *gin.Context) string {
+	password := c.GetHeader("X-Share-Password")
+	if password == "" {
+		password = c.Query("password")
+	}
+	return password
 }

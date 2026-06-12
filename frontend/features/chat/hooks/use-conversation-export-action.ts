@@ -4,8 +4,10 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import {
+  type ConversationImageExportLabels,
   copyConversationMarkdownExport,
   downloadConversationExport,
+  downloadConversationImageExport,
   downloadConversationMarkdownExport,
 } from "@/features/chat/model/conversation-export";
 import { exportConversation } from "@/shared/api/conversation";
@@ -14,8 +16,9 @@ import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 type UseConversationExportActionOptions = {
   successMessage: string;
   failureMessage: string;
-  format?: "json" | "markdown";
+  format?: "json" | "markdown" | "image";
   action?: "download" | "copy";
+  imageLabels?: ConversationImageExportLabels;
 };
 
 export function useConversationExportAction({
@@ -23,6 +26,7 @@ export function useConversationExportAction({
   failureMessage,
   format = "json",
   action = "download",
+  imageLabels,
 }: UseConversationExportActionOptions) {
   return React.useCallback(
     async (conversationPublicID: string) => {
@@ -33,7 +37,12 @@ export function useConversationExportAction({
 
       try {
         const data = await exportConversation(token, conversationPublicID);
-        if (format === "markdown") {
+        if (format === "image") {
+          if (!imageLabels) {
+            return;
+          }
+          await downloadConversationImageExport(data, imageLabels);
+        } else if (format === "markdown") {
           if (action === "copy") {
             await copyConversationMarkdownExport(data);
           } else {
@@ -45,10 +54,10 @@ export function useConversationExportAction({
         toast.success(successMessage);
       } catch (error) {
         toast.error(failureMessage, {
-          description: error instanceof Error ? error.message : undefined,
+          description: format === "image" ? undefined : error instanceof Error ? error.message : undefined,
         });
       }
     },
-    [action, failureMessage, format, successMessage],
+    [action, failureMessage, format, imageLabels, successMessage],
   );
 }

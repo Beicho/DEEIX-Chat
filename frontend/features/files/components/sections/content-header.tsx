@@ -119,7 +119,7 @@ export function ContentHeader({
                 className={`inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
                   file.ragOptOut
                     ? "border-border/50 text-muted-foreground/60 hover:border-border hover:text-muted-foreground"
-                    : "border-emerald-500/30 bg-emerald-50/50 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500/20 dark:bg-emerald-950/20 dark:text-emerald-400"
+                    : "border-border bg-background text-foreground hover:bg-accent"
                 }`}
               >
                 <span>⚡</span>

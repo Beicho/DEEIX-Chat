@@ -11,12 +11,20 @@ var (
 	ErrInvalidConversationShare = errors.New("invalid conversation share")
 	// ErrConversationShareSchemaOutdated 会话分享表结构未更新。
 	ErrConversationShareSchemaOutdated = errors.New("conversation share schema outdated")
+	// ErrConversationSharePasswordRequired 会话分享需要访问密码。
+	ErrConversationSharePasswordRequired = errors.New("conversation share password required")
+	// ErrConversationSharePasswordInvalid 会话分享访问密码错误。
+	ErrConversationSharePasswordInvalid = errors.New("conversation share password invalid")
 	// ErrInvalidConversationTitle 会话标题不合法。
 	ErrInvalidConversationTitle = errors.New("invalid conversation title")
 	// ErrConversationProjectNotFound 会话项目不存在或无权限。
 	ErrConversationProjectNotFound = errors.New("conversation project not found")
 	// ErrInvalidConversationProject 会话项目请求不合法。
 	ErrInvalidConversationProject = errors.New("invalid conversation project")
+	// ErrInvalidConversationDraft 会话草稿请求不合法。
+	ErrInvalidConversationDraft = errors.New("invalid conversation draft")
+	// ErrInvalidConversationImport 会话导入文件不合法。
+	ErrInvalidConversationImport = errors.New("invalid conversation import")
 	// ErrInvalidFileReference 文件引用无效。
 	ErrInvalidFileReference = errors.New("invalid file reference")
 	// ErrInvalidFileName 文件名不合法。
@@ -81,4 +89,6 @@ var (
 	ErrMediaRouteProtocolMismatch = errors.New("media route protocol does not match task")
 	// ErrDuplicateMessageGenerationRun 表示客户端重复提交同一个生成 run。
 	ErrDuplicateMessageGenerationRun = errors.New("duplicate message generation run")
+	// ErrModerationBlocked 表示内容检查拦截了本轮消息。
+	ErrModerationBlocked = errors.New("content blocked by moderation")
 )

@@ -32,6 +32,16 @@ type Conversation struct {
 	UpdatedAt             time.Time
 }
 
+// ConversationSearchResult 表示一次会话全文搜索命中。
+type ConversationSearchResult struct {
+	Conversation    Conversation
+	MessagePublicID string
+	MessageRole     string
+	MessageSnippet  string
+	MatchedTitle    bool
+	MatchedAt       time.Time
+}
+
 // ConversationProject 表示用户会话项目分组。
 type ConversationProject struct {
 	ID           uint
@@ -46,6 +56,24 @@ type ConversationProject struct {
 	Status       string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+}
+
+// ProjectDocument 表示项目级资料库文档引用。
+type ProjectDocument struct {
+	ID            uint
+	UserID        uint
+	ProjectID     uint
+	FileObjID     uint
+	FileID        string
+	FileName      string
+	FileSize      int64
+	FileCategory  string
+	ExtractStatus string
+	EmbedStatus   string
+	IndexStatus   string
+	Status        string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // ConversationProjectPatch 表示项目分组的局部更新。
@@ -69,6 +97,10 @@ type ConversationShare struct {
 	ModelSnapshot         string
 	MessageIDsJSON        string
 	DefaultMessageIDsJSON string
+	ShareScope            string
+	PasswordHash          string
+	IncludeThinking       bool
+	ExpiresAt             *time.Time
 	RevokedAt             *time.Time
 	RegeneratedAt         *time.Time
 	LastAccessedAt        *time.Time
@@ -184,10 +216,41 @@ type Message struct {
 	MyFeedback       string
 	ThumbsUpCount    int64
 	ThumbsDownCount  int64
+	Bookmarked       bool
 	ProcessTrace     *MessageProcessTrace
 	EditedAt         *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+// MessageBookmark 表示用户收藏的一条消息。
+type MessageBookmark struct {
+	ID             uint
+	UserID         uint
+	ConversationID uint
+	MessageID      uint
+	Note           string
+	TagsJSON       string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// MessageBookmarkListItem 表示收藏列表中的一项。
+type MessageBookmarkListItem struct {
+	Bookmark     MessageBookmark
+	Conversation Conversation
+	Message      Message
+}
+
+// ConversationDraft 表示用户输入框草稿快照。
+type ConversationDraft struct {
+	ID                   uint
+	UserID               uint
+	ConversationPublicID string
+	Draft                string
+	AttachmentsJSON      string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // MessageFeedback 表示消息反馈。
@@ -356,6 +419,38 @@ type Run struct {
 	EndedAt             *time.Time
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+}
+
+// ModelAvailability 表示公开状态页可展示的模型可用性聚合。
+type ModelAvailability struct {
+	ModelName   string
+	CallCount   int64
+	SuccessRate float64
+	Status      string
+}
+
+// ModerationEvent 记录一次内容检查命中或检查失败。
+type ModerationEvent struct {
+	ID             uint
+	UserID         uint
+	ConversationID uint
+	MessageID      uint
+	RunID          string
+	Direction      string
+	Action         string
+	Model          string
+	Score          float64
+	Threshold      float64
+	Flagged        bool
+	CategoriesJSON string
+	Reason         string
+	ReviewStatus   string
+	ReviewedBy     uint
+	ReviewedAt     *time.Time
+	ReviewNote     string
+	Disposition    string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 // MessageTrace 表示消息处理轨迹。

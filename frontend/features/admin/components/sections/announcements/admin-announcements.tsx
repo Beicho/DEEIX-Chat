@@ -68,7 +68,7 @@ type AnnouncementForm = {
   id?: number;
   title: string;
   contentMarkdown: string;
-  status: "active" | "inactive";
+  status: "active" | "inactive" | "draft";
   type: "critical" | "warning" | "info" | "normal" | "general";
   pinned: boolean;
   priority: string;
@@ -104,7 +104,7 @@ function formFromAnnouncement(item: AdminAnnouncementDTO): AnnouncementForm {
     id: item.id,
     title: item.title,
     contentMarkdown: item.contentMarkdown,
-    status: item.status === "inactive" ? "inactive" : "active",
+    status: normalizeAnnouncementStatus(item.status),
     type: normalizeAnnouncementType(item.type),
     pinned: Boolean(item.pinned),
     priority: String(item.priority ?? 0),
@@ -147,6 +147,17 @@ function isCurrentlyVisible(item: AdminAnnouncementDTO): boolean {
     (expiresAt === null || expiresAt > now);
 }
 
+function normalizeAnnouncementStatus(value: string): AnnouncementForm["status"] {
+  switch (value) {
+    case "active":
+    case "inactive":
+    case "draft":
+      return value;
+    default:
+      return "inactive";
+  }
+}
+
 function payloadFromForm(form: AnnouncementForm): CreateAdminAnnouncementRequest {
   return {
     title: form.title.trim(),
@@ -176,13 +187,13 @@ function normalizeAnnouncementType(value: string): AnnouncementForm["type"] {
 function announcementTypeClassName(value: string): string {
   switch (value) {
     case "critical":
-      return "border-red-500/30 bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300";
+      return "border-destructive/40 bg-destructive/10 text-destructive";
     case "warning":
-      return "border-yellow-500/30 bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300";
+      return "border-border bg-muted text-foreground";
     case "info":
-      return "border-blue-500/30 bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300";
+      return "border-border bg-muted text-muted-foreground";
     case "normal":
-      return "border-emerald-500/30 bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300";
+      return "border-border bg-background text-foreground";
     default:
       return "border-border bg-background text-muted-foreground";
   }
@@ -264,8 +275,11 @@ export function AdminAnnouncementsPage() {
     }
   }
 
-  async function toggleStatus(item: AdminAnnouncementDTO, checked: boolean) {
-    const nextStatus = checked ? "active" : "inactive";
+  async function updateStatus(item: AdminAnnouncementDTO, value: string) {
+    const nextStatus = normalizeAnnouncementStatus(value);
+    if (nextStatus === normalizeAnnouncementStatus(item.status)) {
+      return;
+    }
     setItems((current) => current.map((row) => row.id === item.id ? { ...row, status: nextStatus } : row));
     try {
       const data = await updateAdminAnnouncement(accessToken, item.id, { status: nextStatus });
@@ -403,6 +417,7 @@ export function AdminAnnouncementsPage() {
                 { value: "", label: t("allStatuses") },
                 { value: "active", label: t("status.active") },
                 { value: "inactive", label: t("status.inactive") },
+                { value: "draft", label: t("status.draft") },
               ],
             },
             {
@@ -505,13 +520,20 @@ export function AdminAnnouncementsPage() {
                   </TableCell>
                   <TableCell className="py-1.5 text-center">
                     <div className="flex h-7 items-center justify-center">
-                      <Switch
-                        size="sm"
-                        checked={item.status === "active"}
-                        onCheckedChange={(checked) => void toggleStatus(item, checked)}
+                      <Select
+                        value={normalizeAnnouncementStatus(item.status)}
+                        onValueChange={(value) => void updateStatus(item, value)}
                         disabled={saving}
-                        aria-label={item.status === "active" ? t("disable") : t("enable")}
-                      />
+                      >
+                        <SelectTrigger size="xs" className="h-7 w-[78px] px-2 text-[11px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent position="popper" align="center" className="z-[100]">
+                          <SelectItem value="active" className="text-[11px]">{t("status.active")}</SelectItem>
+                          <SelectItem value="inactive" className="text-[11px]">{t("status.inactive")}</SelectItem>
+                          <SelectItem value="draft" className="text-[11px]">{t("status.draft")}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </TableCell>
                   <TableCell className="py-1.5">
@@ -622,15 +644,16 @@ export function AdminAnnouncementsPage() {
               </div>
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground">{t("fields.status")}</p>
-                <div className="flex h-8 items-center">
-                  <Switch
-                    size="sm"
-                    checked={form.status === "active"}
-                    onCheckedChange={(checked) => setForm({ ...form, status: checked ? "active" : "inactive" })}
-                    disabled={saving}
-                    aria-label={t("fields.status")}
-                  />
-                </div>
+                <Select value={form.status} onValueChange={(value) => setForm({ ...form, status: normalizeAnnouncementStatus(value) })} disabled={saving}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">{t("status.active")}</SelectItem>
+                    <SelectItem value="inactive">{t("status.inactive")}</SelectItem>
+                    <SelectItem value="draft">{t("status.draft")}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="col-span-2 space-y-1 md:col-span-1">

@@ -60,6 +60,37 @@ type BillingAccountView struct {
 	UpdatedAt      time.Time
 }
 
+// BalanceDeltaView 表示管理员余额增减结果。
+type BalanceDeltaView struct {
+	Account     domainbilling.BillingAccount
+	Transaction domainbilling.BalanceTransaction
+}
+
+// CheckInStatusView 表示用户每日签到状态。
+type CheckInStatusView struct {
+	TodayClaimed        bool
+	RewardNanousd       int64
+	ConsecutiveDays     int
+	LastCheckInDate      *time.Time
+	NextCheckInDate      time.Time
+	Account              *domainbilling.BillingAccount
+	LatestTransaction    *domainbilling.BalanceTransaction
+}
+
+// CheckInClaimView 表示用户每日签到领取结果。
+type CheckInClaimView struct {
+	Record         domainbilling.CheckInRecord
+	Account        *domainbilling.BillingAccount
+	Transaction    *domainbilling.BalanceTransaction
+	AlreadyClaimed bool
+	RewardNanousd  int64
+}
+
+// RiskSummaryView 表示管理员计费页风控摘要。
+type RiskSummaryView struct {
+	domainbilling.RiskSummary
+}
+
 // ModelPricingView 表示后台模型单价及其平台模型身份。
 type ModelPricingView struct {
 	domainbilling.ModelPricing

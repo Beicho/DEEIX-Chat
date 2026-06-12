@@ -20,10 +20,11 @@ import (
 )
 
 const (
-	defaultPageSize            = 20
-	maxPageSize                = 200
-	publicModelPricingCacheTTL = 30 * time.Second
-	nativeToolPricingSource    = "provider_official_defaults"
+	defaultPageSize             = 20
+	maxPageSize                 = 200
+	publicModelPricingCacheTTL  = 30 * time.Second
+	nativeToolPricingSource     = "provider_official_defaults"
+	defaultCheckInRewardNanousd = int64(10_000_000)
 )
 
 // UserSubscriptionSnapshot 描述用户当前订阅的派生结果。
@@ -57,6 +58,15 @@ type Service struct {
 	nativeToolCatalog             nativeToolCatalogProvider
 	auditWriter                   auditWriter
 	redemptionCodeSecret          string
+	newAPIClient                  newAPIBridgeClient
+}
+
+type newAPIBridgeClient interface {
+	Configured() bool
+	UserByLinuxDOSub(ctx context.Context, sub string) (*NewAPIBridgeUser, error)
+	TransferOut(ctx context.Context, externalUserID string, amountUSD float64, idempotencyKey string) (*NewAPITransferOutResult, error)
+	TransferConfirm(ctx context.Context, transferID string, idempotencyKey string) error
+	TransferCancel(ctx context.Context, transferID string, idempotencyKey string) error
 }
 
 type platformModelIdentityResolver interface {
@@ -160,9 +170,11 @@ type ModelPricingInput struct {
 
 // UsageListFilter 描述用户用量账本的筛选和排序条件。
 type UsageListFilter struct {
-	Query  string
-	Status string
-	Sort   string
+	Query       string
+	Status      string
+	Sort        string
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
 }
 
 // UsageLogListFilter 描述管理员调用日志筛选和排序条件。
@@ -214,6 +226,18 @@ type PlanUpdateInput struct {
 	BillingInterval     string
 }
 
+// PlanCreateInput 定义周期套餐创建入参。
+type PlanCreateInput struct {
+	Code                string
+	Name                string
+	Description         string
+	PeriodCreditNanousd int64
+	DiscountPercent     int
+	Currency            string
+	AmountCents         int64
+	BillingInterval     string
+}
+
 // PaymentOrderInput 定义创建支付单入参。
 type PaymentOrderInput struct {
 	UserID       uint
@@ -221,6 +245,25 @@ type PaymentOrderInput struct {
 	Cycles       int
 	Provider     string
 	USDToCNYRate float64
+}
+
+// PaymentOrderListInput 定义支付单查询入参。
+type PaymentOrderListInput struct {
+	UserID    uint
+	Status    string
+	OrderType string
+	Provider  string
+	Query     string
+	Sort      string
+	Page      int
+	PageSize  int
+}
+
+// PaymentOrderActionInput 定义管理员支付单动作。
+type PaymentOrderActionInput struct {
+	OrderNo           string
+	Action            string
+	ExternalPaymentID string
 }
 
 // TopUpPaymentOrderInput 定义创建按量充值支付单入参。
@@ -247,9 +290,79 @@ type BillingAccountBalanceInput struct {
 	Description string
 }
 
+// BillingAccountDeltaInput 定义管理员余额增减入参。
+type BillingAccountDeltaInput struct {
+	UserID      uint
+	DeltaUSD    float64
+	RefNo       string
+	Description string
+}
+
+// BalanceTransactionListInput 定义余额流水查询入参。
+type BalanceTransactionListInput struct {
+	UserID   uint
+	Type     string
+	Query    string
+	Sort     string
+	From     *time.Time
+	To       *time.Time
+	Page     int
+	PageSize int
+}
+
+// NewAPIBindResult describes a completed NewAPI link.
+type NewAPIBindResult struct {
+	Link       domainbilling.ExternalAccountLink
+	BalanceUSD float64
+}
+
+// NewAPIBalanceResult describes NewAPI transfer availability.
+type NewAPIBalanceResult struct {
+	Linked              bool
+	Link                *domainbilling.ExternalAccountLink
+	ExternalBalanceUSD  float64
+	TransferableUSD     float64
+	Rate                float64
+	MinTransferUSD      float64
+	MaxDailyTransferUSD float64
+}
+
+// NewAPITransferInput describes a requested NewAPI transfer.
+type NewAPITransferInput struct {
+	UserID         uint
+	AmountUSD      float64
+	IdempotencyKey string
+	RefNo          string
+}
+
+// NewAPITransferResult describes a credited NewAPI transfer.
+type NewAPITransferResult struct {
+	Transfer    domainbilling.ExternalTransfer
+	Transaction *domainbilling.BalanceTransaction
+	Account     *domainbilling.BillingAccount
+}
+
+// RedemptionListInput 定义用户兑换历史查询入参。
+type RedemptionListInput struct {
+	UserID   uint
+	Mode     string
+	Query    string
+	Sort     string
+	Page     int
+	PageSize int
+}
+
 // NewService 创建服务。
 func NewService(repo repository.BillingRepository) *Service {
 	return &Service{repo: repo}
+}
+
+// SetNewAPIClient injects the NewAPI bridge client.
+func (s *Service) SetNewAPIClient(client newAPIBridgeClient) {
+	if s == nil {
+		return
+	}
+	s.newAPIClient = client
 }
 
 // SetModelPricingInvalidator 注入模型定价变更后的外部缓存失效回调。
@@ -817,6 +930,43 @@ func (s *Service) GetPaymentOrder(ctx context.Context, orderNo string) (*domainb
 	return s.repo.GetPaymentOrderByOrderNo(ctx, orderNo)
 }
 
+// ListPaymentOrders 查询支付单列表。
+func (s *Service) ListPaymentOrders(ctx context.Context, input PaymentOrderListInput) ([]domainbilling.PaymentOrder, int64, error) {
+	offset, limit := normalizePage(input.Page, input.PageSize)
+	return s.repo.ListPaymentOrders(ctx, repository.PaymentOrderListFilter{
+		UserID:    input.UserID,
+		Status:    strings.TrimSpace(input.Status),
+		OrderType: strings.TrimSpace(input.OrderType),
+		Provider:  strings.TrimSpace(input.Provider),
+		Query:     strings.TrimSpace(input.Query),
+		Sort:      strings.TrimSpace(input.Sort),
+	}, offset, limit)
+}
+
+// ApplyPaymentOrderAction 执行管理员支付单动作。
+func (s *Service) ApplyPaymentOrderAction(ctx context.Context, input PaymentOrderActionInput) (*domainbilling.PaymentOrder, bool, error) {
+	orderNo := strings.TrimSpace(input.OrderNo)
+	if orderNo == "" {
+		return nil, false, repository.ErrInvalidInput
+	}
+	switch strings.TrimSpace(input.Action) {
+	case "complete":
+		externalPaymentID := strings.TrimSpace(input.ExternalPaymentID)
+		if externalPaymentID == "" {
+			externalPaymentID = "manual:" + orderNo
+		}
+		return s.CompletePaymentOrder(ctx, orderNo, externalPaymentID, time.Now())
+	case "expire":
+		order, err := s.repo.UpdatePaymentOrderStatus(ctx, orderNo, domainbilling.PaymentStatusExpired)
+		return order, false, err
+	case "fail":
+		order, err := s.repo.UpdatePaymentOrderStatus(ctx, orderNo, domainbilling.PaymentStatusFailed)
+		return order, false, err
+	default:
+		return nil, false, repository.ErrInvalidInput
+	}
+}
+
 // CompletePaymentOrder 支付成功后开通订阅。
 func (s *Service) CompletePaymentOrder(ctx context.Context, orderNo string, externalPaymentID string, paidAt time.Time) (*domainbilling.PaymentOrder, bool, error) {
 	order, err := s.repo.GetPaymentOrderByOrderNo(ctx, orderNo)
@@ -846,6 +996,58 @@ func (s *Service) CompletePaymentOrder(ctx context.Context, orderNo string, exte
 		AutoRenew:            order.BillingInterval != domainbilling.IntervalLifetime,
 	}
 	return s.repo.MarkPaymentOrderPaidAndGrantSubscription(ctx, orderNo, externalPaymentID, paidAt, subscription)
+}
+
+// CreatePlan 创建周期套餐与默认价格。
+func (s *Service) CreatePlan(ctx context.Context, input PlanCreateInput) (*BillingPlanView, error) {
+	code := normalizePlanCode(input.Code)
+	if code == "" || strings.TrimSpace(input.Name) == "" {
+		return nil, repository.ErrInvalidInput
+	}
+	plan := &domainbilling.Plan{
+		Code:                code,
+		Name:                strings.TrimSpace(input.Name),
+		Description:         strings.TrimSpace(input.Description),
+		FeatureJSON:         "[]",
+		PeriodCreditNanousd: clampNonNegative(input.PeriodCreditNanousd),
+		DiscountPercent:     clampPercent(input.DiscountPercent),
+		SortOrder:           100,
+		IsActive:            true,
+	}
+	price := &domainbilling.Price{
+		Code:            code + "-default",
+		BillingInterval: normalizeInterval(input.BillingInterval),
+		Currency:        "USD",
+		AmountCents:     clampNonNegative(input.AmountCents),
+		IsActive:        true,
+		IsDefault:       true,
+	}
+	createdPlan, createdPrice, err := s.repo.CreatePlanWithDefaultPrice(ctx, plan, price)
+	if err != nil {
+		return nil, err
+	}
+	return &BillingPlanView{
+		ID:                  createdPlan.ID,
+		Code:                createdPlan.Code,
+		Name:                createdPlan.Name,
+		Description:         createdPlan.Description,
+		FeatureJSON:         createdPlan.FeatureJSON,
+		PeriodCreditNanousd: createdPlan.PeriodCreditNanousd,
+		DiscountPercent:     createdPlan.DiscountPercent,
+		SortOrder:           createdPlan.SortOrder,
+		IsActive:            createdPlan.IsActive,
+		Prices: []BillingPriceView{
+			{
+				ID:              createdPrice.ID,
+				PlanID:          createdPrice.PlanID,
+				Code:            createdPrice.Code,
+				BillingInterval: createdPrice.BillingInterval,
+				Currency:        createdPrice.Currency,
+				AmountCents:     createdPrice.AmountCents,
+				IsDefault:       createdPrice.IsDefault,
+			},
+		},
+	}, nil
 }
 
 // UpdatePlan 保存周期套餐与默认价格。
@@ -902,6 +1104,21 @@ func (s *Service) UpdatePlan(ctx context.Context, planID uint, input PlanUpdateI
 			},
 		},
 	}, nil
+}
+
+// DeletePlan 停用周期套餐。
+func (s *Service) DeletePlan(ctx context.Context, planID uint) error {
+	if planID == 0 {
+		return repository.ErrInvalidInput
+	}
+	current, err := s.repo.GetPlanByID(ctx, planID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(current.Code) == "free" {
+		return repository.ErrInvalidInput
+	}
+	return s.repo.DeletePlan(ctx, planID)
 }
 
 // RecordUsage 记录用量。
@@ -2073,9 +2290,11 @@ func (s *Service) buildUsageServiceItem(ctx context.Context, input ServiceUsageI
 func (s *Service) ListUsage(ctx context.Context, userID uint, page int, pageSize int, filter UsageListFilter) ([]domainbilling.UsageLedger, int64, error) {
 	offset, limit := normalizePage(page, pageSize)
 	return s.repo.ListUsageByUser(ctx, userID, repository.UsageListFilter{
-		Query:  filter.Query,
-		Status: filter.Status,
-		Sort:   filter.Sort,
+		Query:       filter.Query,
+		Status:      filter.Status,
+		Sort:        filter.Sort,
+		CreatedFrom: filter.CreatedFrom,
+		CreatedTo:   filter.CreatedTo,
 	}, offset, limit)
 }
 
@@ -2112,6 +2331,21 @@ func (s *Service) GetAdminDashboardStats(ctx context.Context, now time.Time) (*d
 	stats.PeriodStart = startAt
 	stats.PeriodEnd = endAt
 	return stats, nil
+}
+
+// GetBillingRiskSummary 查询计费页风控摘要。
+func (s *Service) GetBillingRiskSummary(ctx context.Context) (*RiskSummaryView, error) {
+	stats, err := s.repo.GetBillingRiskSummary(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if stats == nil {
+		stats = &domainbilling.RiskSummary{GeneratedAt: time.Now()}
+	}
+	if stats.GeneratedAt.IsZero() {
+		stats.GeneratedAt = time.Now()
+	}
+	return &RiskSummaryView{RiskSummary: *stats}, nil
 }
 
 func normalizePage(page int, pageSize int) (int, int) {
@@ -2387,6 +2621,79 @@ func (s *Service) GetBillingAccount(ctx context.Context, userID uint) (*domainbi
 	return s.repo.GetOrCreateBillingAccount(ctx, userID)
 }
 
+// GetCheckInStatus 查询当前用户今日签到状态。
+func (s *Service) GetCheckInStatus(ctx context.Context, userID uint, now time.Time) (*CheckInStatusView, error) {
+	if userID == 0 {
+		return nil, repository.ErrInvalidInput
+	}
+	today := utcDateOnly(now)
+	status := &CheckInStatusView{
+		RewardNanousd:   defaultCheckInRewardNanousd,
+		ConsecutiveDays: 0,
+		NextCheckInDate: today.AddDate(0, 0, 1),
+	}
+	account, accountErr := s.repo.GetOrCreateBillingAccount(ctx, userID)
+	if accountErr != nil {
+		return nil, accountErr
+	}
+	status.Account = account
+	latest, err := s.repo.GetLatestCheckIn(ctx, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return status, nil
+		}
+		return nil, err
+	}
+	latestDate := utcDateOnly(latest.CheckInDate)
+	status.LastCheckInDate = &latestDate
+	if sameDate(latestDate, today) {
+		status.TodayClaimed = true
+		status.ConsecutiveDays = latest.ConsecutiveDays
+	} else if sameDate(latestDate, today.AddDate(0, 0, -1)) {
+		status.ConsecutiveDays = latest.ConsecutiveDays
+	}
+	return status, nil
+}
+
+// ClaimDailyCheckIn 领取每日签到奖励。同日重复领取不重复入账。
+func (s *Service) ClaimDailyCheckIn(ctx context.Context, userID uint, now time.Time) (*CheckInClaimView, error) {
+	if userID == 0 {
+		return nil, repository.ErrInvalidInput
+	}
+	today := utcDateOnly(now)
+	consecutiveDays := 1
+	latest, err := s.repo.GetLatestCheckIn(ctx, userID)
+	if err != nil && !errors.Is(err, repository.ErrNotFound) {
+		return nil, err
+	}
+	if latest != nil {
+		latestDate := utcDateOnly(latest.CheckInDate)
+		if sameDate(latestDate, today) {
+			consecutiveDays = latest.ConsecutiveDays
+		} else if sameDate(latestDate, today.AddDate(0, 0, -1)) {
+			consecutiveDays = latest.ConsecutiveDays + 1
+		}
+	}
+	result, err := s.repo.ClaimDailyCheckIn(ctx, repository.CheckInClaimInput{
+		UserID:         userID,
+		CheckInDate:    today,
+		RewardNanousd:  defaultCheckInRewardNanousd,
+		RefNo:          fmt.Sprintf("checkin-%d-%s", userID, today.Format("20060102")),
+		Description:    "Daily check-in reward",
+		ConsecutiveDay: consecutiveDays,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &CheckInClaimView{
+		Record:         result.Record,
+		Account:        result.Account,
+		Transaction:    result.Transaction,
+		AlreadyClaimed: result.AlreadyClaimed,
+		RewardNanousd:  defaultCheckInRewardNanousd,
+	}, nil
+}
+
 // SetBillingAccountBalance 管理员设置用户按量余额。
 func (s *Service) SetBillingAccountBalance(ctx context.Context, input BillingAccountBalanceInput) (*domainbilling.BillingAccount, error) {
 	if input.UserID == 0 || input.BalanceUSD < 0 || math.IsNaN(input.BalanceUSD) || math.IsInf(input.BalanceUSD, 0) {
@@ -2400,6 +2707,187 @@ func (s *Service) SetBillingAccountBalance(ctx context.Context, input BillingAcc
 		return nil, ErrPaymentRequired
 	}
 	return s.repo.SetBillingAccountBalance(ctx, input.UserID, usdToNanousd(input.BalanceUSD), input.RefNo, input.Description)
+}
+
+// AdjustBillingAccountBalance 管理员原子增减用户按量余额。
+func (s *Service) AdjustBillingAccountBalance(ctx context.Context, input BillingAccountDeltaInput) (*BalanceDeltaView, error) {
+	if input.UserID == 0 || input.DeltaUSD == 0 || math.IsNaN(input.DeltaUSD) || math.IsInf(input.DeltaUSD, 0) {
+		return nil, repository.ErrInvalidInput
+	}
+	mode, err := s.repo.GetBillingMode(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if mode != "usage" {
+		return nil, ErrPaymentRequired
+	}
+	account, transaction, err := s.repo.AdjustBillingAccountBalance(ctx, input.UserID, usdToNanousdSigned(input.DeltaUSD), input.RefNo, input.Description)
+	if err != nil {
+		if errors.Is(err, repository.ErrInsufficientBalance) {
+			return nil, ErrUsageBalanceInsufficient
+		}
+		return nil, err
+	}
+	if account == nil || transaction == nil {
+		return nil, repository.ErrInvalidInput
+	}
+	return &BalanceDeltaView{Account: *account, Transaction: *transaction}, nil
+}
+
+// ListBalanceTransactions 查询余额流水。
+func (s *Service) ListBalanceTransactions(ctx context.Context, input BalanceTransactionListInput) ([]domainbilling.BalanceTransaction, int64, error) {
+	offset, limit := normalizePage(input.Page, input.PageSize)
+	return s.repo.ListBalanceTransactions(ctx, repository.BalanceTransactionListFilter{
+		UserID: input.UserID,
+		Type:   strings.TrimSpace(input.Type),
+		Query:  strings.TrimSpace(input.Query),
+		Sort:   strings.TrimSpace(input.Sort),
+		From:   input.From,
+		To:     input.To,
+	}, offset, limit)
+}
+
+// LinkNewAPIAccount links the current user to the matching NewAPI account through LinuxDo.
+func (s *Service) LinkNewAPIAccount(ctx context.Context, userID uint) (*NewAPIBindResult, error) {
+	if userID == 0 {
+		return nil, repository.ErrInvalidInput
+	}
+	if s.newAPIClient == nil || !s.newAPIClient.Configured() {
+		return nil, ErrPaymentRequired
+	}
+	sub, err := s.repo.FindUserLinuxDOSub(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	user, err := s.newAPIClient.UserByLinuxDOSub(ctx, sub)
+	if err != nil {
+		return nil, err
+	}
+	link, err := s.repo.UpsertExternalAccountLink(ctx, &domainbilling.ExternalAccountLink{
+		UserID:              userID,
+		Platform:            domainbilling.ExternalPlatformNewAPI,
+		ExternalUserID:      user.ExternalUserID,
+		ExternalDisplayName: user.Username,
+		LinuxDOSub:          sub,
+		Status:              domainbilling.ExternalAccountLinkStatusActive,
+		LinkedAt:            time.Now().UTC(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &NewAPIBindResult{Link: *link, BalanceUSD: user.BalanceUSD}, nil
+}
+
+// GetNewAPIBalance returns the linked NewAPI account balance and 10:1 preview.
+func (s *Service) GetNewAPIBalance(ctx context.Context, userID uint) (*NewAPIBalanceResult, error) {
+	if userID == 0 {
+		return nil, repository.ErrInvalidInput
+	}
+	result := &NewAPIBalanceResult{
+		Rate:                10,
+		MinTransferUSD:      1,
+		MaxDailyTransferUSD: 500,
+	}
+	link, err := s.repo.GetExternalAccountLink(ctx, userID, domainbilling.ExternalPlatformNewAPI)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return result, nil
+		}
+		return nil, err
+	}
+	result.Linked = true
+	result.Link = link
+	if s.newAPIClient == nil || !s.newAPIClient.Configured() {
+		return result, nil
+	}
+	user, err := s.newAPIClient.UserByLinuxDOSub(ctx, link.LinuxDOSub)
+	if err != nil {
+		return nil, err
+	}
+	result.ExternalBalanceUSD = user.BalanceUSD
+	result.TransferableUSD = user.BalanceUSD / result.Rate
+	return result, nil
+}
+
+// TransferFromNewAPI moves NewAPI balance into DEEIX at a fixed 10:1 rate.
+func (s *Service) TransferFromNewAPI(ctx context.Context, input NewAPITransferInput) (*NewAPITransferResult, error) {
+	if input.UserID == 0 || !isPositiveFinite(input.AmountUSD) || strings.TrimSpace(input.IdempotencyKey) == "" {
+		return nil, repository.ErrInvalidInput
+	}
+	if input.AmountUSD < 1 || input.AmountUSD > 500 {
+		return nil, repository.ErrInvalidInput
+	}
+	if s.newAPIClient == nil || !s.newAPIClient.Configured() {
+		return nil, ErrPaymentRequired
+	}
+	link, err := s.repo.GetExternalAccountLink(ctx, input.UserID, domainbilling.ExternalPlatformNewAPI)
+	if err != nil {
+		return nil, err
+	}
+	if link.Status != domainbilling.ExternalAccountLinkStatusActive {
+		return nil, repository.ErrInvalidInput
+	}
+	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	transferOut, err := s.newAPIClient.TransferOut(ctx, link.ExternalUserID, input.AmountUSD, idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	creditedNanousd := usdToNanousd(input.AmountUSD / 10)
+	transfer, transaction, err := s.repo.CreditExternalTransfer(ctx, repository.ExternalTransferCreditInput{
+		UserID:                input.UserID,
+		LinkID:                link.ID,
+		Platform:              domainbilling.ExternalPlatformNewAPI,
+		Direction:             domainbilling.ExternalTransferDirectionIn,
+		ExternalTransferID:    transferOut.TransferID,
+		IdempotencyKey:        idempotencyKey,
+		ExternalAmountUSD:     input.AmountUSD,
+		CreditedAmountNanousd: creditedNanousd,
+		RefNo:                 firstNonEmpty(strings.TrimSpace(input.RefNo), idempotencyKey),
+		Description:           "NewAPI transfer in",
+	})
+	if err != nil {
+		if cancelErr := s.newAPIClient.TransferCancel(ctx, transferOut.TransferID, idempotencyKey); cancelErr != nil {
+			_ = s.repo.UpdateExternalTransferStatus(ctx, idempotencyKey, domainbilling.ExternalTransferStatusCancelFailed, cancelErr.Error())
+		}
+		return nil, err
+	}
+	if transaction != nil {
+		if err := s.newAPIClient.TransferConfirm(ctx, transferOut.TransferID, idempotencyKey); err != nil {
+			_ = s.repo.UpdateExternalTransferStatus(ctx, idempotencyKey, domainbilling.ExternalTransferStatusCancelFailed, err.Error())
+			return nil, err
+		}
+	}
+	account, err := s.repo.GetOrCreateBillingAccount(ctx, input.UserID)
+	if err != nil {
+		return nil, err
+	}
+	return &NewAPITransferResult{Transfer: *transfer, Transaction: transaction, Account: account}, nil
+}
+
+// ListExternalTransfers lists external transfer records.
+func (s *Service) ListExternalTransfers(ctx context.Context, userID uint, page int, pageSize int) ([]domainbilling.ExternalTransfer, int64, error) {
+	if userID == 0 {
+		return nil, 0, repository.ErrInvalidInput
+	}
+	offset, limit := normalizePage(page, pageSize)
+	return s.repo.ListExternalTransfers(ctx, repository.ExternalTransferListFilter{
+		UserID:   userID,
+		Platform: domainbilling.ExternalPlatformNewAPI,
+	}, offset, limit)
+}
+
+// ListRedemptions 查询用户兑换历史。
+func (s *Service) ListRedemptions(ctx context.Context, input RedemptionListInput) ([]domainbilling.Redemption, int64, error) {
+	if input.UserID == 0 {
+		return nil, 0, repository.ErrInvalidInput
+	}
+	offset, limit := normalizePage(input.Page, input.PageSize)
+	return s.repo.ListRedemptions(ctx, repository.RedemptionListFilter{
+		UserID: input.UserID,
+		Mode:   strings.TrimSpace(input.Mode),
+		Query:  strings.TrimSpace(input.Query),
+		Sort:   strings.TrimSpace(input.Sort),
+	}, offset, limit)
 }
 
 func toBillingAccountView(account *domainbilling.BillingAccount) *BillingAccountView {
@@ -2727,6 +3215,29 @@ func usdToNanousd(value float64) int64 {
 	return int64(math.Round(value * 1000000000))
 }
 
+func usdToNanousdSigned(value float64) int64 {
+	if value == 0 {
+		return 0
+	}
+	return int64(math.Round(value * 1000000000))
+}
+
+func isPositiveFinite(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func utcDateOnly(value time.Time) time.Time {
+	if value.IsZero() {
+		value = time.Now()
+	}
+	utc := value.UTC()
+	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func sameDate(left time.Time, right time.Time) bool {
+	return utcDateOnly(left).Equal(utcDateOnly(right))
+}
+
 // resolvePlatformModelIdentity 解析平台模型的稳定身份。
 func (s *Service) resolvePlatformModelIdentity(ctx context.Context, platformModelName string) (PlatformModelIdentity, error) {
 	name := strings.TrimSpace(platformModelName)
@@ -2990,6 +3501,20 @@ func normalizeInterval(value string) string {
 	default:
 		return domainbilling.IntervalMonth
 	}
+}
+
+func normalizePlanCode(value string) string {
+	code := strings.ToLower(strings.TrimSpace(value))
+	if code == "" || len(code) > 32 {
+		return ""
+	}
+	for _, item := range code {
+		if (item >= 'a' && item <= 'z') || (item >= '0' && item <= '9') || item == '-' {
+			continue
+		}
+		return ""
+	}
+	return code
 }
 
 func firstNonEmpty(values ...string) string {

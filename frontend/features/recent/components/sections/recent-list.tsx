@@ -104,6 +104,7 @@ function RecentConversationRow({
   onSetProject,
   onExport,
   onExportMarkdown,
+  onExportImage,
   onCopyMarkdown,
   onDelete,
 }: {
@@ -126,6 +127,7 @@ function RecentConversationRow({
   onSetProject: (publicID: string, projectID?: string) => void | Promise<void>;
   onExport: (item: ConversationDTO) => void | Promise<void>;
   onExportMarkdown: (item: ConversationDTO) => void | Promise<void>;
+  onExportImage: (item: ConversationDTO) => void | Promise<void>;
   onCopyMarkdown: (item: ConversationDTO) => void | Promise<void>;
   onDelete: (item: ConversationDTO) => void;
 }) {
@@ -232,7 +234,7 @@ function RecentConversationRow({
             <button
               id={`recent-page-item-menu-trigger-${item.publicID}`}
               className={cn(
-                "flex size-11 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-100 transition-all duration-200 hover:bg-accent hover:text-foreground md:size-8 md:opacity-0",
+                "relative flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-100 transition-all duration-200 after:absolute after:-inset-1.5 after:content-[''] hover:bg-accent hover:text-foreground md:opacity-0 md:after:hidden",
                 highlighted && "opacity-100",
               )}
               onClick={(event) => {
@@ -284,10 +286,12 @@ function RecentConversationRow({
               shareLabel={shared ? t("row.manageShare") : t("row.share")}
               exportLabel={t("row.exportJSON")}
               exportMarkdownLabel={t("row.exportMarkdown")}
+              exportImageLabel={t("row.exportImage")}
               copyMarkdownLabel={t("row.copyMarkdown")}
               onShare={() => onShare(item)}
               onExport={() => onExport(item)}
               onExportMarkdown={() => onExportMarkdown(item)}
+              onExportImage={() => onExportImage(item)}
               onCopyMarkdown={() => onCopyMarkdown(item)}
               onCloseMenu={() => setMenuOpen(false)}
             />
@@ -342,6 +346,7 @@ type RecentListProps = {
   onSetProject: (publicID: string, projectID?: string) => void | Promise<void>;
   onExport: (item: ConversationDTO) => void | Promise<void>;
   onExportMarkdown: (item: ConversationDTO) => void | Promise<void>;
+  onExportImage: (item: ConversationDTO) => void | Promise<void>;
   onCopyMarkdown: (item: ConversationDTO) => void | Promise<void>;
   onDelete: (item: ConversationDTO) => void;
   onRetryLoadMore: () => void | Promise<void>;
@@ -432,6 +437,7 @@ export function RecentList({
   onSetProject,
   onExport,
   onExportMarkdown,
+  onExportImage,
   onCopyMarkdown,
   onDelete,
   onRetryLoadMore,
@@ -512,6 +518,7 @@ export function RecentList({
                     onSetProject={onSetProject}
                     onExport={onExport}
                     onExportMarkdown={onExportMarkdown}
+                    onExportImage={onExportImage}
                     onCopyMarkdown={onCopyMarkdown}
                     onDelete={onDelete}
                   />

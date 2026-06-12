@@ -17,6 +17,7 @@ const (
 	SecurityVerificationMethodNone      SecurityVerificationMethod = "none"
 	SecurityVerificationMethodTwoFactor SecurityVerificationMethod = "two_factor"
 	SecurityVerificationMethodEmail     SecurityVerificationMethod = "email"
+	SecurityVerificationMethodUsername  SecurityVerificationMethod = "username"
 )
 
 func hasVerifiedEmail(item *domainuser.User) bool {
@@ -33,6 +34,8 @@ func normalizeSecurityVerificationMethod(value string) SecurityVerificationMetho
 		return SecurityVerificationMethodTwoFactor
 	case SecurityVerificationMethodEmail:
 		return SecurityVerificationMethodEmail
+	case SecurityVerificationMethodUsername:
+		return SecurityVerificationMethodUsername
 	case SecurityVerificationMethodNone:
 		return SecurityVerificationMethodNone
 	default:

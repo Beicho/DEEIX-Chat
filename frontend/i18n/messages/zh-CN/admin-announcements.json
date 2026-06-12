@@ -23,7 +23,8 @@
   "previewEmpty": "预览",
   "status": {
     "active": "启用",
-    "inactive": "停用"
+    "inactive": "停用",
+    "draft": "草稿"
   },
   "pinned": {
     "yes": "已置顶",

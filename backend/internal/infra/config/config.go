@@ -322,6 +322,7 @@ type Config struct {
 	ThirdPartyLoginEnabled       bool
 	EmailRegistrationEnabled     bool
 	EmailVerificationEnabled     bool
+	InviteRegistrationRequired   bool
 	EmailRegistrationDomains     string
 	EmailRegistrationNoAlias     bool
 	AutoLinkVerifiedEmail        bool
@@ -435,6 +436,23 @@ type Config struct {
 	ProcessTraceStoreUpstreamThink bool // 是否持久化上游 think
 	ProcessTracePersistInflight    bool // 是否在流式阶段持久化轨迹
 	ContextArtifactRetentionDays   int  // 上下文证据保留天数，<=0 表示不自动过期
+	// 内容检查与公开状态通知
+	ModerationEnabled        bool
+	ModerationBaseURL        string
+	ModerationAPIKey         string
+	ModerationModel          string
+	ModerationThreshold      float64
+	ModerationAction         string
+	ModerationTimeoutSeconds int
+	ModerationMode           string
+	ModerationFailStrategy   string
+	ModerationClassifierTemplate string
+	ModerationAutoWindowHours    int
+	ModerationAutoLimitThreshold int
+	ModerationAutoSuspendThreshold int
+	StatusNotifierEnabled    bool
+	StatusNotifierWebhookURL string
+	StatusNotifierEmail      string
 	// MCP 配置
 	MCPEnable                     bool
 	MCPToolTimeoutSeconds         int
@@ -443,6 +461,22 @@ type Config struct {
 	MCPMaxSelectedToolsPerMessage int
 	MCPMaxLLMCallsPerRun          int
 	MCPMaxToolCallsPerRun         int
+	WebSearchProvider             string
+	WebSearchBaseURL              string
+	WebSearchAPIKey               string
+	WebSearchTimeoutSeconds       int
+	WebSearchMaxResults           int
+	CodeSandboxEnabled            bool
+	CodeSandboxTimeoutSeconds     int
+	CodeSandboxMaxCodeChars       int
+	CodeSandboxMaxOutputChars     int
+	VoiceASREnabled               bool
+	VoiceASRProvider              string
+	VoiceASRModel                 string
+	VoiceTTSEnabled               bool
+	VoiceTTSProvider              string
+	VoiceTTSModel                 string
+	VoiceTTSVoice                 string
 }
 
 // defaultYAMLPaths 固定读取仓库根目录的 config.yaml。
@@ -536,6 +570,7 @@ func Load() Config {
 		ThirdPartyLoginEnabled:            true,
 		EmailRegistrationEnabled:          true,
 		EmailVerificationEnabled:          false,
+		InviteRegistrationRequired:        false,
 		EmailRegistrationDomains:          "",
 		EmailRegistrationNoAlias:          false,
 		AutoLinkVerifiedEmail:             true,
@@ -638,13 +673,45 @@ func Load() Config {
 		ProcessTraceStoreUpstreamThink:    true,
 		ProcessTracePersistInflight:       true,
 		ContextArtifactRetentionDays:      90,
+		ModerationEnabled:                 false,
+		ModerationBaseURL:                 "",
+		ModerationAPIKey:                  "",
+		ModerationModel:                   "omni-moderation-latest",
+		ModerationThreshold:               0.5,
+		ModerationAction:                  "block",
+		ModerationTimeoutSeconds:          10,
+		ModerationMode:                    "moderations",
+		ModerationFailStrategy:            "fail_open",
+		ModerationClassifierTemplate:      "",
+		ModerationAutoWindowHours:         24,
+		ModerationAutoLimitThreshold:      0,
+		ModerationAutoSuspendThreshold:    0,
+		StatusNotifierEnabled:             false,
+		StatusNotifierWebhookURL:          "",
+		StatusNotifierEmail:               "",
 		MCPEnable:                         false,
-		MCPToolTimeoutSeconds:             10,
+		MCPToolTimeoutSeconds:             60,
 		MCPToolRetryCount:                 0,
 		MCPMaxConcurrentCalls:             8,
 		MCPMaxSelectedToolsPerMessage:     DefaultMCPMaxSelectedToolsPerMessage,
 		MCPMaxLLMCallsPerRun:              5,
 		MCPMaxToolCallsPerRun:             8,
+		WebSearchProvider:                 "disabled",
+		WebSearchBaseURL:                  "",
+		WebSearchAPIKey:                   "",
+		WebSearchTimeoutSeconds:           10,
+		WebSearchMaxResults:               5,
+		CodeSandboxEnabled:                false,
+		CodeSandboxTimeoutSeconds:         5,
+		CodeSandboxMaxCodeChars:           12000,
+		CodeSandboxMaxOutputChars:         12000,
+		VoiceASREnabled:                   false,
+		VoiceASRProvider:                  "disabled",
+		VoiceASRModel:                     "",
+		VoiceTTSEnabled:                   false,
+		VoiceTTSProvider:                  "disabled",
+		VoiceTTSModel:                     "",
+		VoiceTTSVoice:                     "",
 	}
 }
 

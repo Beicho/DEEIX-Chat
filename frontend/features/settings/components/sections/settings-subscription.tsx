@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Banknote, Check, Ticket } from "lucide-react";
+import { Banknote, Check, Download, Ticket } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
@@ -19,8 +19,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useProgressiveRows } from "@/hooks/use-progressive-rows";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
-import { createBillingCheckout, getBillingConfig, getBillingOverview, listBillingDailyUsage, listBillingMonthlyUsage, listBillingPlans, listBillingUsage, redeemBillingCode, subscribeBillingPlan } from "@/shared/api/billing";
-import type { BillingAccountData, BillingConfigData, BillingMode, BillingOverviewData, BillingSubscriptionEntitlementDTO, BillingUsageDailyDTO, BillingUsageLedgerDTO, BillingUsageMonthlyDTO } from "@/shared/api/billing.types";
+import { createBillingCheckout, exportBillingUsageCSV, getBillingConfig, getBillingOverview, getBillingPaymentOrder, listBillingBalanceTransactions, listBillingDailyUsage, listBillingMonthlyUsage, listBillingPaymentOrders, listBillingPlans, listBillingRedemptions, listBillingUsage, redeemBillingCode, subscribeBillingPlan } from "@/shared/api/billing";
+import type { BillingAccountData, BillingBalanceTransactionDTO, BillingConfigData, BillingMode, BillingOverviewData, BillingPaymentOrderDTO, BillingRedemptionDTO, BillingSubscriptionEntitlementDTO, BillingUsageDailyDTO, BillingUsageLedgerDTO, BillingUsageMonthlyDTO } from "@/shared/api/billing.types";
 import type { BillingPlanDTO, BillingPlanPriceDTO } from "@/shared/api/billing.types";
 import {
   SettingsPage,
@@ -30,6 +30,7 @@ import { useAuthSession } from "@/shared/auth/auth-session-context";
 import { billingRateMultiplierNote, cacheWriteBillingLabel, cacheWriteBillingNote } from "@/shared/lib/billing-display";
 import type { BillingDisplayLabels } from "@/shared/lib/billing-display";
 import type { UserDTO } from "@/shared/api/auth.types";
+import { cn } from "@/lib/utils";
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 
 function resolveDefaultPrice(plan: BillingPlanDTO | null | undefined): BillingPlanPriceDTO | null {
@@ -40,9 +41,42 @@ function resolveDefaultPrice(plan: BillingPlanDTO | null | undefined): BillingPl
   return prices.find((item) => item.isDefault) || prices[0] || null;
 }
 
+function resolveSelectedPlanPrice(plan: BillingPlanDTO, selectedPriceID?: number): BillingPlanPriceDTO | null {
+  const prices = plan.prices ?? [];
+  if (selectedPriceID) {
+    const selected = prices.find((item) => item.id === selectedPriceID);
+    if (selected) return selected;
+  }
+  return resolveDefaultPrice(plan);
+}
+
 type BillingRuntimeConfig = BillingConfigData["config"];
 type BillingAccount = BillingAccountData["account"];
 const USAGE_LOG_PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
+const QUICK_TOP_UP_CNY_AMOUNTS = [10, 50, 100] as const;
+const BILLING_PENDING_ORDER_KEY = "deeix-chat:billing:pending-order";
+
+function todayDateInputValue(offsetDays = 0): string {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function dateInputToRFC3339(value: string, endOfDay = false): string {
+  if (!value.trim()) return "";
+  return `${value}T${endOfDay ? "23:59:59" : "00:00:00"}Z`;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 type BillingTooltipLabels = {
   display: BillingDisplayLabels;
@@ -97,53 +131,61 @@ function useBillingTooltipLabels(): BillingTooltipLabels {
   );
 }
 
-function formatPlanPrice(price: BillingPlanPriceDTO | null, intervalLabels: { lifetime: string; year: string; month: string }): string {
-  if (!price) return "-";
-  const amount = new Intl.NumberFormat("en-US", {
+function formatMoney(value: number, locale: string, currency = "USD", options: Intl.NumberFormatOptions = {}): string {
+  const amount = Number.isFinite(value) ? value : 0;
+  return new Intl.NumberFormat(locale, {
     style: "currency",
-    currency: (price.currency || "USD").toUpperCase(),
-  }).format((price.amountCents || 0) / 100);
+    currency: currency.toUpperCase(),
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4,
+    ...options,
+  }).format(amount);
+}
+
+function formatPlanPrice(price: BillingPlanPriceDTO | null, intervalLabels: { lifetime: string; year: string; month: string }, locale: string): string {
+  if (!price) return "-";
+  const amount = formatMoney((price.amountCents || 0) / 100, locale, price.currency || "USD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (price.billingInterval === "lifetime") return `${amount} / ${intervalLabels.lifetime}`;
   if (price.billingInterval === "year") return `${amount} / ${intervalLabels.year}`;
   return `${amount} / ${intervalLabels.month}`;
 }
 
-function formatPlanCredit(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0";
-  return `$${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+function formatPlanCredit(value: number, locale = "en-US"): string {
+  if (!Number.isFinite(value) || value <= 0) return formatMoney(0, locale, "USD");
+  return formatMoney(value, locale, "USD", { maximumFractionDigits: 2 });
 }
 
-function formatAccountBalance(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0.000000";
-  return `$${value.toLocaleString("en-US", {
-    minimumFractionDigits: 6,
-    maximumFractionDigits: 6,
-  })}`;
+function formatAccountBalance(value: number, locale = "en-US"): string {
+  if (!Number.isFinite(value) || value <= 0) return formatMoney(0, locale, "USD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatMoney(value, locale, "USD", {
+    minimumFractionDigits: value < 1 ? 4 : 2,
+    maximumFractionDigits: 4,
+  });
 }
 
-function formatUsageCost(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0";
-  if (value < 0.000001) return "< $0.000001";
-  return `$${value.toLocaleString("en-US", {
+function formatUsageCost(value: number, locale = "en-US"): string {
+  if (!Number.isFinite(value) || value <= 0) return formatMoney(0, locale, "USD");
+  if (value < 0.000001) return `< ${formatMoney(0.000001, locale, "USD", { minimumFractionDigits: 6, maximumFractionDigits: 6 })}`;
+  return formatMoney(value, locale, "USD", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 6,
-  })}`;
+  });
 }
 
-function formatTooltipUsageCost(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0.000000";
-  return `$${value.toLocaleString("en-US", {
+function formatTooltipUsageCost(value: number, locale = "en-US"): string {
+  if (!Number.isFinite(value) || value <= 0) return formatMoney(0, locale, "USD", { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+  return formatMoney(value, locale, "USD", {
     minimumFractionDigits: 6,
     maximumFractionDigits: 6,
-  })}`;
+  });
 }
 
-function formatTooltipUnitPrice(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0.00";
-  return `$${value.toLocaleString("en-US", {
+function formatTooltipUnitPrice(value: number, locale = "en-US"): string {
+  if (!Number.isFinite(value) || value <= 0) return formatMoney(0, locale, "USD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatMoney(value, locale, "USD", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`;
+  });
 }
 
 function nanousdToUSD(value: number): number {
@@ -151,13 +193,13 @@ function nanousdToUSD(value: number): number {
   return value / 1_000_000_000;
 }
 
-function formatUsageSummaryCost(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0";
-  if (value < 0.0001) return "< $0.0001";
-  return `$${value.toLocaleString("en-US", {
+function formatUsageSummaryCost(value: number, locale = "en-US"): string {
+  if (!Number.isFinite(value) || value <= 0) return formatMoney(0, locale, "USD");
+  if (value < 0.0001) return `< ${formatMoney(0.0001, locale, "USD", { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`;
+  return formatMoney(value, locale, "USD", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 4,
-  })}`;
+  });
 }
 
 function formatUsageAxisTokens(value: number): string {
@@ -669,11 +711,12 @@ function TieredBillingTable({ line }: { line: Extract<BillingTooltipLine, { type
 
 function BaseBillingSummary({ items }: { items: BillingServiceItemSnapshot[] }) {
   const labels = useBillingTooltipLabels();
+  const { locale } = useAppLocale();
   const total = readServiceItemsBilledNanousd(items);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="inline-flex cursor-default items-center font-medium tabular-nums text-foreground">{formatUsageCost(nanousdToUSD(total))}</span>
+        <span className="inline-flex cursor-default items-center font-medium tabular-nums text-foreground">{formatUsageCost(nanousdToUSD(total), locale)}</span>
       </TooltipTrigger>
       <TooltipContent>
         <TooltipLines lines={buildBaseBillingTooltipLines(items, labels)} />
@@ -684,13 +727,14 @@ function BaseBillingSummary({ items }: { items: BillingServiceItemSnapshot[] }) 
 
 function ServiceBillingSummary({ item }: { item: BillingUsageLedgerDTO }) {
   const labels = useBillingTooltipLabels();
+  const { locale } = useAppLocale();
   const snapshot = parsePricingSnapshot(item.pricingSnapshotJSON);
   const currentServiceItems = readServiceItems(snapshot);
   const total = item.isFreeModel ? 0 : readMainBilledNanousd(snapshot) + readServiceItemsBilledNanousd(currentServiceItems);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="inline-flex cursor-default items-center font-medium tabular-nums text-foreground">{formatUsageCost(nanousdToUSD(total))}</span>
+        <span className="inline-flex cursor-default items-center font-medium tabular-nums text-foreground">{formatUsageCost(nanousdToUSD(total), locale)}</span>
       </TooltipTrigger>
       <TooltipContent>
         <TooltipLines lines={buildServiceBillingTooltipLines(item, labels)} />
@@ -850,9 +894,9 @@ function resolveEPayTypeLabel(type: string, labels: { alipay: string; wxpay: str
   return labels.custom(type);
 }
 
-function resolvePlanFeatures(plan: BillingPlanDTO, labels: { monthlyCredit: (credit: string) => string; freeModelsNotIncluded: string }): string[] {
+function resolvePlanFeatures(plan: BillingPlanDTO, labels: { monthlyCredit: (credit: string) => string; freeModelsNotIncluded: string }, locale = "en-US"): string[] {
   const fallback = [
-    labels.monthlyCredit(formatPlanCredit(plan.periodCreditUSD)),
+    labels.monthlyCredit(formatPlanCredit(plan.periodCreditUSD, locale)),
     labels.freeModelsNotIncluded,
   ];
   try {
@@ -949,7 +993,7 @@ type UsageTrendStats = {
 
 const usageTokenChartConfig = {
   totalTokens: {
-    label: "Tokens",
+    label: "",
     color: "var(--chart-1)",
   },
 } satisfies ChartConfig;
@@ -967,11 +1011,12 @@ function MetricTile({ label, value }: { label: string; value: string }) {
 
 function UsageTrendMetricTiles({ stats }: { stats: UsageTrendStats }) {
   const t = useTranslations("settings.subscriptionPage.usageTrend.metrics");
+  const { locale } = useAppLocale();
   return (
     <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
-      <MetricTile label={t("totalCost")} value={formatUsageSummaryCost(stats.totalBilled)} />
+      <MetricTile label={t("totalCost")} value={formatUsageSummaryCost(stats.totalBilled, locale)} />
       <MetricTile label={t("totalTokens")} value={formatFormulaTokenCount(stats.totalTokens)} />
-      <MetricTile label={t("totalCalls")} value={stats.totalCalls.toLocaleString("en-US")} />
+      <MetricTile label={t("totalCalls")} value={stats.totalCalls.toLocaleString(locale)} />
       <MetricTile label={t("averageLatency")} value={formatUsageTrendLatency(stats.avgLatencyMS)} />
     </div>
   );
@@ -1031,6 +1076,7 @@ function DailyUsageChartTooltip({
   }>;
 }) {
   const t = useTranslations("settings.subscriptionPage.usageTrend.tooltip");
+  const { locale } = useAppLocale();
   const item = payload?.[0]?.payload;
   if (!active || !item) {
     return null;
@@ -1042,14 +1088,14 @@ function DailyUsageChartTooltip({
       <div className="grid gap-1 text-muted-foreground">
         <div className="flex items-center justify-between gap-6">
           <span>{t("cost")}</span>
-          <span className="font-medium text-foreground tabular-nums">{formatUsageSummaryCost(item.billedUsd)}</span>
+          <span className="font-medium text-foreground tabular-nums">{formatUsageSummaryCost(item.billedUsd, locale)}</span>
         </div>
         <div className="flex items-center justify-between gap-6">
           <span>{t("calls")}</span>
-          <span className="font-medium text-foreground tabular-nums">{item.callCount.toLocaleString("en-US")}</span>
+          <span className="font-medium text-foreground tabular-nums">{item.callCount.toLocaleString(locale)}</span>
         </div>
         <div className="flex items-center justify-between gap-6">
-          <span>Tokens</span>
+          <span>{t("tokens")}</span>
           <span className="font-medium text-foreground tabular-nums">{formatTokenCount(item.totalTokens)}</span>
         </div>
         {item.models.length > 0 ? (
@@ -1217,6 +1263,7 @@ function MonthlyUsageChartTooltip({
   }>;
 }) {
   const t = useTranslations("settings.subscriptionPage.usageTrend.tooltip");
+  const { locale } = useAppLocale();
   const item = payload?.[0]?.payload;
   if (!active || !item) {
     return null;
@@ -1228,14 +1275,14 @@ function MonthlyUsageChartTooltip({
       <div className="grid gap-1 text-muted-foreground">
         <div className="flex items-center justify-between gap-6">
           <span>{t("cost")}</span>
-          <span className="font-medium text-foreground tabular-nums">{formatUsageSummaryCost(item.billedUsd)}</span>
+          <span className="font-medium text-foreground tabular-nums">{formatUsageSummaryCost(item.billedUsd, locale)}</span>
         </div>
         <div className="flex items-center justify-between gap-6">
           <span>{t("calls")}</span>
-          <span className="font-medium text-foreground tabular-nums">{item.callCount.toLocaleString("en-US")}</span>
+          <span className="font-medium text-foreground tabular-nums">{item.callCount.toLocaleString(locale)}</span>
         </div>
         <div className="flex items-center justify-between gap-6">
-          <span>Tokens</span>
+          <span>{t("tokens")}</span>
           <span className="font-medium text-foreground tabular-nums">{formatTokenCount(item.totalTokens)}</span>
         </div>
       </div>
@@ -1474,7 +1521,7 @@ function SubscriptionEntitlementQueue({
               {index > 0 ? <span className="text-muted-foreground/50">/</span> : null}
               <span
                 className={item.isCurrent ? "font-medium text-foreground" : undefined}
-                title={`${labels.range(start, end)} · ${labels.credit(formatPlanCredit(item.plan.periodCreditUSD))}`}
+                title={`${labels.range(start, end)} · ${labels.credit(formatPlanCredit(item.plan.periodCreditUSD, locale))}`}
               >
                 {item.plan.name || item.plan.code}
               </span>
@@ -1506,6 +1553,10 @@ export function SettingsSubscription() {
   const [usageStatus, setUsageStatus] = React.useState("");
   const [usageSort, setUsageSort] = React.useState("newest");
   const [usageView, setUsageView] = React.useState<"daily" | "monthly">("daily");
+  const [usageRange, setUsageRange] = React.useState<"7" | "30" | "90" | "custom">("30");
+  const [usageStartDate, setUsageStartDate] = React.useState(() => todayDateInputValue(-29));
+  const [usageEndDate, setUsageEndDate] = React.useState(() => todayDateInputValue(0));
+  const [usageExporting, setUsageExporting] = React.useState(false);
   const billingMode = billingConfig?.mode ?? "self";
   const [billingLoading, setBillingLoading] = React.useState(true);
   const [usageLoading, setUsageLoading] = React.useState(true);
@@ -1516,8 +1567,17 @@ export function SettingsSubscription() {
   const [paymentDialogOpen, setPaymentDialogOpen] = React.useState(false);
   const [selectedPlan, setSelectedPlan] = React.useState<BillingPlanDTO | null>(null);
   const [selectedPrice, setSelectedPrice] = React.useState<BillingPlanPriceDTO | null>(null);
+  const [selectedPriceByPlanID, setSelectedPriceByPlanID] = React.useState<Record<number, number>>({});
+  const [selectedCycles, setSelectedCycles] = React.useState(1);
   const [selectedPaymentProvider, setSelectedPaymentProvider] = React.useState<"stripe" | "epay">("stripe");
   const [selectedEPayType, setSelectedEPayType] = React.useState("alipay");
+  const [pendingOrderNo, setPendingOrderNo] = React.useState<string | null>(null);
+  const [pendingOrder, setPendingOrder] = React.useState<BillingPaymentOrderDTO | null>(null);
+  const [pendingOrderChecking, setPendingOrderChecking] = React.useState(false);
+  const [paymentOrders, setPaymentOrders] = React.useState<BillingPaymentOrderDTO[]>([]);
+  const [redemptionHistory, setRedemptionHistory] = React.useState<BillingRedemptionDTO[]>([]);
+  const [balanceTransactions, setBalanceTransactions] = React.useState<BillingBalanceTransactionDTO[]>([]);
+  const [historyLoading, setHistoryLoading] = React.useState(false);
   const [topUpDialogOpen, setTopUpDialogOpen] = React.useState(false);
   const [redemptionDialogOpen, setRedemptionDialogOpen] = React.useState(false);
   const [redemptionCode, setRedemptionCode] = React.useState("");
@@ -1577,7 +1637,7 @@ export function SettingsSubscription() {
       getBillingConfig(accessToken),
       listBillingPlans(accessToken),
       getBillingOverview(accessToken),
-      listBillingDailyUsage(accessToken),
+      listBillingDailyUsage(accessToken, { days: 30 }),
       listBillingMonthlyUsage(accessToken, 12),
     ])
       .then(([configData, plans, overviewData, dailyUsageData, monthlyUsageData]) => ({
@@ -1609,6 +1669,94 @@ export function SettingsSubscription() {
     };
   }, [accessToken, resolveErrorMessage, t, user]);
 
+  React.useEffect(() => {
+    const stored = window.localStorage.getItem(BILLING_PENDING_ORDER_KEY);
+    if (stored?.trim()) {
+      setPendingOrderNo(stored.trim());
+    }
+    const params = new URLSearchParams(window.location.search);
+    const payment = params.get("payment");
+    if (payment === "success") {
+      toast.info(t("toasts.paymentChecking"));
+    } else if (payment === "cancel") {
+      toast.error(t("toasts.paymentCanceled"));
+    }
+    if (payment) {
+      params.delete("payment");
+      const query = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    }
+  }, [t]);
+
+  const loadBillingHistory = React.useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const [orders, redemptions, transactions] = await Promise.all([
+        listBillingPaymentOrders(accessToken, { page: 1, pageSize: 8 }),
+        listBillingRedemptions(accessToken, { page: 1, pageSize: 8 }),
+        listBillingBalanceTransactions(accessToken, { page: 1, pageSize: 8 }),
+      ]);
+      setPaymentOrders(orders.results ?? []);
+      setRedemptionHistory(redemptions.results ?? []);
+      setBalanceTransactions(transactions.results ?? []);
+    } catch (error) {
+      toast.error(t("toasts.historyLoadFailed"), { description: resolveErrorMessage(error, t("toasts.retryLater")) });
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [accessToken, resolveErrorMessage, t]);
+
+  React.useEffect(() => {
+    void loadBillingHistory();
+  }, [loadBillingHistory]);
+
+  const refreshBillingOverview = React.useCallback(async () => {
+    const overviewData = await getBillingOverview(accessToken);
+    setBillingOverview(overviewData.overview);
+  }, [accessToken]);
+
+  React.useEffect(() => {
+    if (!pendingOrderNo) {
+      return;
+    }
+    window.localStorage.setItem(BILLING_PENDING_ORDER_KEY, pendingOrderNo);
+    let stopped = false;
+    const check = async () => {
+      setPendingOrderChecking(true);
+      try {
+        const data = await getBillingPaymentOrder(accessToken, pendingOrderNo);
+        if (stopped) return;
+        const order = data.order;
+        setPendingOrder(order);
+        if (order.status === "paid") {
+          window.localStorage.removeItem(BILLING_PENDING_ORDER_KEY);
+          setPendingOrderNo(null);
+          setPaymentDialogOpen(false);
+          setTopUpDialogOpen(false);
+          toast.success(t("toasts.paymentCompleted"));
+          await refreshBillingOverview();
+          await loadBillingHistory();
+          return;
+        }
+        if (order.status === "failed" || order.status === "expired") {
+          window.localStorage.removeItem(BILLING_PENDING_ORDER_KEY);
+          setPendingOrderNo(null);
+          toast.error(order.status === "expired" ? t("toasts.paymentExpired") : t("toasts.paymentFailed"));
+        }
+      } catch {
+        // Keep polling. The payment provider may return before the webhook finishes.
+      } finally {
+        if (!stopped) setPendingOrderChecking(false);
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 3000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [accessToken, loadBillingHistory, pendingOrderNo, refreshBillingOverview, t]);
+
   const loadUsageLogs = React.useCallback(async (page: number, pageSize: number, query: string, status: string, sort: string) => {
     setUsageLoading(true);
     try {
@@ -1625,6 +1773,41 @@ export function SettingsSubscription() {
   React.useEffect(() => {
     void loadUsageLogs(usagePage, usagePageSize, usageQuery, usageStatus, usageSort);
   }, [loadUsageLogs, usagePage, usagePageSize, usageQuery, usageStatus, usageSort]);
+
+  const loadDailyUsageRange = React.useCallback(async () => {
+    try {
+      const options = usageRange === "custom"
+        ? { startDate: usageStartDate, endDate: usageEndDate }
+        : { days: Number(usageRange) };
+      const items = await listBillingDailyUsage(accessToken, options);
+      setDailyUsage(items ?? []);
+    } catch (error) {
+      toast.error(t("toasts.usageTrendLoadFailed"), { description: resolveErrorMessage(error, t("toasts.retryLater")) });
+    }
+  }, [accessToken, resolveErrorMessage, t, usageEndDate, usageRange, usageStartDate]);
+
+  React.useEffect(() => {
+    void loadDailyUsageRange();
+  }, [loadDailyUsageRange]);
+
+  const handleExportUsageCSV = React.useCallback(async () => {
+    setUsageExporting(true);
+    try {
+      const blob = await exportBillingUsageCSV(accessToken, {
+        query: usageQuery,
+        status: usageStatus,
+        sort: usageSort,
+        createdFrom: usageRange === "custom" ? dateInputToRFC3339(usageStartDate) : dateInputToRFC3339(todayDateInputValue(-(Number(usageRange) - 1))),
+        createdTo: usageRange === "custom" ? dateInputToRFC3339(usageEndDate, true) : dateInputToRFC3339(todayDateInputValue(0), true),
+      });
+      downloadBlob(blob, `deeix-chat-usage-${todayDateInputValue()}.csv`);
+      toast.success(t("toasts.usageCSVExported"));
+    } catch (error) {
+      toast.error(t("toasts.usageCSVExportFailed"), { description: resolveErrorMessage(error, t("toasts.retryLater")) });
+    } finally {
+      setUsageExporting(false);
+    }
+  }, [accessToken, resolveErrorMessage, t, usageEndDate, usageQuery, usageRange, usageSort, usageStartDate, usageStatus]);
 
   const epayTypes = React.useMemo(() => {
     const values = billingConfig?.epayTypes?.filter((item) => item.type.trim()) ?? [];
@@ -1645,13 +1828,13 @@ export function SettingsSubscription() {
     }
   }, [epayTypes, selectedEPayType, selectedPaymentProvider]);
 
-  const handleCheckout = React.useCallback(async (price: BillingPlanPriceDTO, paymentProvider: "stripe" | "epay", epayType?: string) => {
+  const handleCheckout = React.useCallback(async (price: BillingPlanPriceDTO, paymentProvider: "stripe" | "epay", epayType?: string, cycles = 1) => {
     setCheckoutPriceID(price.id);
     try {
       const data = await createBillingCheckout(accessToken, {
         orderType: "subscription",
         priceID: price.id,
-        cycles: 1,
+        cycles,
         paymentProvider,
         epayType: paymentProvider === "epay" ? epayType : undefined,
         successURL: `${window.location.origin}/setting/subscription?payment=success`,
@@ -1661,18 +1844,30 @@ export function SettingsSubscription() {
         toast.error(t("toasts.checkoutCreateFailed"), { description: t("toasts.checkoutURLMissing") });
         return;
       }
+      setPendingOrderNo(data.checkout.orderNo);
+      setPendingOrder({
+        ...data.checkout,
+        userID: 0,
+        planID: selectedPlan?.id ?? 0,
+        priceID: price.id,
+        billingInterval: price.billingInterval,
+        cycles,
+        paidAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
       window.open(data.checkout.checkoutURL, "_blank", "noopener,noreferrer");
     } catch (error) {
       toast.error(t("toasts.checkoutCreateFailed"), { description: resolveErrorMessage(error, t("toasts.retryLater")) });
     } finally {
       setCheckoutPriceID(null);
     }
-  }, [accessToken, resolveErrorMessage, t]);
+  }, [accessToken, resolveErrorMessage, selectedPlan?.id, t]);
 
   const handleSubscribeFreePlan = React.useCallback(async (price: BillingPlanPriceDTO) => {
     setCheckoutPriceID(price.id);
     try {
-      await subscribeBillingPlan(accessToken, price.id);
+      await subscribeBillingPlan(accessToken, price.id, selectedCycles);
       toast.success(t("toasts.planUpdated"));
       window.location.reload();
     } catch (error) {
@@ -1680,7 +1875,7 @@ export function SettingsSubscription() {
     } finally {
       setCheckoutPriceID(null);
     }
-  }, [accessToken, resolveErrorMessage, t]);
+  }, [accessToken, resolveErrorMessage, selectedCycles, t]);
 
   const handleTopUp = React.useCallback(async () => {
     const amount = Number(topUpAmount);
@@ -1703,6 +1898,18 @@ export function SettingsSubscription() {
         toast.error(t("toasts.checkoutCreateFailed"), { description: t("toasts.checkoutURLMissing") });
         return;
       }
+      setPendingOrderNo(data.checkout.orderNo);
+      setPendingOrder({
+        ...data.checkout,
+        userID: 0,
+        planID: 0,
+        priceID: 0,
+        billingInterval: "lifetime",
+        cycles: 1,
+        paidAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
       window.open(data.checkout.checkoutURL, "_blank", "noopener,noreferrer");
     } catch (error) {
       toast.error(t("toasts.checkoutCreateFailed"), { description: resolveErrorMessage(error, t("toasts.retryLater")) });
@@ -1776,6 +1983,7 @@ export function SettingsSubscription() {
         }
         setSelectedPlan(plan);
         setSelectedPrice(price);
+        setSelectedCycles(1);
         setPricingDialogOpen(false);
         setPaymentDialogOpen(true);
         return;
@@ -1790,13 +1998,20 @@ export function SettingsSubscription() {
       toast.error(t("toasts.noPlanSelected"), { description: t("toasts.noPlanSelectedDescription") });
       return;
     }
-    await handleCheckout(selectedPrice, selectedPaymentProvider, selectedEPayType);
-  }, [handleCheckout, selectedEPayType, selectedPaymentProvider, selectedPrice, t]);
+    await handleCheckout(selectedPrice, selectedPaymentProvider, selectedEPayType, selectedCycles);
+  }, [handleCheckout, selectedCycles, selectedEPayType, selectedPaymentProvider, selectedPrice, t]);
 
   const periodCredit = billingOverview?.periodCreditUSD ?? currentPlan?.periodCreditUSD ?? 0;
   const periodUsed = billingOverview?.periodUsedUSD ?? 0;
   const periodRemaining = billingOverview?.periodRemainingUSD ?? Math.max(0, periodCredit - periodUsed);
   const periodPercent = periodCredit > 0 ? Math.min(100, Math.max(0, (periodUsed / periodCredit) * 100)) : 0;
+  const daysUntilPeriodEnd = React.useMemo(() => {
+    if (!billingOverview?.periodEndAt) return null;
+    const time = new Date(billingOverview.periodEndAt).getTime();
+    if (!Number.isFinite(time)) return null;
+    return Math.max(0, Math.ceil((time - Date.now()) / 86_400_000));
+  }, [billingOverview?.periodEndAt]);
+  const shouldShowRenewReminder = billingMode === "period" && currentPlan && !isFreePlan(currentPlan) && daysUntilPeriodEnd !== null && daysUntilPeriodEnd <= 7;
   const billingAccount: BillingAccount | null = billingOverview?.account ?? null;
   const selectedPlanActionKind = selectedPlan
     ? resolvePlanActionKind(
@@ -1817,6 +2032,10 @@ export function SettingsSubscription() {
     : selectedPlanActionKind === "upgrade"
       ? t("payment.upgradeTitle")
       : t("payment.title");
+  const selectedPaymentTotalUSD = selectedPrice ? ((selectedPrice.amountCents || 0) * selectedCycles) / 100 : 0;
+  const selectedPaymentCNY = selectedPaymentTotalUSD * (billingConfig?.usdToCNYRate ?? 0);
+  const topUpAmountUSD = Number(topUpAmount);
+  const topUpCNYEstimate = Number.isFinite(topUpAmountUSD) ? topUpAmountUSD * (billingConfig?.usdToCNYRate ?? 0) : 0;
   const paymentImpactDescription = selectedPlanActionKind === "renew"
     ? selectedRenewStartsAfterHigher
       ? t("payment.renewAfterHigherDescription")
@@ -1833,6 +2052,35 @@ export function SettingsSubscription() {
     <SettingsPage className="space-y-6">
       <SettingsSectionHeader title={t("title")} className="px-1" />
 
+      {pendingOrderNo ? (
+        <section className="mx-0.5 rounded-md border border-border bg-muted/30 p-3 xl:mx-1">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-medium">{t("payment.pendingTitle")}</p>
+              <p className="text-xs text-muted-foreground">
+                {pendingOrder ? t("payment.pendingDescriptionWithStatus", { orderNo: pendingOrder.orderNo, status: t(`payment.status.${pendingOrder.status === "paid" ? "paid" : pendingOrder.status === "failed" ? "failed" : pendingOrder.status === "expired" ? "expired" : "pending"}`) }) : t("payment.pendingDescription", { orderNo: pendingOrderNo })}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={pendingOrderChecking}
+              onClick={() => {
+                if (!pendingOrderNo) return;
+                setPendingOrderChecking(true);
+                void getBillingPaymentOrder(accessToken, pendingOrderNo)
+                  .then((data) => setPendingOrder(data.order))
+                  .catch((error) => toast.error(t("toasts.paymentCheckFailed"), { description: resolveErrorMessage(error, t("toasts.retryLater")) }))
+                  .finally(() => setPendingOrderChecking(false));
+              }}
+            >
+              {pendingOrderChecking ? <SpinnerLabel>{t("payment.checking")}</SpinnerLabel> : t("payment.refreshStatus")}
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
       {billingMode === "period" ? (
         <section className="space-y-6 px-0.5 md:space-y-7 xl:space-y-8 xl:px-1">
           <div className="space-y-4 md:space-y-5">
@@ -1841,7 +2089,7 @@ export function SettingsSubscription() {
                 <p className="text-xs font-medium">{t("currentSubscription.title")}</p>
                 <p className="truncate text-sm font-semibold">{currentPlan?.name ?? t("currentSubscription.none")}</p>
                 <p className="text-xs text-muted-foreground">
-                  {currentPlan ? `${formatPlanPrice(currentPrice, intervalLabels)} · ${t("plans.features.monthlyCredit", { credit: formatPlanCredit(periodCredit) })}` : t("currentSubscription.empty")}
+                  {currentPlan ? `${formatPlanPrice(currentPrice, intervalLabels, locale)} · ${t("plans.features.monthlyCredit", { credit: formatPlanCredit(periodCredit, locale) })}` : t("currentSubscription.empty")}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -1856,6 +2104,29 @@ export function SettingsSubscription() {
               </div>
             </div>
           </div>
+
+          {shouldShowRenewReminder && currentPlan ? (
+            <div className="rounded-md border border-border bg-muted/30 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium">{t("currentSubscription.expiryReminderTitle")}</p>
+                  <p className="text-xs text-muted-foreground">{t("currentSubscription.expiryReminderDescription", { days: daysUntilPeriodEnd ?? 0 })}</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={billingLoading}
+                  onClick={() => {
+                    const price = resolveSelectedPlanPrice(currentPlan, selectedPriceByPlanID[currentPlan.id]);
+                    void handleSelectPlan(currentPlan, price, false);
+                  }}
+                >
+                  {t("currentSubscription.renewNow")}
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           <SubscriptionEntitlementQueue
             items={subscriptionEntitlements}
@@ -1879,8 +2150,8 @@ export function SettingsSubscription() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-4 text-xs">
-                <span className="text-muted-foreground">{t("periodUsage.used", { value: formatPlanCredit(periodUsed) })}</span>
-                <span className="text-muted-foreground">{t("periodUsage.total", { value: formatPlanCredit(periodCredit) })}</span>
+                <span className="text-muted-foreground">{t("periodUsage.used", { value: formatPlanCredit(periodUsed, locale) })}</span>
+                <span className="text-muted-foreground">{t("periodUsage.total", { value: formatPlanCredit(periodCredit, locale) })}</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-muted">
                 <div className="h-full rounded-full bg-foreground/70" style={{ width: `${periodPercent}%` }} />
@@ -1894,7 +2165,7 @@ export function SettingsSubscription() {
         <section className="space-y-6 px-0.5 md:space-y-7 xl:space-y-8 xl:px-1">
           <ActionRow
             title={t("usageBilling.title")}
-            value={t("usageBilling.balance", { value: formatAccountBalance(billingAccount?.balanceUSD ?? 0) })}
+            value={t("usageBilling.balance", { value: formatAccountBalance(billingAccount?.balanceUSD ?? 0, locale) })}
             action={
               <div className="flex items-center gap-2">
                 <Button type="button" variant="outline" disabled={billingLoading || redemptionLoading} onClick={() => setRedemptionDialogOpen(true)}>
@@ -1907,6 +2178,16 @@ export function SettingsSubscription() {
               </div>
             }
           />
+          {(billingAccount?.balanceUSD ?? 0) <= 2 ? (
+            <div className="rounded-md border border-border bg-muted/30 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-muted-foreground">{t("usageBilling.lowBalanceHint")}</p>
+                <Button type="button" size="sm" variant="outline" disabled={paymentDisabled} onClick={() => setTopUpDialogOpen(true)}>
+                  {t("usageBilling.topUp")}
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -1921,22 +2202,63 @@ export function SettingsSubscription() {
         <div className="space-y-4 md:space-y-5">
           <div className="flex h-9 items-center justify-between gap-3">
             <h3 className="text-sm font-semibold">{usageView === "daily" ? t("usageTrend.dailyTitle") : t("usageTrend.monthlyTitle")}</h3>
-            <div className="inline-flex items-center gap-1 rounded-full bg-muted/40 p-1">
-              <button
-                type="button"
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${usageView === "daily" ? "bg-background text-foreground shadow-xs" : "text-foreground/60 hover:text-foreground"}`}
-                onClick={() => setUsageView("daily")}
-              >
-                {t("usageTrend.daily")}
-              </button>
-              <button
-                type="button"
-                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${usageView === "monthly" ? "bg-background text-foreground shadow-xs" : "text-foreground/60 hover:text-foreground"}`}
-                onClick={() => setUsageView("monthly")}
-              >
-                {t("usageTrend.monthly")}
-              </button>
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={usageExporting} onClick={() => void handleExportUsageCSV()}>
+                {usageExporting ? <SpinnerLabel>{t("usageTrend.exporting")}</SpinnerLabel> : (
+                  <>
+                    <Download className="size-3.5" />
+                    {t("usageTrend.exportCSV")}
+                  </>
+                )}
+              </Button>
+              <div className="inline-flex items-center gap-1 rounded-full bg-muted/40 p-1">
+                <button
+                  type="button"
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${usageView === "daily" ? "bg-background text-foreground shadow-xs" : "text-foreground/60 hover:text-foreground"}`}
+                  onClick={() => setUsageView("daily")}
+                >
+                  {t("usageTrend.daily")}
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${usageView === "monthly" ? "bg-background text-foreground shadow-xs" : "text-foreground/60 hover:text-foreground"}`}
+                  onClick={() => setUsageView("monthly")}
+                >
+                  {t("usageTrend.monthly")}
+                </button>
+              </div>
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {(["7", "30", "90"] as const).map((range) => (
+              <button
+                key={range}
+                type="button"
+                className={cn(
+                  "min-h-9 rounded-md border px-3 text-xs",
+                  usageRange === range ? "border-foreground bg-background font-medium" : "border-border bg-transparent text-muted-foreground",
+                )}
+                onClick={() => setUsageRange(range)}
+              >
+                {t(`usageTrend.ranges.${range}`)}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={cn(
+                "min-h-9 rounded-md border px-3 text-xs",
+                usageRange === "custom" ? "border-foreground bg-background font-medium" : "border-border bg-transparent text-muted-foreground",
+              )}
+              onClick={() => setUsageRange("custom")}
+            >
+              {t("usageTrend.ranges.custom")}
+            </button>
+            {usageRange === "custom" ? (
+              <>
+                <Input className="h-9 w-36 text-xs" type="date" value={usageStartDate} onChange={(event) => setUsageStartDate(event.target.value)} aria-label={t("usageTrend.startDate")} />
+                <Input className="h-9 w-36 text-xs" type="date" value={usageEndDate} onChange={(event) => setUsageEndDate(event.target.value)} aria-label={t("usageTrend.endDate")} />
+              </>
+            ) : null}
           </div>
           <UsageTrendMetricTiles stats={trendStats} />
           {usageView === "daily" ? <DailyUsageChart items={dailyUsage} loading={billingLoading} /> : <MonthlyUsageChart items={monthlyUsage} loading={billingLoading} />}
@@ -1970,6 +2292,86 @@ export function SettingsSubscription() {
             setUsagePage(1);
           }}
         />
+        <Separator />
+        <div className="space-y-4">
+          <div className="flex h-9 items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold">{t("history.title")}</h3>
+            <Button type="button" variant="outline" size="sm" disabled={historyLoading} onClick={() => void loadBillingHistory()}>
+              {historyLoading ? <SpinnerLabel>{t("history.loading")}</SpinnerLabel> : t("history.refresh")}
+            </Button>
+          </div>
+          <div className="grid gap-4 xl:grid-cols-3">
+            <div className="min-w-0 space-y-2 rounded-md bg-muted/25 p-3">
+              <p className="text-xs font-medium">{t("history.orders")}</p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("history.columns.time")}</TableHead>
+                    <TableHead>{t("history.columns.amount")}</TableHead>
+                    <TableHead>{t("history.columns.status")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {historyLoading ? <TableSkeletonRows colSpan={3} rowCount={3} /> : null}
+                  {!historyLoading && paymentOrders.length === 0 ? <TableEmptyRow colSpan={3}>{t("history.empty")}</TableEmptyRow> : null}
+                  {!historyLoading ? paymentOrders.map((item) => (
+                    <TableRow key={item.orderNo}>
+                      <TableCell className="text-xs text-muted-foreground">{formatUsageLogTime(item.createdAt, locale)}</TableCell>
+                      <TableCell className="text-xs tabular-nums">{formatMoney((item.payAmountCents || 0) / 100, locale, item.payCurrency || "USD", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="text-xs">{t(`payment.status.${item.status === "paid" ? "paid" : item.status === "failed" ? "failed" : item.status === "expired" ? "expired" : "pending"}`)}</TableCell>
+                    </TableRow>
+                  )) : null}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="min-w-0 space-y-2 rounded-md bg-muted/25 p-3">
+              <p className="text-xs font-medium">{t("history.redemptions")}</p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("history.columns.time")}</TableHead>
+                    <TableHead>{t("history.columns.type")}</TableHead>
+                    <TableHead>{t("history.columns.value")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {historyLoading ? <TableSkeletonRows colSpan={3} rowCount={3} /> : null}
+                  {!historyLoading && redemptionHistory.length === 0 ? <TableEmptyRow colSpan={3}>{t("history.empty")}</TableEmptyRow> : null}
+                  {!historyLoading ? redemptionHistory.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell className="text-xs text-muted-foreground">{formatUsageLogTime(item.createdAt, locale)}</TableCell>
+                      <TableCell className="text-xs">{item.rewardType === "subscription" ? t("history.subscriptionReward") : t("history.balanceReward")}</TableCell>
+                      <TableCell className="text-xs tabular-nums">{item.rewardType === "subscription" ? t("history.planID", { id: item.planID || 0 }) : formatPlanCredit(item.creditUSD, locale)}</TableCell>
+                    </TableRow>
+                  )) : null}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="min-w-0 space-y-2 rounded-md bg-muted/25 p-3">
+              <p className="text-xs font-medium">{t("history.balance")}</p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("history.columns.time")}</TableHead>
+                    <TableHead>{t("history.columns.type")}</TableHead>
+                    <TableHead>{t("history.columns.amount")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {historyLoading ? <TableSkeletonRows colSpan={3} rowCount={3} /> : null}
+                  {!historyLoading && balanceTransactions.length === 0 ? <TableEmptyRow colSpan={3}>{t("history.empty")}</TableEmptyRow> : null}
+                  {!historyLoading ? balanceTransactions.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell className="text-xs text-muted-foreground">{formatUsageLogTime(item.createdAt, locale)}</TableCell>
+                      <TableCell className="text-xs">{t(`history.transactionTypes.${item.type === "topup" ? "topup" : item.type === "redemption" ? "redemption" : item.type === "usage_debit" ? "usage" : item.type === "usage_refund" ? "refund" : "adjust"}`)}</TableCell>
+                      <TableCell className="text-xs tabular-nums">{formatMoney(item.amountUSD, locale, "USD", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</TableCell>
+                    </TableRow>
+                  )) : null}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
       </section>
 
       <Dialog open={pricingDialogOpen} onOpenChange={setPricingDialogOpen}>
@@ -1980,7 +2382,7 @@ export function SettingsSubscription() {
 
           <div className="space-y-2 xl:hidden">
             {billingPlans.map((plan) => {
-              const price = resolveDefaultPrice(plan);
+              const price = resolveSelectedPlanPrice(plan, selectedPriceByPlanID[plan.id]);
               const isCurrent = isCurrentBillingPlan(plan, currentPlan, viewer);
               const actionKind = resolvePlanActionKind(plan, price, isCurrent, currentPlan, protectedPaidPlanRank);
               const actionLabel = resolvePlanActionLabel(actionKind, planActionLabels);
@@ -1988,6 +2390,7 @@ export function SettingsSubscription() {
               const isSelected = selectedPlan?.id === plan.id;
               const isHighlighted = isCurrent || isSelected;
               const buttonVariant = resolvePlanButtonVariant(actionKind);
+              const features = resolvePlanFeatures(plan, planFeatureLabels, locale).slice(0, 3);
               const actionButton = (
                 <Button
                   type="button"
@@ -2004,17 +2407,44 @@ export function SettingsSubscription() {
                 <div
                   key={plan.id}
                   className={[
-                    "flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-3 transition-colors",
+                    "grid gap-3 rounded-md bg-muted/30 px-3 py-3 transition-colors",
                     isHighlighted ? "ring-1 ring-foreground" : "hover:bg-muted/45",
                   ].join(" ")}
                 >
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p className="truncate text-sm font-medium">{plan.name}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="truncate text-sm font-medium">{plan.name}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{formatPlanPrice(price, intervalLabels, locale)}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground">{formatPlanPrice(price, intervalLabels)}</p>
+                    {actionButton}
                   </div>
-                  {actionButton}
+                  {plan.prices.length > 1 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {plan.prices.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={cn(
+                            "min-h-8 rounded-md border px-2 text-[11px]",
+                            item.id === price?.id ? "border-foreground bg-background font-medium" : "border-border bg-transparent text-muted-foreground",
+                          )}
+                          onClick={() => setSelectedPriceByPlanID((current) => ({ ...current, [plan.id]: item.id }))}
+                        >
+                          {formatPlanPrice(item, intervalLabels, locale)}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="grid gap-1">
+                    {features.map((feature) => (
+                      <div key={feature} className="flex items-start gap-2 text-xs text-muted-foreground">
+                        <Check className="mt-0.5 size-3 shrink-0 text-foreground" />
+                        <span className="leading-5">{feature}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               );
             })}
@@ -2022,12 +2452,12 @@ export function SettingsSubscription() {
 
           <div className="hidden gap-4 pt-4 xl:grid xl:grid-cols-4">
             {billingPlans.map((plan) => {
-              const price = resolveDefaultPrice(plan);
+              const price = resolveSelectedPlanPrice(plan, selectedPriceByPlanID[plan.id]);
               const isCurrent = isCurrentBillingPlan(plan, currentPlan, viewer);
               const actionKind = resolvePlanActionKind(plan, price, isCurrent, currentPlan, protectedPaidPlanRank);
               const actionLabel = resolvePlanActionLabel(actionKind, planActionLabels);
               const disabled = billingLoading || actionKind === "current" || actionKind === "freeBlocked" || actionKind === "unavailable" || checkoutPriceID === price?.id;
-              const features = resolvePlanFeatures(plan, planFeatureLabels).slice(0, 6);
+              const features = resolvePlanFeatures(plan, planFeatureLabels, locale).slice(0, 6);
               const isSelected = selectedPlan?.id === plan.id;
               const isHighlighted = isCurrent || isSelected;
               const buttonVariant = resolvePlanButtonVariant(actionKind);
@@ -2055,8 +2485,25 @@ export function SettingsSubscription() {
                       <h3 className="truncate text-lg font-semibold">{plan.name}</h3>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-2xl font-semibold">{formatPlanPrice(price, intervalLabels)}</p>
+                      <p className="text-2xl font-semibold">{formatPlanPrice(price, intervalLabels, locale)}</p>
                     </div>
+                    {plan.prices.length > 1 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {plan.prices.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={cn(
+                              "min-h-8 rounded-md border px-2 text-[11px]",
+                              item.id === price?.id ? "border-foreground bg-background font-medium" : "border-border bg-transparent text-muted-foreground",
+                            )}
+                            onClick={() => setSelectedPriceByPlanID((current) => ({ ...current, [plan.id]: item.id }))}
+                          >
+                            {formatPlanPrice(item, intervalLabels, locale)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
 
                   {actionButton}
@@ -2083,12 +2530,44 @@ export function SettingsSubscription() {
             <DialogDescription>
               <span className="block">
                 {selectedPlan && selectedPrice
-                  ? `${selectedPlan.name} · ${formatPlanPrice(selectedPrice, intervalLabels)}`
+                  ? `${selectedPlan.name} · ${formatPlanPrice(selectedPrice, intervalLabels, locale)}`
                   : t("payment.description")}
               </span>
               {paymentImpactDescription ? <span className="mt-1 block">{paymentImpactDescription}</span> : null}
             </DialogDescription>
           </DialogHeader>
+          {selectedPrice && selectedPrice.billingInterval !== "lifetime" ? (
+            <div className="grid gap-2 rounded-md bg-muted/35 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted-foreground">{t("payment.cycles")}</span>
+                <div className="flex items-center gap-1">
+                  {[1, 3, 6, 12].map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      className={cn(
+                        "min-h-8 rounded-md border px-2 text-xs tabular-nums",
+                        selectedCycles === count ? "border-foreground bg-background font-medium" : "border-border bg-transparent text-muted-foreground",
+                      )}
+                      onClick={() => setSelectedCycles(count)}
+                    >
+                      {count}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <span className="text-muted-foreground">{t("payment.total")}</span>
+                <span className="font-medium tabular-nums">{formatMoney(selectedPaymentTotalUSD, locale, selectedPrice.currency || "USD", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+              {selectedPaymentProvider === "epay" && selectedPaymentCNY > 0 ? (
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className="text-muted-foreground">{t("payment.cnyEstimate")}</span>
+                  <span className="font-medium tabular-nums">{formatMoney(selectedPaymentCNY, locale, "CNY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="space-y-2">
             {paymentProviders.includes("stripe") ? (
               <button
@@ -2160,7 +2639,30 @@ export function SettingsSubscription() {
               disabled={billingLoading || topUpLoading || paymentDisabled}
               aria-label={t("topUp.amountAria")}
             />
+            {selectedPaymentProvider === "epay" ? (
+              <p className="text-xs text-muted-foreground">
+                {t("topUp.cnyEstimate", { value: formatMoney(topUpCNYEstimate, locale, "CNY", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) })}
+              </p>
+            ) : null}
           </div>
+          {selectedPaymentProvider === "epay" ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">{t("topUp.quickCNY")}</p>
+              <div className="grid grid-cols-3 gap-2">
+                {QUICK_TOP_UP_CNY_AMOUNTS.map((amount) => (
+                  <button
+                    key={amount}
+                    type="button"
+                    className="min-h-10 rounded-md border border-border bg-transparent px-2 text-xs text-foreground"
+                    disabled={billingLoading || topUpLoading || paymentDisabled || !(billingConfig?.usdToCNYRate ?? 0)}
+                    onClick={() => setTopUpAmount(((amount / (billingConfig?.usdToCNYRate || 7.2))).toFixed(2))}
+                  >
+                    {formatMoney(amount, locale, "CNY", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {!paymentDisabled ? (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">{t("payment.method")}</p>

@@ -21,6 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableRow, TableSkeletonRows } from "@/components/ui/table";
 import { ChangePasswordDialog, CurrentEmailVerificationDialog, EmailSecurityDialog, SecurityVerificationDialog, TwoFactorDialog } from "@/features/settings/components/sections/account-security-dialogs";
@@ -83,6 +84,85 @@ function ValueRow({
   );
 }
 
+function SessionCard({
+  session,
+  locale,
+  revoking,
+  onLogout,
+}: {
+  session: ActiveSessionDTO;
+  locale: string;
+  revoking: boolean;
+  onLogout: (session: ActiveSessionDTO) => void;
+}) {
+  const t = useTranslations("settings.accountPage");
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-background p-3">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="min-w-0 truncate text-xs font-medium" title={resolveSessionTitle(session, t)}>
+              {resolveSessionTitle(session, t)}
+            </p>
+            {session.current ? (
+              <span className="inline-flex shrink-0 items-center rounded-md bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                {t("session.current")}
+              </span>
+            ) : null}
+          </div>
+          <p className="truncate text-xs text-muted-foreground" title={resolveSessionLocation(session, t)}>
+            {resolveSessionLocation(session, t)}
+          </p>
+          <p className="truncate text-xs text-muted-foreground" title={resolveSessionIP(session, t)}>
+            {resolveSessionIP(session, t)}
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="relative shrink-0 after:absolute after:-inset-1.5 after:content-['']"
+          disabled={revoking}
+          onClick={() => onLogout(session)}
+        >
+          {revoking ? <SpinnerLabel>{t("actions.loggingOut")}</SpinnerLabel> : t("session.logoutThisSession")}
+        </Button>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+        <div className="min-w-0">
+          <p className="text-[11px]">{t("session.createdAt")}</p>
+          <p className="truncate text-foreground" title={formatDateTime(session.createdAt, locale)}>
+            {formatDateTime(session.createdAt, locale)}
+          </p>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[11px]">{t("session.updatedAt")}</p>
+          <p className="truncate text-foreground" title={formatDateTime(session.updatedAt, locale)}>
+            {formatDateTime(session.updatedAt, locale)}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SessionCardSkeleton() {
+  return (
+    <div className="rounded-lg border border-border/60 bg-background p-3">
+      <div className="space-y-2">
+        <div className="h-3 w-32 animate-pulse rounded-sm bg-muted" />
+        <div className="h-3 w-40 animate-pulse rounded-sm bg-muted/80" />
+        <div className="h-3 w-28 animate-pulse rounded-sm bg-muted/70" />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="h-8 animate-pulse rounded-md bg-muted/60" />
+        <div className="h-8 animate-pulse rounded-md bg-muted/60" />
+      </div>
+    </div>
+  );
+}
+
 export function SettingsAccount() {
   const t = useTranslations("settings.accountPage");
   const { locale } = useAppLocale();
@@ -105,13 +185,9 @@ export function SettingsAccount() {
     emailDialogOpen,
     currentEmailVerificationDialogOpen,
     deleteDialogOpen,
-    deleteCodeDebug,
     deleteCodeCooldownSeconds,
     sendingDeleteCode,
     emailVerificationEnabled,
-    passwordCodeDebug,
-    emailCodeDebug,
-    currentEmailCodeDebug,
     passwordCodeCooldownSeconds,
     emailCodeCooldownSeconds,
     currentEmailCodeCooldownSeconds,
@@ -145,6 +221,8 @@ export function SettingsAccount() {
   const [twoFactorDialogOpen, setTwoFactorDialogOpen] = React.useState(false);
   const [twoFactorOpening, setTwoFactorOpening] = React.useState(false);
   const [deleteVerificationDialogOpen, setDeleteVerificationDialogOpen] = React.useState(false);
+  const [deleteUsernameDialogOpen, setDeleteUsernameDialogOpen] = React.useState(false);
+  const [deleteUsernameConfirm, setDeleteUsernameConfirm] = React.useState("");
   const [deleteVerificationMethod, setDeleteVerificationMethod] = React.useState<SecurityVerificationMethod>("none");
   const emailBootstrapMode = shouldUseEmailBootstrap(viewer);
   const twoFactorEnabled = Boolean(twoFactorStatus?.totpEnabled);
@@ -158,16 +236,21 @@ export function SettingsAccount() {
     }
     return methods.length > 0 ? methods : ["none"];
   }, [emailVerificationEnabled, twoFactorEnabled, viewer?.emailVerifiedAt]);
-  const deleteVerificationAvailable = securityVerificationMethods.some((method) => method !== "none");
+  const deleteVerificationAvailable = securityVerificationMethods.some((method) => method !== "none") || Boolean(viewer?.username);
   const beginDeleteAccountVerification = React.useCallback(() => {
     const method = securityVerificationMethods.find((item) => item !== "none") ?? "none";
-    if (method === "none") {
+    if (method !== "none") {
+      setDeleteVerificationMethod(method);
+      setDeleteDialogOpen(false);
+      setDeleteVerificationDialogOpen(true);
       return;
     }
-    setDeleteVerificationMethod(method);
-    setDeleteDialogOpen(false);
-    setDeleteVerificationDialogOpen(true);
-  }, [securityVerificationMethods, setDeleteDialogOpen]);
+    if (viewer?.username) {
+      setDeleteUsernameConfirm("");
+      setDeleteDialogOpen(false);
+      setDeleteUsernameDialogOpen(true);
+    }
+  }, [securityVerificationMethods, setDeleteDialogOpen, viewer?.username]);
   const canVerifyCurrentEmail = Boolean(emailVerificationEnabled && viewer?.email && !viewer.emailVerifiedAt);
   const emailActionLabel = emailBootstrapMode ? t("actions.set") : t("actions.update");
   const identityUnlinkDisabled = !viewer?.passwordEnabled && identities.length <= 1;
@@ -407,7 +490,29 @@ export function SettingsAccount() {
       )}
 
       <SettingsSection title={t("session.title")}>
-        <Table className="table-fixed" style={{ minWidth: 840 }}>
+        <div className="space-y-2 md:hidden">
+          {loading ? (
+            <>
+              <SessionCardSkeleton />
+              <SessionCardSkeleton />
+            </>
+          ) : null}
+          {!loading && sessions.length === 0 ? (
+            <div className="rounded-lg border border-border/60 bg-background px-3 py-6 text-center text-xs text-muted-foreground">
+              {t("session.empty")}
+            </div>
+          ) : null}
+          {!loading ? sessions.map((session) => (
+            <SessionCard
+              key={session.sessionID}
+              session={session}
+              locale={locale}
+              revoking={revokingSessionID === session.sessionID}
+              onLogout={(target) => void handleLogoutSession(target)}
+            />
+          )) : null}
+        </div>
+        <Table className="hidden table-fixed md:table" style={{ minWidth: 840 }}>
           <colgroup>
             <col style={{ width: 260 }} />
             <col style={{ width: 220 }} />
@@ -525,7 +630,6 @@ export function SettingsAccount() {
         pending={changingPassword}
         sendingCode={sendingPasswordCode}
         resendCooldownSeconds={passwordCodeCooldownSeconds}
-        debugCode={passwordCodeDebug}
         verificationMethods={securityVerificationMethods}
         required={Boolean(viewer?.mustResetPassword)}
         onSendCode={handleSendPasswordCode}
@@ -542,8 +646,6 @@ export function SettingsAccount() {
         sendingCode={sendingEmailCode}
         currentCodeCooldownSeconds={currentEmailCodeCooldownSeconds}
         newCodeCooldownSeconds={emailCodeCooldownSeconds}
-        debugCode={emailCodeDebug}
-        currentDebugCode={currentEmailCodeDebug}
         onSendBootstrapCode={handleSendEmailBootstrapCode}
         onCompleteBootstrap={handleCompleteEmailBootstrap}
         onSendCurrentCode={handleSendCurrentEmailCode}
@@ -558,7 +660,6 @@ export function SettingsAccount() {
         pending={changingPassword}
         sendingCode={sendingEmailCode}
         resendCooldownSeconds={currentEmailCodeCooldownSeconds}
-        debugCode={currentEmailCodeDebug}
         onSendCode={handleSendCurrentEmailVerificationCode}
         onSubmit={handleCompleteCurrentEmailVerification}
       />
@@ -604,13 +705,41 @@ export function SettingsAccount() {
         onMethodChange={setDeleteVerificationMethod}
         title={t("deleteDialog.verificationTitle")}
         description={deleteVerificationMethod === "two_factor" ? t("deleteDialog.verificationDescription.twoFactor") : t("deleteDialog.verificationDescription.email")}
-        debugCode={deleteVerificationMethod === "email" ? deleteCodeDebug : ""}
         pending={deletingAccount}
         sendingCode={sendingDeleteCode}
         resendCooldownSeconds={deleteCodeCooldownSeconds}
         onSendCode={handleSendDeleteAccountCode}
         onSubmit={(code, method) => handleDeleteAccount({ verificationMethod: method, code })}
       />
+
+      <AlertDialog open={deleteUsernameDialogOpen} onOpenChange={setDeleteUsernameDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("deleteDialog.usernameTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("deleteDialog.usernameDescription", { username: viewer?.username || "" })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Input
+              value={deleteUsernameConfirm}
+              onChange={(event) => setDeleteUsernameConfirm(event.target.value)}
+              placeholder={viewer?.username || ""}
+              autoComplete="off"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingAccount}>{t("actions.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deletingAccount || deleteUsernameConfirm !== (viewer?.username || "")}
+              onClick={() => void handleDeleteAccount({ verificationMethod: "username", code: deleteUsernameConfirm })}
+            >
+              {deletingAccount ? <SpinnerLabel>{t("actions.deleting")}</SpinnerLabel> : t("actions.deleteAccount")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SettingsPage>
   );
 }

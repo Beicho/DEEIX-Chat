@@ -1,7 +1,7 @@
 import type { LoginOptionsData, LoginPageSettings } from "@/shared/api/auth.types";
 import { ApiError } from "@/shared/api/http-client";
 
-export type LoginMode = "login" | "register";
+export type LoginMode = "login" | "register" | "emailCodeLogin" | "passwordReset";
 export type ProviderAuthIntent = "login" | "register";
 
 export const DEFAULT_LOGIN_SETTINGS: LoginPageSettings = {
@@ -14,6 +14,9 @@ export const DEFAULT_LOGIN_OPTIONS: LoginOptionsData = {
   emailEnabled: true,
   emailRegistrationEnabled: true,
   emailVerificationEnabled: false,
+  passwordResetEnabled: false,
+  emailCodeLoginEnabled: false,
+  inviteRegistrationRequired: false,
   turnstileRegistrationEnabled: false,
   turnstileSiteKey: "",
   providers: [],

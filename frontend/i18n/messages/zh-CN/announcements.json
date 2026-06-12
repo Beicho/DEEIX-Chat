@@ -12,6 +12,25 @@
     "type": "类型",
     "time": "时间"
   },
+  "center": {
+    "title": "公告中心",
+    "description": "查看仍在有效期内的站点公告。已读公告不会再次自动弹出。",
+    "refresh": "刷新",
+    "loadFailed": "公告加载失败",
+    "markReadFailed": "公告状态保存失败",
+    "markAllRead": "全部设为已读",
+    "markRead": "设为已读",
+    "read": "已读",
+    "unread": "未读",
+    "unreadCount": "{count} 条未读",
+    "emptyTitle": "暂无公告",
+    "emptyDescription": "有新公告时会显示在这里。",
+    "filters": {
+      "all": "全部",
+      "unread": "未读",
+      "read": "已读"
+    }
+  },
   "dismissAllToday": "今日不再显示",
   "dismissFailed": "公告状态保存失败",
   "closeFailed": "公告关闭状态保存失败",

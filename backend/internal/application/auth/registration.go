@@ -66,6 +66,22 @@ type EmailChangeVerificationStartResult struct {
 	AvailableMethods []SecurityVerificationMethod
 }
 
+type InvitationCodeResult struct {
+	PublicID   string
+	Label      string
+	MaxUses    int
+	UsedCount  int
+	Enabled    bool
+	ExpiresAt  *time.Time
+	LastUsedAt *time.Time
+	CreatedBy  uint
+	DisabledAt *time.Time
+	DisabledBy *uint
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	Code        string
+}
+
 func (s *Service) RequestEmailRegistration(ctx context.Context, email string, turnstileToken string, remoteIP string, requestID string, auditCtx requestmeta.SessionAuditContext) (*EmailRegistrationStartResult, error) {
 	cfg := s.cfg.Snapshot()
 	if !cfg.EmailLoginEnabled || !cfg.EmailRegistrationEnabled {
@@ -145,7 +161,7 @@ func (s *Service) RequestEmailRegistration(ctx context.Context, email string, tu
 	}, nil
 }
 
-func (s *Service) RegisterWithEmail(ctx context.Context, email string, password string, code string, turnstileToken string, remoteIP string, requestID string, auditCtx requestmeta.SessionAuditContext) (*LoginResult, error) {
+func (s *Service) RegisterWithEmail(ctx context.Context, email string, password string, code string, turnstileToken string, remoteIP string, inviteCode string, locale string, timezone string, requestID string, auditCtx requestmeta.SessionAuditContext) (*LoginResult, error) {
 	cfg := s.cfg.Snapshot()
 	if !cfg.EmailLoginEnabled || !cfg.EmailRegistrationEnabled {
 		return nil, fmt.Errorf("email registration is disabled")
@@ -192,6 +208,18 @@ func (s *Service) RegisterWithEmail(ctx context.Context, email string, password 
 			return nil, fmt.Errorf("verification code is invalid or expired")
 		}
 	}
+	if cfg.InviteRegistrationRequired {
+		normalizedInviteCode := normalizeInvitationCode(inviteCode)
+		if normalizedInviteCode == "" {
+			return nil, fmt.Errorf("invite code is required")
+		}
+		if _, err = s.repo.ConsumeInvitationCode(ctx, hashInvitationCode(cfg.JWTSecret, normalizedInviteCode), now); err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				return nil, fmt.Errorf("invite code is invalid or exhausted")
+			}
+			return nil, err
+		}
+	}
 
 	var verifiedAt *time.Time
 	if cfg.EmailVerificationEnabled {
@@ -210,8 +238,8 @@ func (s *Service) RegisterWithEmail(ctx context.Context, email string, password 
 		EmailSource:     domainuser.EmailSourceLocalRegister,
 		Role:            domainuser.RoleUser,
 		Status:          domainuser.StatusActive,
-		Timezone:        "Etc/UTC",
-		Locale:          "en-US",
+		Timezone:        normalizeRegistrationTimezone(timezone),
+		Locale:          normalizeRegistrationLocale(locale),
 		EmailVerifiedAt: verifiedAt,
 	}
 	if err = s.createWithCredentialUsingAvailableUsername(ctx, userItem, domainuser.Credential{
@@ -329,7 +357,7 @@ func (s *Service) RequestPasswordChangeVerification(ctx context.Context, userID 
 	}, nil
 }
 
-func (s *Service) ChangePassword(ctx context.Context, userID uint, currentPassword string, newPassword string, verificationMethod string, code string, requestID string, auditCtx requestmeta.SessionAuditContext) error {
+func (s *Service) ChangePassword(ctx context.Context, userID uint, currentSessionID string, currentPassword string, newPassword string, verificationMethod string, code string, revokeOtherSessions bool, requestID string, auditCtx requestmeta.SessionAuditContext) error {
 	normalizedPassword, err := userapp.NormalizePassword(newPassword)
 	if err != nil {
 		return err
@@ -386,7 +414,10 @@ func (s *Service) ChangePassword(ctx context.Context, userID uint, currentPasswo
 	if err = s.repo.UpdatePassword(ctx, userID, string(passwordHash), domainuser.PasswordOriginUserSet, false); err != nil {
 		return err
 	}
-	if err = s.repo.RevokeAllSessions(ctx, userID, "password_change"); err != nil {
+	if revokeOtherSessions {
+		err = s.repo.RevokeOtherSessions(ctx, userID, currentSessionID, "password_change")
+	}
+	if err != nil {
 		return err
 	}
 
@@ -399,6 +430,186 @@ func (s *Service) ChangePassword(ctx context.Context, userID uint, currentPasswo
 		}),
 	)
 	return nil
+}
+
+func (s *Service) RequestPasswordReset(ctx context.Context, email string, requestID string, auditCtx requestmeta.SessionAuditContext) (*EmailChangeVerificationStartResult, error) {
+	cfg := s.cfg.Snapshot()
+	if !smtpReady(cfg) {
+		return nil, fmt.Errorf("smtp is not configured")
+	}
+	normalizedEmail, err := normalizeRegistrationEmail(email)
+	if err != nil {
+		return nil, err
+	}
+	item, err := s.repo.GetByEmail(ctx, normalizedEmail)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, fmt.Errorf("invalid email")
+		}
+		return nil, err
+	}
+	return s.requestEmailVerificationCode(ctx, item.ID, domainuser.ContactVerificationPurposePasswordReset, normalizedEmail, "password_reset_code", requestID, auditCtx)
+}
+
+func (s *Service) CompletePasswordReset(ctx context.Context, email string, code string, newPassword string, requestID string, auditCtx requestmeta.SessionAuditContext) error {
+	cfg := s.cfg.Snapshot()
+	if !smtpReady(cfg) {
+		return fmt.Errorf("smtp is not configured")
+	}
+	normalizedEmail, err := normalizeRegistrationEmail(email)
+	if err != nil {
+		return err
+	}
+	normalizedPassword, err := userapp.NormalizePassword(newPassword)
+	if err != nil {
+		return err
+	}
+	item, err := s.repo.GetByEmail(ctx, normalizedEmail)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("verification code is invalid or expired")
+		}
+		return err
+	}
+	now := time.Now()
+	if err = s.verifyEmailCode(ctx, item.ID, domainuser.ContactVerificationPurposePasswordReset, normalizedEmail, code, now); err != nil {
+		return err
+	}
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(normalizedPassword), passwordHashCost)
+	if err != nil {
+		return err
+	}
+	if err = s.repo.UpdatePassword(ctx, item.ID, string(passwordHash), domainuser.PasswordOriginUserSet, false); err != nil {
+		return err
+	}
+	if err = s.repo.RevokeAllSessions(ctx, item.ID, "password_reset"); err != nil {
+		return err
+	}
+	normalizedAuditCtx := s.resolveSessionAuditContext(ctx, auditCtx)
+	s.RecordAuthEvent(ctx, item.ID, requestID, "password_reset", "success", "", normalizedAuditCtx.ClientIP, normalizedAuditCtx.UserAgent, marshalAuthEventDetail(map[string]interface{}{"email": normalizedEmail}))
+	return nil
+}
+
+func (s *Service) RequestEmailCodeLogin(ctx context.Context, email string, requestID string, auditCtx requestmeta.SessionAuditContext) (*EmailChangeVerificationStartResult, error) {
+	cfg := s.cfg.Snapshot()
+	if !cfg.EmailLoginEnabled {
+		return nil, fmt.Errorf("email code login is disabled")
+	}
+	if !smtpReady(cfg) {
+		return nil, fmt.Errorf("smtp is not configured")
+	}
+	normalizedEmail, err := normalizeRegistrationEmail(email)
+	if err != nil {
+		return nil, err
+	}
+	item, err := s.repo.GetByEmail(ctx, normalizedEmail)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, fmt.Errorf("invalid email")
+		}
+		return nil, err
+	}
+	return s.requestEmailVerificationCode(ctx, item.ID, domainuser.ContactVerificationPurposeLogin, normalizedEmail, "email_code_login_code", requestID, auditCtx)
+}
+
+func (s *Service) CompleteEmailCodeLogin(ctx context.Context, email string, code string, requestID string, auditCtx requestmeta.SessionAuditContext) (*LoginResult, error) {
+	cfg := s.cfg.Snapshot()
+	if !cfg.EmailLoginEnabled {
+		return nil, fmt.Errorf("email code login is disabled")
+	}
+	if !smtpReady(cfg) {
+		return nil, fmt.Errorf("smtp is not configured")
+	}
+	normalizedAuditCtx := s.resolveSessionAuditContext(ctx, auditCtx)
+	normalizedEmail, err := normalizeRegistrationEmail(email)
+	if err != nil {
+		return nil, err
+	}
+	item, err := s.repo.GetByEmail(ctx, normalizedEmail)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, err
+	}
+	if err = ensureProviderLoginUserActive(item); err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	if err = s.verifyEmailCode(ctx, item.ID, domainuser.ContactVerificationPurposeLogin, normalizedEmail, code, now); err != nil {
+		return nil, ErrInvalidCredentials
+	}
+	if err = s.repo.ResetLoginFailure(ctx, item.ID); err != nil {
+		return nil, err
+	}
+	requireTwoFactor, err := s.shouldRequireTwoFactor(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+	if requireTwoFactor {
+		s.RecordAuthEvent(ctx, item.ID, requestID, "email_code_login", "challenge", "two_factor_required", normalizedAuditCtx.ClientIP, normalizedAuditCtx.UserAgent, marshalAuthEventDetail(map[string]interface{}{"email": normalizedEmail}))
+		return s.buildTwoFactorChallenge(ctx, item)
+	}
+	result, err := s.issueLoginResult(ctx, item, normalizedAuditCtx, now)
+	if err != nil {
+		return nil, err
+	}
+	s.RecordAuthEvent(ctx, item.ID, requestID, "email_code_login", "success", "", normalizedAuditCtx.ClientIP, normalizedAuditCtx.UserAgent, marshalAuthEventDetail(map[string]interface{}{"email": normalizedEmail, "session_id": result.SessionID}))
+	return result, nil
+}
+
+func (s *Service) CreateInvitationCode(ctx context.Context, actorUserID uint, label string, maxUses int, expiresAt *time.Time) (*InvitationCodeResult, error) {
+	if actorUserID == 0 {
+		return nil, fmt.Errorf("admin permission required")
+	}
+	if maxUses < 0 || maxUses > 100000 {
+		return nil, fmt.Errorf("invalid invitation code max uses")
+	}
+	normalizedLabel := strings.TrimSpace(label)
+	if len(normalizedLabel) > 80 {
+		return nil, fmt.Errorf("invalid invitation code label")
+	}
+	code, err := generateInvitationCode()
+	if err != nil {
+		return nil, err
+	}
+	item := &domainuser.InvitationCode{
+		PublicID:  conv.NormalizePublicID(uuid.NewString()),
+		CodeHash:  hashInvitationCode(s.cfg.Snapshot().JWTSecret, code),
+		Label:     normalizedLabel,
+		MaxUses:   maxUses,
+		Enabled:   true,
+		ExpiresAt: expiresAt,
+		CreatedBy: actorUserID,
+	}
+	created, err := s.repo.CreateInvitationCode(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+	result := toInvitationCodeResult(*created)
+	result.Code = code
+	return &result, nil
+}
+
+func (s *Service) ListInvitationCodes(ctx context.Context) ([]InvitationCodeResult, error) {
+	items, err := s.repo.ListInvitationCodes(ctx, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	results := make([]InvitationCodeResult, 0, len(items))
+	for _, item := range items {
+		results = append(results, toInvitationCodeResult(item))
+	}
+	return results, nil
+}
+
+func (s *Service) SetInvitationCodeEnabled(ctx context.Context, publicID string, enabled bool, actorUserID uint) (*InvitationCodeResult, error) {
+	item, err := s.repo.UpdateInvitationCodeEnabled(ctx, strings.TrimSpace(publicID), enabled, actorUserID, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	result := toInvitationCodeResult(*item)
+	return &result, nil
 }
 
 func (s *Service) RequestEmailBootstrapVerification(ctx context.Context, userID uint, newEmail string, requestID string, auditCtx requestmeta.SessionAuditContext) (*EmailChangeVerificationStartResult, error) {
@@ -779,6 +990,85 @@ func optionalEmailVerifiedAt(enabled bool, now time.Time) *time.Time {
 	return &now
 }
 
+func smtpReady(cfg config.Config) bool {
+	from := strings.TrimSpace(cfg.SMTPFrom)
+	if from == "" {
+		from = strings.TrimSpace(cfg.SMTPUsername)
+	}
+	return strings.TrimSpace(cfg.SMTPHost) != "" && cfg.SMTPPort > 0 && from != ""
+}
+
+func normalizeInvitationCode(raw string) string {
+	return strings.ToUpper(strings.TrimSpace(raw))
+}
+
+func hashInvitationCode(secret string, code string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(secret) + ":invite:" + normalizeInvitationCode(code)))
+	return hex.EncodeToString(sum[:])
+}
+
+func generateInvitationCode() (string, error) {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	parts := make([]string, 3)
+	for i := range parts {
+		var builder strings.Builder
+		for j := 0; j < 4; j++ {
+			n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+			if err != nil {
+				return "", err
+			}
+			builder.WriteByte(alphabet[n.Int64()])
+		}
+		parts[i] = builder.String()
+	}
+	return strings.Join(parts, "-"), nil
+}
+
+func normalizeRegistrationLocale(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "zh-CN"
+	}
+	primary := strings.Split(trimmed, ",")[0]
+	normalized := strings.ReplaceAll(strings.TrimSpace(primary), "_", "-")
+	switch strings.ToLower(normalized) {
+	case "zh", "zh-cn", "zh-hans", "zh-hans-cn":
+		return "zh-CN"
+	case "en", "en-us", "en-gb":
+		return "en-US"
+	default:
+		return "zh-CN"
+	}
+}
+
+func normalizeRegistrationTimezone(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "Etc/UTC"
+	}
+	if _, err := time.LoadLocation(trimmed); err != nil {
+		return "Etc/UTC"
+	}
+	return trimmed
+}
+
+func toInvitationCodeResult(item domainuser.InvitationCode) InvitationCodeResult {
+	return InvitationCodeResult{
+		PublicID:   item.PublicID,
+		Label:      item.Label,
+		MaxUses:    item.MaxUses,
+		UsedCount:  item.UsedCount,
+		Enabled:    item.Enabled,
+		ExpiresAt:  item.ExpiresAt,
+		LastUsedAt: item.LastUsedAt,
+		CreatedBy:  item.CreatedBy,
+		DisabledAt: item.DisabledAt,
+		DisabledBy: item.DisabledBy,
+		CreatedAt:  item.CreatedAt,
+		UpdatedAt:  item.UpdatedAt,
+	}
+}
+
 func canBootstrapEmail(item *domainuser.User) bool {
 	if item == nil || item.EmailVerifiedAt != nil || item.EmailBootstrapUsedAt != nil {
 		return false
@@ -803,6 +1093,22 @@ func (s *Service) sendPasswordChangeVerificationEmail(to string, code string) er
 		Title:        "确认修改密码",
 		SecurityNote: "如果不是您本人操作，请立即检查账号安全。",
 	}, "password change")
+}
+
+func (s *Service) sendPasswordResetVerificationEmail(to string, code string) error {
+	return s.sendEmailVerificationCode(to, code, verificationEmailTemplate{
+		Subject:      "DEEIX Chat 验证码",
+		Title:        "重置登录密码",
+		SecurityNote: "如果不是您本人操作，请立即检查账号安全。",
+	}, "password reset")
+}
+
+func (s *Service) sendLoginVerificationEmail(to string, code string) error {
+	return s.sendEmailVerificationCode(to, code, verificationEmailTemplate{
+		Subject:      "DEEIX Chat 验证码",
+		Title:        "完成邮箱登录",
+		SecurityNote: "如果不是您本人操作，请立即检查账号安全。",
+	}, "email code login")
 }
 
 func (s *Service) sendEmailChangeVerificationEmail(to string, code string) error {
@@ -886,6 +1192,10 @@ func (s *Service) sendEmailVerificationByPurpose(purpose string, target string, 
 	switch purpose {
 	case domainuser.ContactVerificationPurposeAccountDelete:
 		return s.sendAccountDeleteVerificationEmail(target, code)
+	case domainuser.ContactVerificationPurposePasswordReset:
+		return s.sendPasswordResetVerificationEmail(target, code)
+	case domainuser.ContactVerificationPurposeLogin:
+		return s.sendLoginVerificationEmail(target, code)
 	default:
 		return s.sendEmailChangeVerificationEmail(target, code)
 	}

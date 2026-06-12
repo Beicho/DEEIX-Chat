@@ -54,6 +54,82 @@ export type CheckoutData = {
   checkout: CheckoutDTO;
 };
 
+export type BillingPaymentOrderDTO = {
+  orderNo: string;
+  orderType: "subscription" | "topup" | string;
+  userID: number;
+  planID: number;
+  priceID: number;
+  provider: "stripe" | "epay" | string;
+  status: "pending" | "paid" | "failed" | "expired" | string;
+  baseAmountCents: number;
+  baseCurrency: string;
+  payAmountCents: number;
+  payCurrency: string;
+  fxRate: string;
+  creditNanousd: number;
+  creditUSD: number;
+  billingInterval: string;
+  cycles: number;
+  paidAt: string | null;
+  expiredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BillingPaymentOrderData = {
+  order: BillingPaymentOrderDTO;
+  activated?: boolean;
+};
+
+export type BillingBalanceTransactionDTO = {
+  id: number;
+  accountID: number;
+  userID: number;
+  type: string;
+  amountNanousd: number;
+  amountUSD: number;
+  balanceAfterNanousd: number;
+  balanceAfterUSD: number;
+  refType: string;
+  refID: number;
+  refNo: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BillingCheckInStatusDTO = {
+  todayClaimed: boolean;
+  rewardUSD: number;
+  rewardNanousd: number;
+  consecutiveDays: number;
+  lastCheckInDate: string | null;
+  nextCheckInDate: string;
+  account: BillingAccountData["account"] | null;
+  latestTransaction?: BillingBalanceTransactionDTO | null;
+};
+
+export type BillingCheckInStatusData = {
+  checkIn: BillingCheckInStatusDTO;
+};
+
+export type BillingCheckInClaimDTO = {
+  id: number;
+  checkInDate: string;
+  alreadyClaimed: boolean;
+  rewardUSD: number;
+  rewardNanousd: number;
+  consecutiveDays: number;
+  balanceTransactionID: number;
+  account: BillingAccountData["account"] | null;
+  transaction?: BillingBalanceTransactionDTO | null;
+};
+
+export type BillingCheckInClaimData = {
+  checkIn: BillingCheckInClaimDTO;
+};
+
 export type BillingMode = "self" | "period" | "usage";
 
 export type NativeToolPricingDTO = {

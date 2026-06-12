@@ -44,6 +44,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   cloneConversationOptions,
   isConversationOptionsObject,
@@ -53,10 +54,10 @@ import { useSidebarRecents } from "@/features/recent/context/sidebar-recents-con
 import { useChatData } from "@/features/chat/hooks/use-chat-data";
 import { toPendingAttachment } from "@/features/chat/model/message-submit";
 import { getConversation } from "@/shared/api/conversation";
-import { listAvailableMCPTools } from "@/shared/api/mcp";
+import { getMCPToolPreference, listAvailableMCPTools, putMCPToolPreference } from "@/shared/api/mcp";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import type { ConversationDTO, ConversationOptions } from "@/shared/api/conversation.types";
-import type { MCPToolDTO } from "@/shared/api/mcp.types";
+import type { MCPToolDTO, MCPToolPreferenceDTO } from "@/shared/api/mcp.types";
 import { useTheme } from "@/shared/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { isGlobalShortcutEvent, platformModifierLabel } from "@/shared/lib/platform-shortcuts";
@@ -69,6 +70,7 @@ import { buildQuotedDraft } from "@/features/chat/model/selection-quote";
 import { cn } from "@/lib/utils";
 
 const MODEL_OPTIONS_STORAGE_PREFIX = "deeix-chat:chat-model-options:";
+const TOOL_SELECTION_STORAGE_PREFIX = "deeix-chat:tool-selection:v1:";
 const EMPTY_CONVERSATION_OPTIONS: ConversationOptions = {};
 
 function dragEventContainsFiles(event: React.DragEvent<HTMLElement>): boolean {
@@ -121,6 +123,53 @@ function removeCachedModelOptions(platformModelName: string): void {
   }
 }
 
+function toolSelectionStorageKey(conversationPublicID: string | null): string {
+  const value = conversationPublicID?.trim() || "default";
+  return `${TOOL_SELECTION_STORAGE_PREFIX}${encodeURIComponent(value)}`;
+}
+
+function normalizeToolPreference(
+  value: Partial<MCPToolPreferenceDTO> | null | undefined,
+  conversationPublicID: string | null,
+): MCPToolPreferenceDTO {
+  return {
+    conversationPublicID: conversationPublicID?.trim() || "",
+    selectedToolIDs: Array.isArray(value?.selectedToolIDs) ? value.selectedToolIDs.filter((id) => Number.isFinite(id) && id > 0) : [],
+    confirmedToolIDs: Array.isArray(value?.confirmedToolIDs) ? value.confirmedToolIDs.filter((id) => Number.isFinite(id) && id > 0) : [],
+    webSearchEnabled: Boolean(value?.webSearchEnabled),
+    codeSandboxEnabled: Boolean(value?.codeSandboxEnabled),
+    researchMaxLLMCalls: Number.isFinite(value?.researchMaxLLMCalls) ? Math.max(0, Math.floor(value?.researchMaxLLMCalls ?? 0)) : 0,
+    researchMaxToolCalls: Number.isFinite(value?.researchMaxToolCalls) ? Math.max(0, Math.floor(value?.researchMaxToolCalls ?? 0)) : 0,
+    updatedAt: value?.updatedAt ?? "",
+  };
+}
+
+function readCachedToolPreference(conversationPublicID: string | null): MCPToolPreferenceDTO | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(toolSelectionStorageKey(conversationPublicID));
+    if (!raw) {
+      return null;
+    }
+    return normalizeToolPreference(JSON.parse(raw) as Partial<MCPToolPreferenceDTO>, conversationPublicID);
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedToolPreference(conversationPublicID: string | null, value: MCPToolPreferenceDTO): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.localStorage.setItem(toolSelectionStorageKey(conversationPublicID), JSON.stringify(normalizeToolPreference(value, conversationPublicID)));
+  } catch {
+    // localStorage may be unavailable in private browsing or strict environments.
+  }
+}
+
 function ChatEmptySuggestions({
   suggestions,
   onSelectSuggestion,
@@ -146,8 +195,8 @@ function ChatEmptySuggestions({
             type="button"
             variant="outline"
             className={cn(
-              "min-h-11 justify-start rounded-xl border-border/70 bg-background/70 px-4 py-3 text-left text-sm font-medium text-foreground shadow-none hover:border-border hover:bg-accent hover:text-accent-foreground",
-              "md:min-h-12",
+              "relative h-9 justify-start rounded-lg border-border/70 bg-background/70 px-3 text-left text-xs font-medium text-foreground shadow-none hover:border-border hover:bg-accent hover:text-accent-foreground",
+              "after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] sm:after:hidden",
             )}
             onClick={() => onSelectSuggestion(suggestion.prompt)}
           >
@@ -209,7 +258,7 @@ function KeyboardShortcutsDialog({
         </DialogHeader>
         <div className="grid gap-2">
           {rows.map((row) => (
-            <div key={row.label} className="flex min-h-11 items-center justify-between gap-4 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+            <div key={row.label} className="flex min-h-9 items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-1.5">
               <span className="text-sm font-medium text-foreground">{row.label}</span>
               <span className="flex shrink-0 items-center gap-1">
                 {row.keys.map((key) => (
@@ -274,13 +323,118 @@ function ContextUsageIndicator({
   );
 }
 
+type ChatWorkspaceAreaProps = {
+  conversationIDOverride?: string | null;
+  comparePaneLabel?: string;
+  readOnly?: boolean;
+};
+
+function parseCompareConversationIDs(value: string): string[] {
+  const seen = new Set<string>();
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) {
+        return false;
+      }
+      seen.add(item);
+      return true;
+    })
+    .slice(0, 2);
+}
+
+function CompareSplitView({ conversationIDs }: { conversationIDs: string[] }) {
+  const t = useTranslations("chat");
+  const panes = conversationIDs.slice(0, 2);
+  const firstPane = panes[0] ?? "";
+
+  return (
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-background">
+      <div className="hidden h-full min-h-0 grid-cols-2 gap-px bg-border md:grid">
+        {panes.map((conversationID, index) => {
+          const label = t("compareView.column", { index: index + 1 });
+          return (
+            <section
+              key={`${conversationID}-${index}`}
+              className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-background"
+              aria-label={label}
+            >
+              <div className="shrink-0 border-b border-border/70 px-3 py-2">
+                <div className="truncate text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  {label}
+                </div>
+                <div className="mt-0.5 truncate text-xs font-medium text-foreground">{conversationID}</div>
+              </div>
+              <ChatWorkspaceArea
+                conversationIDOverride={conversationID}
+                comparePaneLabel={label}
+                readOnly
+              />
+            </section>
+          );
+        })}
+      </div>
+
+      <Tabs defaultValue={firstPane} className="flex h-full min-h-0 flex-1 flex-col md:hidden">
+        <div className="shrink-0 border-b border-border/70 p-2">
+          <TabsList className="grid min-h-9 w-full grid-cols-2">
+            {panes.map((conversationID, index) => (
+              <TabsTrigger key={`${conversationID}-trigger`} value={conversationID} className="min-h-8">
+                {t("compareView.column", { index: index + 1 })}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+        {panes.map((conversationID, index) => {
+          const label = t("compareView.column", { index: index + 1 });
+          return (
+            <TabsContent
+              key={`${conversationID}-content`}
+              value={conversationID}
+              className="min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
+            >
+              <ChatWorkspaceArea
+                conversationIDOverride={conversationID}
+                comparePaneLabel={label}
+                readOnly
+              />
+            </TabsContent>
+          );
+        })}
+      </Tabs>
+    </div>
+  );
+}
+
 export function AppChatArea() {
+  const searchParams = useSearchParams();
+  const compareConversationIDs = React.useMemo(
+    () => parseCompareConversationIDs(searchParams.get("compare")?.trim() || ""),
+    [searchParams],
+  );
+
+  if (compareConversationIDs.length >= 2) {
+    return <CompareSplitView conversationIDs={compareConversationIDs} />;
+  }
+
+  return <ChatWorkspaceArea />;
+}
+
+function ChatWorkspaceArea({
+  conversationIDOverride,
+  comparePaneLabel,
+  readOnly = false,
+}: ChatWorkspaceAreaProps) {
   const t = useTranslations("chat");
   const tRecent = useTranslations("recent");
   const router = useRouter();
   const searchParams = useSearchParams();
-  const routeConversationID = searchParams.get("conversation_id")?.trim() || null;
-  const routeProjectID = searchParams.get("project_id")?.trim() || null;
+  const hasConversationOverride = conversationIDOverride !== undefined;
+  const routeConversationID = hasConversationOverride
+    ? conversationIDOverride?.trim() || null
+    : searchParams.get("conversation_id")?.trim() || null;
+  const routeProjectID = readOnly || hasConversationOverride ? null : searchParams.get("project_id")?.trim() || null;
   const { newConversationRevision, newConversationProjectID: requestedNewConversationProjectID, requestNewConversation } = useChatSession();
   const [locallyCreatedConversationID, setLocallyCreatedConversationID] = React.useState<string | null>(null);
   const [newConversationOverride, setNewConversationOverride] = React.useState<{
@@ -289,6 +443,9 @@ export function AppChatArea() {
   const previousNewConversationRevisionRef = React.useRef(newConversationRevision);
 
   React.useEffect(() => {
+    if (readOnly || hasConversationOverride) {
+      return;
+    }
     if (previousNewConversationRevisionRef.current === newConversationRevision) {
       return;
     }
@@ -297,19 +454,25 @@ export function AppChatArea() {
     setNewConversationOverride({
       ignoredConversationID: routeConversationID,
     });
-  }, [newConversationRevision, routeConversationID]);
+  }, [hasConversationOverride, newConversationRevision, readOnly, routeConversationID]);
 
   React.useEffect(() => {
+    if (readOnly || hasConversationOverride) {
+      return;
+    }
     if (routeConversationID) {
       setLocallyCreatedConversationID(null);
     }
-  }, [routeConversationID]);
+  }, [hasConversationOverride, readOnly, routeConversationID]);
 
   React.useEffect(() => {
+    if (readOnly || hasConversationOverride) {
+      return;
+    }
     setNewConversationOverride((prev) =>
       prev && routeConversationID !== prev.ignoredConversationID ? null : prev,
     );
-  }, [routeConversationID]);
+  }, [hasConversationOverride, readOnly, routeConversationID]);
 
   const resolvedRouteConversationID = routeConversationID ?? locallyCreatedConversationID;
   const conversationID =
@@ -448,6 +611,12 @@ export function AppChatArea() {
   const [availableTools, setAvailableTools] = React.useState<MCPToolDTO[]>([]);
   const [toolsLoading, setToolsLoading] = React.useState(true);
   const [selectedToolIDs, setSelectedToolIDs] = React.useState<number[]>([]);
+  const [confirmedToolIDs, setConfirmedToolIDs] = React.useState<number[]>([]);
+  const [webSearchEnabled, setWebSearchEnabled] = React.useState(false);
+  const [codeSandboxEnabled, setCodeSandboxEnabled] = React.useState(false);
+  const [researchMaxLLMCalls, setResearchMaxLLMCalls] = React.useState(0);
+  const [researchMaxToolCalls, setResearchMaxToolCalls] = React.useState(0);
+  const [toolPreferenceReady, setToolPreferenceReady] = React.useState(false);
   const htmlVisualPrompt = useHTMLVisualPrompt();
   const { resolvedTheme } = useTheme();
   const initializedOptionsModelRef = React.useRef("");
@@ -461,6 +630,7 @@ export function AppChatArea() {
       }
       return current.slice(0, mcpMaxSelectedTools);
     });
+    setConfirmedToolIDs((current) => current.slice(0, mcpMaxSelectedTools));
   }, [mcpMaxSelectedTools]);
 
   React.useEffect(() => {
@@ -515,30 +685,67 @@ export function AppChatArea() {
     let cancelled = false;
 
     async function loadTools() {
+      if (readOnly) {
+        setAvailableTools([]);
+        setSelectedToolIDs([]);
+        setConfirmedToolIDs([]);
+        setWebSearchEnabled(false);
+        setCodeSandboxEnabled(false);
+        setResearchMaxLLMCalls(0);
+        setResearchMaxToolCalls(0);
+        setToolPreferenceReady(true);
+        setToolsLoading(false);
+        return;
+      }
       setToolsLoading(true);
+      setToolPreferenceReady(false);
       try {
         const token = await resolveAccessToken();
         if (!token) {
           if (!cancelled) {
             setAvailableTools([]);
             setSelectedToolIDs([]);
+            setConfirmedToolIDs([]);
+            setWebSearchEnabled(false);
+            setCodeSandboxEnabled(false);
+            setResearchMaxLLMCalls(0);
+            setResearchMaxToolCalls(0);
           }
           return;
         }
-        const tools = await listAvailableMCPTools(token);
+        const [tools, preferenceResult] = await Promise.allSettled([
+          listAvailableMCPTools(token),
+          getMCPToolPreference(token, conversationID ?? ""),
+        ]);
         if (cancelled) {
           return;
         }
-        setAvailableTools(tools);
-        const availableIDs = new Set(tools.map((item) => item.id));
-        setSelectedToolIDs((previous) => previous.filter((id) => availableIDs.has(id)));
+        const toolsValue = tools.status === "fulfilled" ? tools.value : [];
+        const cachedPreference = readCachedToolPreference(conversationID);
+        const serverPreference = preferenceResult.status === "fulfilled" ? preferenceResult.value : null;
+        const preference = normalizeToolPreference(serverPreference ?? cachedPreference, conversationID);
+        const availableIDs = new Set(toolsValue.map((item) => item.id));
+        const defaultToolIDs = toolsValue.filter((item) => item.defaultEnabled).map((item) => item.id);
+        const selectedIDs = (preference.selectedToolIDs.length > 0 ? preference.selectedToolIDs : defaultToolIDs)
+          .filter((id) => availableIDs.has(id))
+          .slice(0, mcpMaxSelectedTools);
+        const selectedIDSet = new Set(selectedIDs);
+        setAvailableTools(toolsValue);
+        setSelectedToolIDs(selectedIDs);
+        setConfirmedToolIDs(preference.confirmedToolIDs.filter((id) => selectedIDSet.has(id)));
+        setWebSearchEnabled(preference.webSearchEnabled);
+        setCodeSandboxEnabled(preference.codeSandboxEnabled);
+        setResearchMaxLLMCalls(preference.researchMaxLLMCalls);
+        setResearchMaxToolCalls(preference.researchMaxToolCalls);
       } catch {
         if (!cancelled) {
           setAvailableTools([]);
           setSelectedToolIDs([]);
+          setConfirmedToolIDs([]);
         }
       } finally {
         if (!cancelled) {
+          setToolPreferenceReady(true);
           setToolsLoading(false);
         }
       }
@@ -548,7 +755,62 @@ export function AppChatArea() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [conversationID, mcpMaxSelectedTools, readOnly]);
+
+  React.useEffect(() => {
+    if (readOnly || !toolPreferenceReady) {
+      return;
+    }
+    const selectedIDSet = new Set(selectedToolIDs);
+    const preference = normalizeToolPreference(
+      {
+        conversationPublicID: conversationID ?? "",
+        selectedToolIDs,
+        confirmedToolIDs: confirmedToolIDs.filter((id) => selectedIDSet.has(id)),
+        webSearchEnabled,
+        codeSandboxEnabled,
+        researchMaxLLMCalls,
+        researchMaxToolCalls,
+      },
+      conversationID,
+    );
+    writeCachedToolPreference(conversationID, preference);
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const token = await resolveAccessToken();
+        if (!token || cancelled) {
+          return;
+        }
+        await putMCPToolPreference(token, {
+          conversationPublicID: preference.conversationPublicID,
+          selectedToolIDs: preference.selectedToolIDs,
+          confirmedToolIDs: preference.confirmedToolIDs,
+          webSearchEnabled: preference.webSearchEnabled,
+          codeSandboxEnabled: preference.codeSandboxEnabled,
+          researchMaxLLMCalls: preference.researchMaxLLMCalls,
+          researchMaxToolCalls: preference.researchMaxToolCalls,
+        }).catch(() => {
+          // Local cache keeps the composer usable when preference sync is unavailable.
+        });
+      })();
+    }, 500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    codeSandboxEnabled,
+    confirmedToolIDs,
+    conversationID,
+    researchMaxLLMCalls,
+    researchMaxToolCalls,
+    selectedToolIDs,
+    toolPreferenceReady,
+    readOnly,
+    webSearchEnabled,
+  ]);
 
   const {
     uploading,
@@ -568,6 +830,7 @@ export function AppChatArea() {
 
   const {
     onCycleMessageBranch,
+    onDeleteMessage,
     onEditAssistantMessage,
     onEditUserMessage,
     onContinueAssistantMessage,
@@ -590,6 +853,11 @@ export function AppChatArea() {
     selectedPlatformModelName,
     modelOptions,
     selectedToolIDs,
+    confirmedToolIDs,
+    webSearchEnabled,
+    codeSandboxEnabled,
+    researchMaxLLMCalls,
+    researchMaxToolCalls,
     htmlVisualPromptEnabled: htmlVisualPrompt.enabled,
     htmlVisualColorMode: resolvedTheme,
     options: modelOptionPolicyDisabled ? EMPTY_CONVERSATION_OPTIONS : options,
@@ -597,7 +865,7 @@ export function AppChatArea() {
     attachments,
     maxFilesPerMessage,
     uploading,
-    restoreDraftOnFailure,
+    restoreDraftOnFailure: readOnly ? false : restoreDraftOnFailure,
     prependNewConversation: prependNewConversationInContext,
     onConversationCreated: setLocallyCreatedConversationID,
     touchByPublicID,
@@ -610,9 +878,9 @@ export function AppChatArea() {
     failedGenerationRunsRef,
     resumingRunID,
   });
-  const generating = sending || Boolean(resumingRunID);
-  const uploadDropDisabled = generating || loading || uploading;
-  const showLiveAssistant = showPendingAssistant || Boolean(resumingRunID);
+  const generating = readOnly ? false : sending || Boolean(resumingRunID);
+  const uploadDropDisabled = readOnly || generating || loading || uploading;
+  const showLiveAssistant = readOnly ? false : showPendingAssistant || Boolean(resumingRunID);
   const latestMessageKey = visibleMessages.at(-1)?.key ?? "";
   const onStopActiveMessage = React.useCallback(() => {
     if (sending) {
@@ -623,6 +891,9 @@ export function AppChatArea() {
   }, [cancelResumedGeneration, onStopMessage, sending]);
 
   React.useEffect(() => {
+    if (readOnly) {
+      return;
+    }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!isGlobalShortcutEvent(event)) {
         return;
@@ -640,7 +911,7 @@ export function AppChatArea() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [generating, onStopActiveMessage]);
+  }, [generating, onStopActiveMessage, readOnly]);
 
   const {
     messageViewportRef,
@@ -667,10 +938,14 @@ export function AppChatArea() {
     composerRef: composerDockRef,
     messageViewportRef,
     onScrollToLatest,
+    disabled: readOnly,
   });
 
   const onEditGeneratedImageAttachment = React.useCallback(
     (attachment: MessageAttachment, sourceModelName?: string) => {
+      if (readOnly) {
+        return;
+      }
       const alreadyAttached = attachments.some((item) => item.fileID === attachment.fileID);
       if (!alreadyAttached && maxFilesPerMessage > 0 && attachments.length >= maxFilesPerMessage) {
         toast.error(t("attachments.limitReached"), {
@@ -710,6 +985,7 @@ export function AppChatArea() {
       setAttachments,
       setSelectedPlatformModelName,
       t,
+      readOnly,
     ],
   );
 
@@ -725,7 +1001,7 @@ export function AppChatArea() {
   }, [currentConversation?.publicID, currentConversation?.title]);
 
   const actionConversationID = React.useMemo(() => (conversationID || "").trim(), [conversationID]);
-  const canOperateConversation = actionConversationID.length > 0;
+  const canOperateConversation = !readOnly && actionConversationID.length > 0;
   const activeConversationTitle = React.useMemo(
     () => manualConversationTitle || currentConversation?.title?.trim() || t("untitledConversation"),
     [currentConversation?.title, manualConversationTitle, t],
@@ -814,6 +1090,25 @@ export function AppChatArea() {
     format: "markdown",
     action: "copy",
   });
+  const exportActiveConversationImage = useConversationExportAction({
+    successMessage: t("exportImageSuccess"),
+    failureMessage: t("exportImageFailed"),
+    format: "image",
+    imageLabels: {
+      titleFallback: t("untitledConversation"),
+      exportedAt: t("imageExport.exportedAt"),
+      conversationID: t("imageExport.conversationID"),
+      roleAssistant: t("imageExport.roleAssistant"),
+      roleSystem: t("imageExport.roleSystem"),
+      roleUser: t("imageExport.roleUser"),
+      roleMessage: t("imageExport.roleMessage"),
+      model: t("model"),
+      attachments: t("imageExport.attachments"),
+      noTextContent: t("imageExport.noTextContent"),
+      truncated: t("imageExport.truncated"),
+      watermark: t("imageExport.watermark"),
+    },
+  });
 
   const onExportActiveConversation = React.useCallback(async () => {
     if (!canOperateConversation) {
@@ -833,6 +1128,12 @@ export function AppChatArea() {
     }
     await copyActiveConversationMarkdown(actionConversationID);
   }, [actionConversationID, canOperateConversation, copyActiveConversationMarkdown]);
+  const onExportActiveConversationImage = React.useCallback(async () => {
+    if (!canOperateConversation) {
+      return;
+    }
+    await exportActiveConversationImage(actionConversationID);
+  }, [actionConversationID, canOperateConversation, exportActiveConversationImage]);
 
   const messagesWithInlineError = React.useMemo<ChatAreaMessage[]>(() => {
     const errors = [
@@ -1025,8 +1326,16 @@ export function AppChatArea() {
   }, [resetFileDragState, uploadDropDisabled]);
 
   const onQuoteSelection = React.useCallback((text: string) => {
+    if (readOnly) {
+      return;
+    }
     setDraft((currentDraft) => buildQuotedDraft(currentDraft, text));
-  }, [setDraft]);
+  }, [readOnly, setDraft]);
+  const onSelectedToolsChange = React.useCallback((nextToolIDs: number[]) => {
+    setSelectedToolIDs(nextToolIDs);
+    const nextSet = new Set(nextToolIDs);
+    setConfirmedToolIDs((current) => current.filter((id) => nextSet.has(id)));
+  }, []);
 
   const chatInputProps = {
     draft,
@@ -1045,6 +1354,11 @@ export function AppChatArea() {
     selectedPlatformModelName,
     availableTools,
     selectedToolIDs,
+    confirmedToolIDs,
+    webSearchEnabled,
+    codeSandboxEnabled,
+    researchMaxLLMCalls,
+    researchMaxToolCalls,
     htmlVisualPromptEnabled: htmlVisualPrompt.enabled,
     maxSelectedTools: mcpMaxSelectedTools,
     toolsLoading,
@@ -1053,18 +1367,23 @@ export function AppChatArea() {
     modelOptionPolicy,
     modelLoading: modelsLoading,
     dropActive: fileDragActive,
-    onDraftChange: setDraft,
+    onDraftChange: readOnly ? () => undefined : setDraft,
     onModelChange: setSelectedPlatformModelName,
-    onSelectedToolsChange: setSelectedToolIDs,
+    onSelectedToolsChange,
+    onConfirmedToolsChange: setConfirmedToolIDs,
+    onWebSearchEnabledChange: setWebSearchEnabled,
+    onCodeSandboxEnabledChange: setCodeSandboxEnabled,
+    onResearchMaxLLMCallsChange: setResearchMaxLLMCalls,
+    onResearchMaxToolCallsChange: setResearchMaxToolCalls,
     onHTMLVisualPromptChange: htmlVisualPrompt.setEnabled,
     onOptionsChange: setModelOptions,
     onOptionsReset: resetModelOptions,
     onOptionsDefaultRestore: restoreBackendDefaultModelOptions,
-    onUploadFiles,
-    onCaptureScreenshot,
-    onRemoveAttachment,
-    onSendMessage,
-    onStopMessage: onStopActiveMessage,
+    onUploadFiles: readOnly ? () => undefined : onUploadFiles,
+    onCaptureScreenshot: readOnly ? () => undefined : onCaptureScreenshot,
+    onRemoveAttachment: readOnly ? () => undefined : onRemoveAttachment,
+    onSendMessage: readOnly ? () => undefined : onSendMessage,
+    onStopMessage: readOnly ? () => undefined : onStopActiveMessage,
   };
   const emptyStateSuggestions = React.useMemo(
     () => [
@@ -1087,7 +1406,7 @@ export function AppChatArea() {
     ],
     [t],
   );
-  const showEmptySuggestions = chatInputProps.draft.trim().length === 0;
+  const showEmptySuggestions = !readOnly && chatInputProps.draft.trim().length === 0;
   const isConversationLoading = Boolean(conversationID) && loading && visibleMessageCount === 0 && messagesWithInlineError.length === 0;
   const isConversationLoadFailed = Boolean(conversationID) && !loading && errorMsg.trim().length > 0 && visibleMessageCount === 0;
   const shouldUseCenteredComposer =
@@ -1096,10 +1415,10 @@ export function AppChatArea() {
   return (
     <div
       className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden md:overflow-visible"
-      onDragEnter={onFileDragEnter}
-      onDragOver={onFileDragOver}
-      onDragLeave={onFileDragLeave}
-      onDrop={onFileDrop}
+      onDragEnter={readOnly ? undefined : onFileDragEnter}
+      onDragOver={readOnly ? undefined : onFileDragOver}
+      onDragLeave={readOnly ? undefined : onFileDragLeave}
+      onDrop={readOnly ? undefined : onFileDrop}
     >
       {shouldUseCenteredComposer ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -1123,9 +1442,11 @@ export function AppChatArea() {
                 tone={contextUsageTone}
               />
             ) : null}
-            <div ref={composerDockRef} className="w-full">
-              <ChatInput {...chatInputProps} />
-            </div>
+            {!readOnly ? (
+              <div ref={composerDockRef} className="w-full">
+                <ChatInput {...chatInputProps} />
+              </div>
+            ) : null}
           </ChatEmptyState>
         </div>
       ) : (
@@ -1145,12 +1466,16 @@ export function AppChatArea() {
               {isConversationLoading ? (
                 <ChatAreaSkeleton />
               ) : isConversationLoadFailed ? (
-                <ChatAreaLoadError onRefresh={reload} onNewConversation={onNewConversationFromLoadError} />
+                <ChatAreaLoadError
+                  onRefresh={reload}
+                  onNewConversation={readOnly ? undefined : onNewConversationFromLoadError}
+                />
               ) : (
                 <ChatArea
-                  title={activeConversationTitle}
+                  title={comparePaneLabel || activeConversationTitle}
                   starred={activeConversationStarred}
                   canOperateConversation={canOperateConversation}
+                  readOnly={readOnly}
                   messages={messagesWithInlineError}
                   busy={generating}
                   messageViewportRef={messageViewportRef}
@@ -1165,6 +1490,7 @@ export function AppChatArea() {
                   onRetryUserMessage={onRetryUserMessage}
                   onRetryAssistantMessage={onRetryAssistantMessage}
                   onContinueAssistantMessage={onContinueAssistantMessage}
+                  onDeleteMessage={onDeleteMessage}
                   onEditAssistantMessage={onEditAssistantMessage}
                   onEditUserMessage={onEditUserMessage}
                   onEditImageAttachment={onEditGeneratedImageAttachment}
@@ -1183,9 +1509,10 @@ export function AppChatArea() {
                   shareActive={activeConversationShared}
                   onExport={onExportActiveConversation}
                   onExportMarkdown={onExportActiveConversationMarkdown}
+                  onExportImage={onExportActiveConversationImage}
                   onCopyMarkdown={onCopyActiveConversationMarkdown}
                   onDelete={onRequestDeleteActiveConversation}
-                  onQuoteSelection={onQuoteSelection}
+                  onQuoteSelection={readOnly ? undefined : onQuoteSelection}
                   modelOptions={modelOptions}
                   selectedPlatformModelName={selectedPlatformModelName}
                   markdownRender={markdownRender}
@@ -1198,7 +1525,7 @@ export function AppChatArea() {
               )}
             </div>
 
-            {!isConversationLoadFailed ? (
+            {!readOnly && !isConversationLoadFailed ? (
               <div ref={composerDockRef} className="relative z-10 shrink-0 px-3 pb-3 md:px-6">
                 <div className="mx-auto w-full max-w-[800px]">
                   {showContextUsageIndicator ? (
@@ -1226,11 +1553,13 @@ export function AppChatArea() {
         </div>
       )}
 
-      <KeyboardShortcutsDialog
-        open={shortcutsDialogOpen}
-        onOpenChange={setShortcutsDialogOpen}
-        sendShortcut={sendShortcut}
-      />
+      {!readOnly ? (
+        <KeyboardShortcutsDialog
+          open={shortcutsDialogOpen}
+          onOpenChange={setShortcutsDialogOpen}
+          sendShortcut={sendShortcut}
+        />
+      ) : null}
 
       {canOperateConversation ? (
         <>
@@ -1240,6 +1569,7 @@ export function AppChatArea() {
             conversationPublicID={actionConversationID}
             conversationTitle={activeConversationTitle}
             defaultMessagePublicIDs={shareDefaultMessagePublicIDs}
+            onExportImage={onExportActiveConversationImage}
             onShareChange={(share) => {
               touchByPublicID(actionConversationID, sharePatchFromDTO(share));
             }}

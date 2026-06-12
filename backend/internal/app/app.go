@@ -15,12 +15,14 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/auth"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/billing"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/collaboration"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/compact"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/conversation"
 	appembedding "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/embedding"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/extraction"
 	appmcp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/mcp"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/memory"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/notification"
 	appstorage "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/objectstorage"
 	appprocessing "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/processing"
 	apprag "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/rag"
@@ -40,9 +42,11 @@ import (
 	auditrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/audit"
 	billingrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/billing"
 	channelrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/channel"
+	collaborationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/collaboration"
 	conversationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/conversation"
 	mcprepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/mcp"
 	memoryrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/memory"
+	notificationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/notification"
 	settingsrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/settings"
 	systemeventrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/systemevent"
 	userrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/user"
@@ -54,9 +58,11 @@ import (
 	authhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/auth"
 	billinghttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/billing"
 	channelhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/channel"
+	collaborationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/collaboration"
 	conversationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/conversation"
 	mcphttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/mcp"
 	memoryhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/memory"
+	notificationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/notification"
 	settingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/settings"
 	usersettingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/usersettings"
 	"github.com/gin-gonic/gin"
@@ -148,6 +154,12 @@ func NewApp() (*App, error) {
 	billingService := billing.NewService(billingRepo)
 	billingService.SetAuditWriter(auditService)
 	billingService.SetRedemptionCodeSecret(cfg.DataEncryptionKey)
+	if values, valueErr := settingsService.RuntimeValuesByNamespace(context.Background(), "billing"); valueErr == nil {
+		billingService.SetNewAPIClient(billing.NewNewAPIClient(billing.NewAPIClientConfig{
+			BaseURL: values["newapi_bridge_base_url"],
+			HMACKey: values["newapi_bridge_hmac_key"],
+		}))
+	}
 	billingHandler := billinghttp.NewHandler(billingService, settingsService, runtimeCfg)
 	billingModule := billinghttp.NewModule(billingHandler)
 	objectStoreProvider := appstorage.NewRuntimeProvider(runtimeCfg, nil)
@@ -237,23 +249,37 @@ func NewApp() (*App, error) {
 	userSettingsModule := usersettingshttp.NewModule(userSettingsHandler)
 	announcementRepo := announcementrepo.NewRepo(db)
 	announcementService := announcement.NewService(announcementRepo)
+	channelService.SetModelAnnouncementService(announcementService)
 	announcementHandler := announcementhttp.NewHandler(announcementService)
 	announcementModule := announcementhttp.NewModule(announcementHandler)
+	notificationRepo := notificationrepo.NewRepo(db)
+	notificationService := notification.NewService(notificationRepo, announcementService)
+	notificationHandler := notificationhttp.NewHandler(notificationService)
+	notificationModule := notificationhttp.NewModule(notificationHandler)
+	collaborationRepo := collaborationrepo.NewRepo(db)
+	collaborationService := collaboration.NewService(collaborationRepo, log)
+	collaborationService.SetNotificationService(notificationService)
+	collaborationService.SetConversationService(scheduledPromptConversationAdapter{service: conversationService})
+	conversationService.SetAssistantResolver(collaborationService)
+	collaborationHandler := collaborationhttp.NewHandler(collaborationService)
+	collaborationModule := collaborationhttp.NewModule(collaborationHandler)
 
 	hc := newHealthChecker(db, cfg.CacheDriver, redisClient)
 	rateLimiter := buildRateLimiter(cfg, redisClient, memoryCache)
 	engine, err := platformhttp.NewEngine(runtimeCfg, log, platformhttp.Modules{
-		Auth:         authModule,
-		AuthService:  authService,
-		Channel:      channelModule,
-		Conversation: conversationModule,
-		MCP:          mcpModule,
-		Memory:       memoryModule,
-		Billing:      billingModule,
-		Admin:        adminModule,
-		Announcement: announcementModule,
-		Settings:     settingsModule,
-		UserSettings: userSettingsModule,
+		Auth:          authModule,
+		AuthService:   authService,
+		Channel:       channelModule,
+		Conversation:  conversationModule,
+		MCP:           mcpModule,
+		Memory:        memoryModule,
+		Billing:       billingModule,
+		Admin:         adminModule,
+		Announcement:  announcementModule,
+		Notification:  notificationModule,
+		Collaboration: collaborationModule,
+		Settings:      settingsModule,
+		UserSettings:  userSettingsModule,
 		StartupLog: func(log *zap.Logger) {
 			if log == nil || bootstrapSuperAdmin == nil {
 				return
@@ -270,6 +296,7 @@ func NewApp() (*App, error) {
 
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	conversationService.StartBackgroundWorkers(backgroundCtx)
+	collaborationService.StartScheduledPromptWorker(backgroundCtx)
 
 	return &App{
 		cfg:              runtimeCfg.Snapshot(),
