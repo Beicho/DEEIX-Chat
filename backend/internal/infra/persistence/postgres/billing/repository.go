@@ -224,6 +224,52 @@ func (r *Repo) GetActivePlanByCode(ctx context.Context, code string) (*domainbil
 	}, nil
 }
 
+// CreatePlanWithDefaultPrice 创建套餐与默认价格。
+func (r *Repo) CreatePlanWithDefaultPrice(ctx context.Context, plan *domainbilling.Plan, price *domainbilling.Price) (*domainbilling.Plan, *domainbilling.Price, error) {
+	if plan == nil || price == nil || strings.TrimSpace(plan.Code) == "" {
+		return nil, nil, repository.ErrInvalidInput
+	}
+	var resultPlan domainbilling.Plan
+	var resultPrice domainbilling.Price
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		planRecord := model.BillingPlan{
+			Code:                strings.TrimSpace(plan.Code),
+			Name:                strings.TrimSpace(plan.Name),
+			Description:         strings.TrimSpace(plan.Description),
+			FeatureJSON:         firstNonEmpty(strings.TrimSpace(plan.FeatureJSON), "[]"),
+			PeriodCreditNanousd: clampNonNegative(plan.PeriodCreditNanousd),
+			DiscountPercent:     clampPercent(plan.DiscountPercent),
+			SortOrder:           plan.SortOrder,
+			IsActive:            plan.IsActive,
+		}
+		if err := tx.Create(&planRecord).Error; err != nil {
+			return translateError(err)
+		}
+		priceRecord := model.BillingPrice{
+			PlanID:          planRecord.ID,
+			Code:            strings.TrimSpace(price.Code),
+			BillingInterval: normalizeInterval(price.BillingInterval),
+			Currency:        normalizeCurrency(price.Currency),
+			AmountCents:     clampNonNegative(price.AmountCents),
+			IsActive:        true,
+			IsDefault:       true,
+		}
+		if priceRecord.Code == "" {
+			priceRecord.Code = planRecord.Code + "-default"
+		}
+		if err := tx.Create(&priceRecord).Error; err != nil {
+			return translateError(err)
+		}
+		resultPlan = toDomainPlan(planRecord)
+		resultPrice = toDomainPrice(priceRecord)
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return &resultPlan, &resultPrice, nil
+}
+
 // UpdatePlanWithDefaultPrice 更新套餐与默认价格。
 func (r *Repo) UpdatePlanWithDefaultPrice(ctx context.Context, plan *domainbilling.Plan, price *domainbilling.Price) error {
 	if plan == nil || price == nil || plan.ID == 0 {
@@ -276,6 +322,39 @@ func (r *Repo) UpdatePlanWithDefaultPrice(ctx context.Context, plan *domainbilli
 			}
 		}
 		return translateError(tx.Model(&record).Updates(updates).Error)
+	})
+}
+
+// DeletePlan 软删除套餐并停用其价格。
+func (r *Repo) DeletePlan(ctx context.Context, planID uint) error {
+	if planID == 0 {
+		return repository.ErrInvalidInput
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var activeSubscriptions int64
+		if err := tx.Model(&model.Subscription{}).
+			Where("plan_id = ? AND status = ?", planID, "active").
+			Count(&activeSubscriptions).Error; err != nil {
+			return translateError(err)
+		}
+		if activeSubscriptions > 0 {
+			return repository.ErrInvalidInput
+		}
+		if err := tx.Model(&model.BillingPrice{}).
+			Where("plan_id = ?", planID).
+			Update("is_active", false).Error; err != nil {
+			return translateError(err)
+		}
+		result := tx.Model(&model.BillingPlan{}).
+			Where("id = ?", planID).
+			Update("is_active", false)
+		if result.Error != nil {
+			return translateError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return repository.ErrNotFound
+		}
+		return nil
 	})
 }
 
@@ -445,6 +524,89 @@ func (r *Repo) GetPaymentOrderByOrderNo(ctx context.Context, orderNo string) (*d
 		return nil, translateError(err)
 	}
 	result := toDomainPaymentOrder(record)
+	return &result, nil
+}
+
+// ListPaymentOrders 分页查询支付单。
+func (r *Repo) ListPaymentOrders(ctx context.Context, filter repository.PaymentOrderListFilter, offset int, limit int) ([]domainbilling.PaymentOrder, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	items := make([]model.PaymentOrder, 0, limit)
+	var total int64
+	query := r.db.WithContext(ctx).Model(&model.PaymentOrder{})
+	if filter.UserID > 0 {
+		query = query.Where("user_id = ?", filter.UserID)
+	}
+	if status := strings.TrimSpace(filter.Status); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if orderType := strings.TrimSpace(filter.OrderType); orderType != "" {
+		query = query.Where("order_type = ?", orderType)
+	}
+	if provider := strings.TrimSpace(filter.Provider); provider != "" {
+		query = query.Where("provider = ?", provider)
+	}
+	if search := strings.TrimSpace(filter.Query); search != "" {
+		like := "%" + strings.ToLower(search) + "%"
+		query = query.Where(
+			"LOWER(order_no) LIKE ? OR LOWER(external_payment_id) LIKE ? OR LOWER(external_checkout_id) LIKE ?",
+			like,
+			like,
+			like,
+		)
+	}
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	order := "created_at DESC, id DESC"
+	switch strings.TrimSpace(filter.Sort) {
+	case "oldest":
+		order = "created_at ASC, id ASC"
+	case "amount_desc":
+		order = "pay_amount_cents DESC, id DESC"
+	}
+	if err := query.Order(order).Offset(offset).Limit(limit).Find(&items).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	results := make([]domainbilling.PaymentOrder, 0, len(items))
+	for _, item := range items {
+		results = append(results, toDomainPaymentOrder(item))
+	}
+	return results, total, nil
+}
+
+// UpdatePaymentOrderStatus 更新待处理支付单状态。
+func (r *Repo) UpdatePaymentOrderStatus(ctx context.Context, orderNo string, status string) (*domainbilling.PaymentOrder, error) {
+	orderNo = strings.TrimSpace(orderNo)
+	status = strings.TrimSpace(status)
+	if orderNo == "" || (status != domainbilling.PaymentStatusFailed && status != domainbilling.PaymentStatusExpired) {
+		return nil, repository.ErrInvalidInput
+	}
+	var result domainbilling.PaymentOrder
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var order model.PaymentOrder
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("order_no = ?", orderNo).First(&order).Error; err != nil {
+			return translateError(err)
+		}
+		if order.Status == domainbilling.PaymentStatusPaid {
+			return repository.ErrInvalidInput
+		}
+		if err := tx.Model(&order).Update("status", status).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.Where("order_no = ?", orderNo).First(&order).Error; err != nil {
+			return translateError(err)
+		}
+		result = toDomainPaymentOrder(order)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	return &result, nil
 }
 
@@ -834,6 +996,481 @@ func (r *Repo) SetBillingAccountBalance(ctx context.Context, userID uint, balanc
 	return &result, nil
 }
 
+// AdjustBillingAccountBalance 原子增减用户按量余额并记录流水。
+func (r *Repo) AdjustBillingAccountBalance(ctx context.Context, userID uint, deltaNanousd int64, refNo string, description string) (*domainbilling.BillingAccount, *domainbilling.BalanceTransaction, error) {
+	if userID == 0 || deltaNanousd == 0 {
+		return nil, nil, repository.ErrInvalidInput
+	}
+	var result domainbilling.BillingAccount
+	var transactionResult *domainbilling.BalanceTransaction
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		account, err := getOrCreateBillingAccountForUpdate(tx, userID)
+		if err != nil {
+			return err
+		}
+		nextBalance := account.BalanceNanousd + deltaNanousd
+		if nextBalance < 0 {
+			return repository.ErrInsufficientBalance
+		}
+		if err := tx.Model(account).Updates(map[string]interface{}{
+			"balance_nanousd": nextBalance,
+			"currency":        "USD",
+			"status":          "active",
+		}).Error; err != nil {
+			return translateError(err)
+		}
+		txType := domainbilling.BalanceTransactionTypeAdminSet
+		txDescription := strings.TrimSpace(description)
+		if txDescription == "" {
+			if deltaNanousd > 0 {
+				txDescription = "管理员增加余额"
+			} else {
+				txDescription = "管理员扣减余额"
+			}
+		}
+		transaction := model.BalanceTransaction{
+			AccountID:           account.ID,
+			UserID:              userID,
+			Type:                txType,
+			AmountNanousd:       deltaNanousd,
+			BalanceAfterNanousd: nextBalance,
+			RefType:             "admin_delta",
+			RefNo:               strings.TrimSpace(refNo),
+			Description:         txDescription,
+		}
+		if err := tx.Create(&transaction).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.Where("id = ?", account.ID).First(account).Error; err != nil {
+			return translateError(err)
+		}
+		result = toDomainBillingAccount(*account)
+		domainTx := toDomainBalanceTransaction(transaction)
+		transactionResult = &domainTx
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return &result, transactionResult, nil
+}
+
+// ListBalanceTransactions 分页查询余额流水。
+func (r *Repo) ListBalanceTransactions(ctx context.Context, filter repository.BalanceTransactionListFilter, offset int, limit int) ([]domainbilling.BalanceTransaction, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	items := make([]model.BalanceTransaction, 0, limit)
+	var total int64
+	query := r.db.WithContext(ctx).Model(&model.BalanceTransaction{})
+	if filter.UserID > 0 {
+		query = query.Where("user_id = ?", filter.UserID)
+	}
+	if txType := strings.TrimSpace(filter.Type); txType != "" {
+		query = query.Where("type = ?", txType)
+	}
+	if filter.From != nil {
+		query = query.Where("created_at >= ?", *filter.From)
+	}
+	if filter.To != nil {
+		query = query.Where("created_at <= ?", *filter.To)
+	}
+	if search := strings.TrimSpace(filter.Query); search != "" {
+		like := "%" + strings.ToLower(search) + "%"
+		query = query.Where("LOWER(ref_no) LIKE ? OR LOWER(description) LIKE ? OR LOWER(ref_type) LIKE ?", like, like, like)
+	}
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	order := "created_at DESC, id DESC"
+	if strings.TrimSpace(filter.Sort) == "oldest" {
+		order = "created_at ASC, id ASC"
+	}
+	if err := query.Order(order).Offset(offset).Limit(limit).Find(&items).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	results := make([]domainbilling.BalanceTransaction, 0, len(items))
+	for _, item := range items {
+		results = append(results, toDomainBalanceTransaction(item))
+	}
+	return results, total, nil
+}
+
+// ClaimDailyCheckIn 原子写入每日签到、余额账户变更和余额流水；同日重复请求幂等返回原记录。
+func (r *Repo) ClaimDailyCheckIn(ctx context.Context, input repository.CheckInClaimInput) (*repository.CheckInClaimResult, error) {
+	if input.UserID == 0 || input.RewardNanousd <= 0 {
+		return nil, repository.ErrInvalidInput
+	}
+	checkInDate := dateOnly(input.CheckInDate)
+	if checkInDate.IsZero() {
+		checkInDate = dateOnly(time.Now())
+	}
+	refNo := strings.TrimSpace(input.RefNo)
+	if refNo == "" {
+		refNo = "checkin"
+	}
+	consecutiveDays := input.ConsecutiveDay
+	if consecutiveDays <= 0 {
+		consecutiveDays = 1
+	}
+
+	var result repository.CheckInClaimResult
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing model.CheckInRecord
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND check_in_date = ?", input.UserID, checkInDate).
+			First(&existing).Error
+		if err == nil {
+			result.Record = toDomainCheckInRecord(existing)
+			if account, accountErr := billingAccountByUserID(tx, input.UserID); accountErr == nil {
+				domainAccount := toDomainBillingAccount(*account)
+				result.Account = &domainAccount
+			} else if !errors.Is(accountErr, repository.ErrNotFound) {
+				return accountErr
+			}
+			if existing.BalanceTransactionID > 0 {
+				var transaction model.BalanceTransaction
+				if txErr := tx.Where("id = ?", existing.BalanceTransactionID).First(&transaction).Error; txErr == nil {
+					domainTx := toDomainBalanceTransaction(transaction)
+					result.Transaction = &domainTx
+				} else if !errors.Is(txErr, gorm.ErrRecordNotFound) {
+					return translateError(txErr)
+				}
+			}
+			result.AlreadyClaimed = true
+			return nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return translateError(err)
+		}
+
+		account, err := getOrCreateBillingAccountForUpdate(tx, input.UserID)
+		if err != nil {
+			return err
+		}
+		nextBalance := account.BalanceNanousd + input.RewardNanousd
+		if err := tx.Model(account).Updates(map[string]interface{}{
+			"balance_nanousd": nextBalance,
+			"currency":        "USD",
+			"status":          "active",
+		}).Error; err != nil {
+			return translateError(err)
+		}
+
+		record := model.CheckInRecord{
+			UserID:          input.UserID,
+			CheckInDate:     checkInDate,
+			RewardNanousd:   input.RewardNanousd,
+			ConsecutiveDays: consecutiveDays,
+			RefNo:           refNo,
+		}
+		if err := tx.Create(&record).Error; err != nil {
+			return translateError(err)
+		}
+		transaction := model.BalanceTransaction{
+			AccountID:           account.ID,
+			UserID:              input.UserID,
+			Type:                domainbilling.BalanceTransactionTypeCheckIn,
+			AmountNanousd:       input.RewardNanousd,
+			BalanceAfterNanousd: nextBalance,
+			RefType:             domainbilling.BalanceTransactionRefTypeCheckIn,
+			RefID:               record.ID,
+			RefNo:               refNo,
+			Description:         firstNonEmpty(strings.TrimSpace(input.Description), "Daily check-in reward"),
+		}
+		if err := tx.Create(&transaction).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.Model(&record).Update("balance_transaction_id", transaction.ID).Error; err != nil {
+			return translateError(err)
+		}
+		record.BalanceTransactionID = transaction.ID
+		if err := tx.Where("id = ?", account.ID).First(account).Error; err != nil {
+			return translateError(err)
+		}
+
+		result.Record = toDomainCheckInRecord(record)
+		domainAccount := toDomainBillingAccount(*account)
+		domainTx := toDomainBalanceTransaction(transaction)
+		result.Account = &domainAccount
+		result.Transaction = &domainTx
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// GetLatestCheckIn 查询用户最近一次签到记录。
+func (r *Repo) GetLatestCheckIn(ctx context.Context, userID uint) (*domainbilling.CheckInRecord, error) {
+	if userID == 0 {
+		return nil, repository.ErrInvalidInput
+	}
+	var record model.CheckInRecord
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("check_in_date DESC, id DESC").
+		First(&record).Error; err != nil {
+		return nil, translateError(err)
+	}
+	result := toDomainCheckInRecord(record)
+	return &result, nil
+}
+
+// GetExternalAccountLink 查询当前用户指定外部平台绑定。
+func (r *Repo) GetExternalAccountLink(ctx context.Context, userID uint, platform string) (*domainbilling.ExternalAccountLink, error) {
+	if userID == 0 || strings.TrimSpace(platform) == "" {
+		return nil, repository.ErrInvalidInput
+	}
+	var item model.ExternalAccountLink
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND platform = ?", userID, strings.TrimSpace(platform)).
+		First(&item).Error; err != nil {
+		return nil, translateError(err)
+	}
+	result := toDomainExternalAccountLink(item)
+	return &result, nil
+}
+
+// FindUserLinuxDOSub 从用户已绑定身份中查找 LinuxDo subject。
+func (r *Repo) FindUserLinuxDOSub(ctx context.Context, userID uint) (string, error) {
+	if userID == 0 {
+		return "", repository.ErrInvalidInput
+	}
+	type row struct {
+		ProviderSubject string
+	}
+	var item row
+	err := r.db.WithContext(ctx).
+		Table("identity_user_links AS links").
+		Select("links.provider_subject").
+		Joins("JOIN identity_providers AS providers ON providers.id = links.provider_id").
+		Where("links.user_id = ?", userID).
+		Where("(LOWER(providers.slug) LIKE ? OR LOWER(providers.name) LIKE ?)", "%linuxdo%", "%linuxdo%").
+		Order("links.linked_at DESC, links.id DESC").
+		Limit(1).
+		Scan(&item).Error
+	if err != nil {
+		return "", translateError(err)
+	}
+	if strings.TrimSpace(item.ProviderSubject) == "" {
+		return "", repository.ErrNotFound
+	}
+	return strings.TrimSpace(item.ProviderSubject), nil
+}
+
+// UpsertExternalAccountLink 创建或更新外部账号绑定。
+func (r *Repo) UpsertExternalAccountLink(ctx context.Context, link *domainbilling.ExternalAccountLink) (*domainbilling.ExternalAccountLink, error) {
+	if link == nil || link.UserID == 0 || strings.TrimSpace(link.Platform) == "" || strings.TrimSpace(link.ExternalUserID) == "" {
+		return nil, repository.ErrInvalidInput
+	}
+	now := time.Now().UTC()
+	if !link.LinkedAt.IsZero() {
+		now = link.LinkedAt
+	}
+	var result domainbilling.ExternalAccountLink
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var item model.ExternalAccountLink
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND platform = ?", link.UserID, strings.TrimSpace(link.Platform)).
+			First(&item).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return translateError(err)
+		}
+		values := map[string]interface{}{
+			"external_user_id":      strings.TrimSpace(link.ExternalUserID),
+			"external_display_name": strings.TrimSpace(link.ExternalDisplayName),
+			"linux_do_sub":          strings.TrimSpace(link.LinuxDOSub),
+			"status":                firstNonEmpty(strings.TrimSpace(link.Status), domainbilling.ExternalAccountLinkStatusActive),
+			"linked_at":             now,
+			"last_synced_at":        now,
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			item = model.ExternalAccountLink{
+				UserID:              link.UserID,
+				Platform:            strings.TrimSpace(link.Platform),
+				ExternalUserID:      strings.TrimSpace(link.ExternalUserID),
+				ExternalDisplayName: strings.TrimSpace(link.ExternalDisplayName),
+				LinuxDOSub:          strings.TrimSpace(link.LinuxDOSub),
+				Status:              firstNonEmpty(strings.TrimSpace(link.Status), domainbilling.ExternalAccountLinkStatusActive),
+				LinkedAt:            now,
+				LastSyncedAt:        &now,
+			}
+			if err := tx.Create(&item).Error; err != nil {
+				return translateError(err)
+			}
+			result = toDomainExternalAccountLink(item)
+			return nil
+		}
+		if err := tx.Model(&item).Updates(values).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.Where("id = ?", item.ID).First(&item).Error; err != nil {
+			return translateError(err)
+		}
+		result = toDomainExternalAccountLink(item)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// CreditExternalTransfer 幂等地将外部划转入账到本站余额。
+func (r *Repo) CreditExternalTransfer(ctx context.Context, input repository.ExternalTransferCreditInput) (*domainbilling.ExternalTransfer, *domainbilling.BalanceTransaction, error) {
+	if input.UserID == 0 || strings.TrimSpace(input.Platform) == "" || strings.TrimSpace(input.IdempotencyKey) == "" || input.ExternalAmountUSD <= 0 || input.CreditedAmountNanousd <= 0 {
+		return nil, nil, repository.ErrInvalidInput
+	}
+	var result domainbilling.ExternalTransfer
+	var transactionResult *domainbilling.BalanceTransaction
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing model.ExternalTransfer
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("idempotency_key = ?", strings.TrimSpace(input.IdempotencyKey)).
+			First(&existing).Error
+		if err == nil {
+			result = toDomainExternalTransfer(existing)
+			return nil
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return translateError(err)
+		}
+
+		account, err := getOrCreateBillingAccountForUpdate(tx, input.UserID)
+		if err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		transfer := model.ExternalTransfer{
+			UserID:                input.UserID,
+			LinkID:                input.LinkID,
+			Platform:              strings.TrimSpace(input.Platform),
+			Direction:             firstNonEmpty(strings.TrimSpace(input.Direction), domainbilling.ExternalTransferDirectionIn),
+			ExternalTransferID:    strings.TrimSpace(input.ExternalTransferID),
+			IdempotencyKey:        strings.TrimSpace(input.IdempotencyKey),
+			ExternalAmountUSD:     input.ExternalAmountUSD,
+			CreditedAmountNanousd: input.CreditedAmountNanousd,
+			Status:                domainbilling.ExternalTransferStatusPending,
+			RequestedAt:           now,
+		}
+		if err := tx.Create(&transfer).Error; err != nil {
+			return translateError(err)
+		}
+		nextBalance := account.BalanceNanousd + input.CreditedAmountNanousd
+		if err := tx.Model(account).Updates(map[string]interface{}{
+			"balance_nanousd": nextBalance,
+			"currency":        "USD",
+			"status":          "active",
+		}).Error; err != nil {
+			return translateError(err)
+		}
+		transaction := model.BalanceTransaction{
+			AccountID:           account.ID,
+			UserID:              input.UserID,
+			Type:                domainbilling.BalanceTransactionTypeNewAPITransferIn,
+			AmountNanousd:       input.CreditedAmountNanousd,
+			BalanceAfterNanousd: nextBalance,
+			RefType:             domainbilling.BalanceTransactionRefTypeExternalTransfer,
+			RefID:               transfer.ID,
+			RefNo:               firstNonEmpty(strings.TrimSpace(input.RefNo), strings.TrimSpace(input.IdempotencyKey)),
+			Description:         firstNonEmpty(strings.TrimSpace(input.Description), "NewAPI transfer in"),
+		}
+		if err := tx.Create(&transaction).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.Model(&transfer).Updates(map[string]interface{}{
+			"status":                 domainbilling.ExternalTransferStatusCredited,
+			"balance_transaction_id": transaction.ID,
+			"completed_at":           now,
+		}).Error; err != nil {
+			return translateError(err)
+		}
+		if err := tx.Where("id = ?", transfer.ID).First(&transfer).Error; err != nil {
+			return translateError(err)
+		}
+		result = toDomainExternalTransfer(transfer)
+		domainTx := toDomainBalanceTransaction(transaction)
+		transactionResult = &domainTx
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return &result, transactionResult, nil
+}
+
+// ListExternalTransfers 分页查询外部划转记录。
+func (r *Repo) ListExternalTransfers(ctx context.Context, filter repository.ExternalTransferListFilter, offset int, limit int) ([]domainbilling.ExternalTransfer, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	items := make([]model.ExternalTransfer, 0, limit)
+	var total int64
+	query := r.db.WithContext(ctx).Model(&model.ExternalTransfer{})
+	if filter.UserID > 0 {
+		query = query.Where("user_id = ?", filter.UserID)
+	}
+	if platform := strings.TrimSpace(filter.Platform); platform != "" {
+		query = query.Where("platform = ?", platform)
+	}
+	if status := strings.TrimSpace(filter.Status); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if filter.CreatedFrom != nil {
+		query = query.Where("created_at >= ?", *filter.CreatedFrom)
+	}
+	if filter.CreatedTo != nil {
+		query = query.Where("created_at <= ?", *filter.CreatedTo)
+	}
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	order := "created_at DESC, id DESC"
+	if strings.TrimSpace(filter.Sort) == "oldest" {
+		order = "created_at ASC, id ASC"
+	}
+	if err := query.Order(order).Offset(offset).Limit(limit).Find(&items).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	results := make([]domainbilling.ExternalTransfer, 0, len(items))
+	for _, item := range items {
+		results = append(results, toDomainExternalTransfer(item))
+	}
+	return results, total, nil
+}
+
+// UpdateExternalTransferStatus 更新外部划转状态。
+func (r *Repo) UpdateExternalTransferStatus(ctx context.Context, idempotencyKey string, status string, failureReason string) error {
+	key := strings.TrimSpace(idempotencyKey)
+	if key == "" || strings.TrimSpace(status) == "" {
+		return repository.ErrInvalidInput
+	}
+	updates := map[string]interface{}{
+		"status":         strings.TrimSpace(status),
+		"failure_reason": strings.TrimSpace(failureReason),
+	}
+	if status == domainbilling.ExternalTransferStatusRolledBack || status == domainbilling.ExternalTransferStatusCredited {
+		now := time.Now().UTC()
+		updates["completed_at"] = now
+	}
+	result := r.db.WithContext(ctx).Model(&model.ExternalTransfer{}).Where("idempotency_key = ?", key).Updates(updates)
+	if result.Error != nil {
+		return translateError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return repository.ErrNotFound
+	}
+	return nil
+}
+
 // MarkPaymentOrderPaidAndCreditBalance 标记充值支付成功并入账余额，重复回调保持幂等。
 func (r *Repo) MarkPaymentOrderPaidAndCreditBalance(
 	ctx context.Context,
@@ -1182,6 +1819,44 @@ func (r *Repo) RedeemCode(ctx context.Context, input repository.RedemptionApplyI
 	return &result, nil
 }
 
+// ListRedemptions 分页查询兑换记录。
+func (r *Repo) ListRedemptions(ctx context.Context, filter repository.RedemptionListFilter, offset int, limit int) ([]domainbilling.Redemption, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	items := make([]model.Redemption, 0, limit)
+	var total int64
+	query := r.db.WithContext(ctx).Model(&model.Redemption{})
+	if filter.UserID > 0 {
+		query = query.Where("user_id = ?", filter.UserID)
+	}
+	if mode := strings.TrimSpace(filter.Mode); mode != "" {
+		query = query.Where("mode = ?", mode)
+	}
+	if search := strings.TrimSpace(filter.Query); search != "" {
+		like := "%" + strings.ToLower(search) + "%"
+		query = query.Where("LOWER(ref_no) LIKE ? OR LOWER(snapshot_json) LIKE ?", like, like)
+	}
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	order := "created_at DESC, id DESC"
+	if strings.TrimSpace(filter.Sort) == "oldest" {
+		order = "created_at ASC, id ASC"
+	}
+	if err := query.Order(order).Offset(offset).Limit(limit).Find(&items).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	results := make([]domainbilling.Redemption, 0, len(items))
+	for _, item := range items {
+		results = append(results, toDomainRedemption(item))
+	}
+	return results, total, nil
+}
+
 // GetBillingMode 查询当前计费方式。
 func (r *Repo) GetBillingMode(ctx context.Context) (string, error) {
 	var item model.SystemSetting
@@ -1355,6 +2030,12 @@ func (r *Repo) ListUsageByUser(ctx context.Context, userID uint, filter reposito
 	case "billable":
 		query = query.Where("is_free_model = ?", false)
 	}
+	if filter.CreatedFrom != nil {
+		query = query.Where("created_at >= ?", *filter.CreatedFrom)
+	}
+	if filter.CreatedTo != nil {
+		query = query.Where("created_at <= ?", *filter.CreatedTo)
+	}
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, translateError(err)
@@ -1504,6 +2185,43 @@ func (r *Repo) GetAdminDashboardStats(ctx context.Context, startAt time.Time, en
 		LIMIT ?`
 	if err := r.db.WithContext(ctx).Raw(modelSQL, startAt, endAt, limit).Scan(&stats.TopModels).Error; err != nil {
 		return nil, translateError(err)
+	}
+	return stats, nil
+}
+
+// GetBillingRiskSummary returns the first billing-facing risk snapshot.
+func (r *Repo) GetBillingRiskSummary(ctx context.Context) (*domainbilling.RiskSummary, error) {
+	stats := &domainbilling.RiskSummary{GeneratedAt: time.Now()}
+	if r.sqliteDialect() {
+		return stats, nil
+	}
+	var tableName string
+	if err := r.db.WithContext(ctx).Raw(`SELECT COALESCE(to_regclass('public.fingerprint_associations')::text, '')`).Scan(&tableName).Error; err != nil {
+		return nil, translateError(err)
+	}
+	if strings.TrimSpace(tableName) != "" {
+		clusterSQL := `
+			SELECT
+				COALESCE(count(*) FILTER (WHERE ignored_at IS NULL), 0) AS multi_account_cluster_count,
+				COALESCE(count(*) FILTER (WHERE ignored_at IS NULL AND (risk_level = 'high' OR confidence_score >= 0.9)), 0) AS high_risk_cluster_count,
+				COALESCE(count(*) FILTER (WHERE ignored_at IS NOT NULL), 0) AS ignored_cluster_count,
+				COALESCE(count(DISTINCT fingerprint_id), 0) AS unique_fingerprint_count
+			FROM fingerprint_associations
+			WHERE deleted_at IS NULL`
+		if err := r.db.WithContext(ctx).Raw(clusterSQL).Scan(stats).Error; err != nil {
+			return nil, translateError(err)
+		}
+	}
+	var auditTable string
+	if err := r.db.WithContext(ctx).Raw(`SELECT COALESCE(to_regclass('public.audit_logs')::text, '')`).Scan(&auditTable).Error; err != nil {
+		return nil, translateError(err)
+	}
+	if strings.TrimSpace(auditTable) != "" {
+		if err := r.db.WithContext(ctx).
+			Raw(`SELECT COALESCE(count(DISTINCT NULLIF(ip, '')), 0) FROM audit_logs WHERE deleted_at IS NULL`).
+			Scan(&stats.UniqueIPCount).Error; err != nil {
+			return nil, translateError(err)
+		}
 	}
 	return stats, nil
 }
@@ -1848,6 +2566,22 @@ func getOrCreateBillingAccountForUpdate(tx *gorm.DB, userID uint) (*model.Billin
 	return &account, nil
 }
 
+func billingAccountByUserID(tx *gorm.DB, userID uint) (*model.BillingAccount, error) {
+	var account model.BillingAccount
+	if err := tx.Where("user_id = ?", userID).First(&account).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return &account, nil
+}
+
+func dateOnly(value time.Time) time.Time {
+	if value.IsZero() {
+		return time.Time{}
+	}
+	utc := value.UTC()
+	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+}
+
 func toDomainBillingAccount(item model.BillingAccount) domainbilling.BillingAccount {
 	return domainbilling.BillingAccount{
 		ID:             item.ID,
@@ -1857,6 +2591,69 @@ func toDomainBillingAccount(item model.BillingAccount) domainbilling.BillingAcco
 		Status:         item.Status,
 		CreatedAt:      item.CreatedAt,
 		UpdatedAt:      item.UpdatedAt,
+	}
+}
+
+func toDomainCheckInRecord(item model.CheckInRecord) domainbilling.CheckInRecord {
+	return domainbilling.CheckInRecord{
+		ID:                   item.ID,
+		UserID:               item.UserID,
+		CheckInDate:          item.CheckInDate,
+		RewardNanousd:        item.RewardNanousd,
+		ConsecutiveDays:      item.ConsecutiveDays,
+		BalanceTransactionID: item.BalanceTransactionID,
+		RefNo:                item.RefNo,
+		CreatedAt:            item.CreatedAt,
+		UpdatedAt:            item.UpdatedAt,
+	}
+}
+
+func toDomainBalanceTransaction(item model.BalanceTransaction) domainbilling.BalanceTransaction {
+	return domainbilling.BalanceTransaction{
+		ID:                  item.ID,
+		AccountID:           item.AccountID,
+		UserID:              item.UserID,
+		Type:                item.Type,
+		AmountNanousd:       item.AmountNanousd,
+		BalanceAfterNanousd: item.BalanceAfterNanousd,
+		RefType:             item.RefType,
+		RefID:               item.RefID,
+		RefNo:               item.RefNo,
+		Description:         item.Description,
+		CreatedAt:           item.CreatedAt,
+		UpdatedAt:           item.UpdatedAt,
+	}
+}
+
+func toDomainPlan(item model.BillingPlan) domainbilling.Plan {
+	return domainbilling.Plan{
+		ID:                  item.ID,
+		Code:                item.Code,
+		Name:                item.Name,
+		Description:         item.Description,
+		FeatureJSON:         item.FeatureJSON,
+		PeriodCreditNanousd: item.PeriodCreditNanousd,
+		DiscountPercent:     item.DiscountPercent,
+		SortOrder:           item.SortOrder,
+		IsActive:            item.IsActive,
+		CreatedAt:           item.CreatedAt,
+		UpdatedAt:           item.UpdatedAt,
+	}
+}
+
+func toDomainPrice(item model.BillingPrice) domainbilling.Price {
+	return domainbilling.Price{
+		ID:               item.ID,
+		PlanID:           item.PlanID,
+		Code:             item.Code,
+		BillingInterval:  item.BillingInterval,
+		Currency:         item.Currency,
+		AmountCents:      item.AmountCents,
+		IsActive:         item.IsActive,
+		IsDefault:        item.IsDefault,
+		ExternalPriceRef: item.ExternalPriceRef,
+		CreatedAt:        item.CreatedAt,
+		UpdatedAt:        item.UpdatedAt,
 	}
 }
 
@@ -1875,6 +2672,43 @@ func toDomainSubscription(item model.Subscription) domainbilling.Subscription {
 		AutoRenew:            item.AutoRenew,
 		CreatedAt:            item.CreatedAt,
 		UpdatedAt:            item.UpdatedAt,
+	}
+}
+
+func toDomainExternalAccountLink(item model.ExternalAccountLink) domainbilling.ExternalAccountLink {
+	return domainbilling.ExternalAccountLink{
+		ID:                  item.ID,
+		UserID:              item.UserID,
+		Platform:            item.Platform,
+		ExternalUserID:      item.ExternalUserID,
+		ExternalDisplayName: item.ExternalDisplayName,
+		LinuxDOSub:          item.LinuxDOSub,
+		Status:              item.Status,
+		LinkedAt:            item.LinkedAt,
+		LastSyncedAt:        item.LastSyncedAt,
+		CreatedAt:           item.CreatedAt,
+		UpdatedAt:           item.UpdatedAt,
+	}
+}
+
+func toDomainExternalTransfer(item model.ExternalTransfer) domainbilling.ExternalTransfer {
+	return domainbilling.ExternalTransfer{
+		ID:                    item.ID,
+		UserID:                item.UserID,
+		LinkID:                item.LinkID,
+		Platform:              item.Platform,
+		Direction:             item.Direction,
+		ExternalTransferID:    item.ExternalTransferID,
+		IdempotencyKey:        item.IdempotencyKey,
+		ExternalAmountUSD:     item.ExternalAmountUSD,
+		CreditedAmountNanousd: item.CreditedAmountNanousd,
+		BalanceTransactionID:  item.BalanceTransactionID,
+		Status:                item.Status,
+		FailureReason:         item.FailureReason,
+		RequestedAt:           item.RequestedAt,
+		CompletedAt:           item.CompletedAt,
+		CreatedAt:             item.CreatedAt,
+		UpdatedAt:             item.UpdatedAt,
 	}
 }
 

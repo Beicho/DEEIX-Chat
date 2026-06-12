@@ -48,6 +48,7 @@ type ChatLabelProps = {
   shareActive?: boolean;
   onExport?: () => void | Promise<void>;
   onExportMarkdown?: () => void | Promise<void>;
+  onExportImage?: () => void | Promise<void>;
   onCopyMarkdown?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
 };
@@ -63,6 +64,7 @@ export function ChatLabel({
   shareActive = false,
   onExport,
   onExportMarkdown,
+  onExportImage,
   onCopyMarkdown,
   onDelete,
 }: ChatLabelProps) {
@@ -107,8 +109,9 @@ export function ChatLabel({
             type="button"
             aria-label={t("actions")}
             className={cn(
-              "group inline-flex h-11 max-w-full items-center gap-0.5 rounded-lg text-left transition-colors md:h-7",
+              "group relative inline-flex h-7 max-w-full items-center gap-0.5 rounded-lg text-left transition-colors",
               "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              "after:absolute after:-inset-y-2 after:inset-x-0 after:content-[''] md:after:hidden",
             )}
           >
             <span className="inline-flex min-w-0 items-center px-2">
@@ -118,7 +121,7 @@ export function ChatLabel({
                 textClassName="text-sm font-medium leading-none text-foreground"
               />
             </span>
-            <span className="inline-flex h-11 items-center px-2 text-muted-foreground transition-colors group-hover:text-foreground md:h-7 md:px-1">
+            <span className="inline-flex h-7 items-center px-1 text-muted-foreground transition-colors group-hover:text-foreground">
               <ChevronDown className="size-4 stroke-[1.8]" />
             </span>
           </button>
@@ -172,10 +175,12 @@ export function ChatLabel({
             shareLabel={shareActive ? t("manageShare") : t("share")}
             exportLabel={t("exportJSON")}
             exportMarkdownLabel={t("exportMarkdown")}
+            exportImageLabel={t("exportImage")}
             copyMarkdownLabel={t("copyMarkdown")}
             onShare={onShare}
             onExport={onExport}
             onExportMarkdown={onExportMarkdown}
+            onExportImage={onExportImage}
             onCopyMarkdown={onCopyMarkdown}
             onCloseMenu={() => setMenuOpen(false)}
           />

@@ -39,7 +39,7 @@ type AnnouncementResponse struct {
 type CreateAnnouncementRequest struct {
 	Title           string     `json:"title" binding:"required,min=1,max=120"`
 	ContentMarkdown string     `json:"contentMarkdown" binding:"required,min=1,max=20000"`
-	Status          string     `json:"status" binding:"omitempty,oneof=active inactive"`
+	Status          string     `json:"status" binding:"omitempty,oneof=active inactive draft"`
 	Type            string     `json:"type" binding:"omitempty,oneof=critical warning info normal general"`
 	Pinned          bool       `json:"pinned"`
 	Priority        int        `json:"priority"`
@@ -51,7 +51,7 @@ type CreateAnnouncementRequest struct {
 type PatchAnnouncementRequest struct {
 	Title           *string             `json:"title" binding:"omitempty,min=1,max=120"`
 	ContentMarkdown *string             `json:"contentMarkdown" binding:"omitempty,min=1,max=20000"`
-	Status          *string             `json:"status" binding:"omitempty,oneof=active inactive"`
+	Status          *string             `json:"status" binding:"omitempty,oneof=active inactive draft"`
 	Type            *string             `json:"type" binding:"omitempty,oneof=critical warning info normal general"`
 	Pinned          *bool               `json:"pinned"`
 	Priority        *int                `json:"priority"`
@@ -63,7 +63,7 @@ type PatchAnnouncementRequest struct {
 type PatchAnnouncementRequestDoc struct {
 	Title           *string    `json:"title" maxLength:"120"`
 	ContentMarkdown *string    `json:"contentMarkdown" maxLength:"20000"`
-	Status          *string    `json:"status" enums:"active,inactive"`
+	Status          *string    `json:"status" enums:"active,inactive,draft"`
 	Type            *string    `json:"type" enums:"critical,warning,info,normal,general"`
 	Pinned          *bool      `json:"pinned"`
 	Priority        *int       `json:"priority"`

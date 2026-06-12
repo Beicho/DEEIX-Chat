@@ -1,0 +1,81 @@
+{
+  "metadata": {
+    "title": "DEEIX Chat · 多模型 AI 工作台",
+    "description": "在桌面和手机上对比模型、管理资料，并把对话沉淀成可复用结果。"
+  },
+  "nav": {
+    "status": "状态",
+    "signIn": "登录",
+    "start": "开始对话"
+  },
+  "hero": {
+    "eyebrow": "多模型 AI 工作台",
+    "title": "用合适的模型完成对话、对比与创作。",
+    "description": "DEEIX Chat 把模型选择、项目资料、分享导出、订阅与移动端聊天放进一个克制的工作台。",
+    "primary": "开始对话",
+    "secondary": "查看状态"
+  },
+  "stats": {
+    "models": "可用模型",
+    "plans": "订阅方案",
+    "mobile": "手机适配",
+    "mobileValue": "PWA"
+  },
+  "preview": {
+    "title": "示例工作台",
+    "question": "资料较多的任务该用哪个模型？",
+    "answer": "先用擅长推理的模型，带上项目资料，再和更快的模型对比后分享结果。",
+    "note": "模型、资料与分享操作都留在同一个对话流程里。"
+  },
+  "features": {
+    "title": "围绕真实对话工作流设计",
+    "description": "常用能力都靠近输入框和会话，不需要在多个产品之间来回切换。",
+    "items": {
+      "models": {
+        "title": "模型选择",
+        "description": "搜索模型、保留最近使用，并按任务快速切换。"
+      },
+      "projects": {
+        "title": "项目资料",
+        "description": "把文件放进项目，让相关会话可以使用这些资料。"
+      },
+      "sharing": {
+        "title": "分享与导出",
+        "description": "把对话导出为文本或长图，也可以生成受控分享链接。"
+      },
+      "mobile": {
+        "title": "移动端流程",
+        "description": "底部面板、安全区和紧凑触控目标让手机聊天更稳定。"
+      }
+    }
+  },
+  "models": {
+    "title": "模型目录",
+    "description": "这里展示当前启用的部分模型。登录后可查看完整选择器和价格细节。",
+    "empty": "暂时无法获取模型列表。",
+    "free": "已包含",
+    "from": "{price} 起"
+  },
+  "plans": {
+    "title": "订阅方案",
+    "description": "在应用内选择方案。价格与额度会跟随当前计费设置更新。",
+    "empty": "暂时无法获取方案列表。",
+    "monthlyCredit": "每周期 {credit} 额度",
+    "price": "{price} / {interval}",
+    "intervals": {
+      "month": "月",
+      "year": "年",
+      "lifetime": "永久"
+    }
+  },
+  "cta": {
+    "title": "准备进入同一个聊天工作台了吗？",
+    "description": "登录后从合适的模型开始当前任务。",
+    "button": "打开 DEEIX Chat"
+  },
+  "common": {
+    "loading": "加载中",
+    "fallbackPrice": "应用内查看",
+    "siteName": "DEEIX Chat"
+  }
+}

@@ -30,6 +30,10 @@ func (s *Service) hydrateMessageFeedback(ctx context.Context, userID uint, items
 	if err != nil {
 		return err
 	}
+	bookmarkMap, err := s.repo.GetUserMessageBookmarkMap(ctx, userID, messageIDs)
+	if err != nil {
+		return err
+	}
 
 	for i := range items {
 		items[i].MyFeedback = userFeedbackMap[items[i].ID]
@@ -40,6 +44,7 @@ func (s *Service) hydrateMessageFeedback(ctx context.Context, userID uint, items
 			items[i].ThumbsUpCount = 0
 			items[i].ThumbsDownCount = 0
 		}
+		_, items[i].Bookmarked = bookmarkMap[items[i].ID]
 	}
 	return nil
 }

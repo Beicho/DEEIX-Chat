@@ -154,13 +154,23 @@ export async function fetchFileContent(accessToken: string, fileID: string): Pro
   };
 }
 
-export async function fetchSharedFileContent(shareID: string, fileID: string): Promise<FileContentResult> {
+export async function fetchSharedFileContent(
+  shareID: string,
+  fileID: string,
+  password?: string,
+): Promise<FileContentResult> {
+  const headers = new Headers();
+  const normalizedPassword = password?.trim();
+  if (normalizedPassword) {
+    headers.set("X-Share-Password", normalizedPassword);
+  }
   const response = await fetch(
     `${resolveApiBaseURL()}/api/v1/shared-conversations/${pathParam(shareID)}/files/${pathParam(fileID)}/content`,
     {
       method: "GET",
       cache: "no-store",
       credentials: "include",
+      headers,
     },
   );
 

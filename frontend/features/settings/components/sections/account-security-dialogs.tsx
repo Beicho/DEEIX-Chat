@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { SpinnerLabel } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { formatDateTime } from "@/features/settings/model/account-page";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
 import type { SecurityVerificationMethod } from "@/shared/api/auth.types";
@@ -40,7 +41,6 @@ export function SecurityVerificationDialog({
   onMethodChange,
   title,
   description,
-  debugCode,
   pending,
   sendingCode,
   resendCooldownSeconds = 0,
@@ -54,7 +54,6 @@ export function SecurityVerificationDialog({
   onMethodChange: (method: SecurityVerificationMethod) => void;
   title: string;
   description: string;
-  debugCode: string;
   pending: boolean;
   sendingCode: boolean;
   resendCooldownSeconds?: number;
@@ -119,7 +118,6 @@ export function SecurityVerificationDialog({
               </Button>
             ) : null}
           </div>
-          {debugCode ? <p className="text-xs font-medium text-muted-foreground">{common("debugCode", { code: debugCode })}</p> : null}
           {alternativeMethod ? (
             <div className="flex justify-center pt-2">
               <Button
@@ -163,8 +161,6 @@ function EmailChangeVerificationDialog({
   sendingCode,
   currentCodeCooldownSeconds,
   newCodeCooldownSeconds,
-  debugCode,
-  currentDebugCode,
   onSendCurrentCode,
   onSendNewCode,
   onSubmit,
@@ -182,8 +178,6 @@ function EmailChangeVerificationDialog({
   sendingCode: boolean;
   currentCodeCooldownSeconds: number;
   newCodeCooldownSeconds: number;
-  debugCode: string;
-  currentDebugCode: string;
   onSendCurrentCode: (method: SecurityVerificationMethod) => Promise<void>;
   onSendNewCode: () => Promise<void>;
   onSubmit: (payload: { currentVerificationMethod: SecurityVerificationMethod; currentCode: string; newCode: string }) => Promise<void>;
@@ -251,7 +245,6 @@ function EmailChangeVerificationDialog({
                   </Button>
                 ) : null}
               </div>
-              {currentDebugCode ? <p className="text-xs font-medium text-muted-foreground">{common("debugCode", { code: currentDebugCode })}</p> : null}
               {alternativeCurrentMethod ? (
                 <div className="flex justify-center pt-2">
                   <Button
@@ -298,7 +291,6 @@ function EmailChangeVerificationDialog({
                       {sendingCode ? <SpinnerLabel>{common("sending")}</SpinnerLabel> : newCodeCooldownSeconds > 0 ? common("resendIn", { seconds: newCodeCooldownSeconds }) : common("sendCode")}
                     </Button>
                   </div>
-                  {debugCode ? <p className="text-xs font-medium text-muted-foreground">{common("debugCode", { code: debugCode })}</p> : null}
                 </div>
               ) : null}
             </>
@@ -341,7 +333,6 @@ export function CurrentEmailVerificationDialog({
   pending,
   sendingCode,
   resendCooldownSeconds,
-  debugCode,
   onSendCode,
   onSubmit,
 }: {
@@ -351,7 +342,6 @@ export function CurrentEmailVerificationDialog({
   pending: boolean;
   sendingCode: boolean;
   resendCooldownSeconds: number;
-  debugCode: string;
   onSendCode: () => Promise<void>;
   onSubmit: (code: string) => Promise<void>;
 }) {
@@ -366,7 +356,6 @@ export function CurrentEmailVerificationDialog({
       onMethodChange={() => undefined}
       title={verification("title.currentEmail")}
       description={verification("description.currentEmail", { email })}
-      debugCode={debugCode}
       pending={pending}
       sendingCode={sendingCode}
       resendCooldownSeconds={resendCooldownSeconds}
@@ -383,7 +372,6 @@ export function ChangePasswordDialog({
   pending,
   sendingCode,
   resendCooldownSeconds,
-  debugCode,
   verificationMethods,
   required = false,
   onSendCode,
@@ -395,24 +383,25 @@ export function ChangePasswordDialog({
   pending: boolean;
   sendingCode: boolean;
   resendCooldownSeconds: number;
-  debugCode: string;
   verificationMethods: SecurityVerificationMethod[];
   required?: boolean;
   onSendCode: (method: SecurityVerificationMethod) => Promise<void>;
-  onSubmit: (payload: { currentPassword: string; newPassword: string; verificationMethod: SecurityVerificationMethod; code: string }) => Promise<void>;
+  onSubmit: (payload: { currentPassword: string; newPassword: string; verificationMethod: SecurityVerificationMethod; code: string; revokeOtherSessions: boolean }) => Promise<void>;
 }) {
   const t = useTranslations("settings.accountPage.securityDialog.password");
   const common = useTranslations("settings.accountPage.securityDialog.common");
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
+  const [revokeOtherSessions, setRevokeOtherSessions] = React.useState(true);
   const [verificationOpen, setVerificationOpen] = React.useState(false);
   const [selectedVerificationMethod, setSelectedVerificationMethod] = React.useState<SecurityVerificationMethod>(verificationMethods[0] ?? "none");
-  const [pendingPayload, setPendingPayload] = React.useState<{ currentPassword: string; newPassword: string } | null>(null);
+  const [pendingPayload, setPendingPayload] = React.useState<{ currentPassword: string; newPassword: string; revokeOtherSessions: boolean } | null>(null);
 
   React.useEffect(() => {
     if (!open) {
       setCurrentPassword("");
       setNewPassword("");
+      setRevokeOtherSessions(true);
       setVerificationOpen(false);
       setSelectedVerificationMethod(verificationMethods[0] ?? "none");
       setPendingPayload(null);
@@ -431,7 +420,7 @@ export function ChangePasswordDialog({
   const submitDisabled = disabled || (passwordEnabled && !currentPassword) || !isPasswordPolicyValid(newPassword);
 
   const handleSave = React.useCallback(() => {
-    const payload = { currentPassword: currentPasswordValue, newPassword };
+    const payload = { currentPassword: currentPasswordValue, newPassword, revokeOtherSessions };
     const method = verificationMethods[0] ?? "none";
     if (required) {
       void onSubmit({ ...payload, verificationMethod: "none", code: "" });
@@ -444,7 +433,7 @@ export function ChangePasswordDialog({
     setSelectedVerificationMethod(method);
     setPendingPayload(payload);
     setVerificationOpen(true);
-  }, [currentPasswordValue, newPassword, onSubmit, required, verificationMethods]);
+  }, [currentPasswordValue, newPassword, onSubmit, required, revokeOtherSessions, verificationMethods]);
 
   return (
     <>
@@ -484,6 +473,20 @@ export function ChangePasswordDialog({
                 minLength={PASSWORD_MIN_LENGTH}
               />
             </div>
+            {!required ? (
+              <div className="flex items-start justify-between gap-4 rounded-md border border-border/60 bg-muted/30 px-3 py-2.5">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-xs font-medium text-foreground">{t("revokeOtherSessions.label")}</p>
+                  <p className="text-xs leading-5 text-muted-foreground">{t("revokeOtherSessions.description")}</p>
+                </div>
+                <Switch
+                  checked={revokeOtherSessions}
+                  onCheckedChange={setRevokeOtherSessions}
+                  disabled={disabled}
+                  aria-label={t("revokeOtherSessions.label")}
+                />
+              </div>
+            ) : null}
           </div>
           <DialogFooter>
             {required ? null : <Button variant="ghost" disabled={pending} onClick={() => onOpenChange(false)}>{common("cancel")}</Button>}
@@ -505,12 +508,11 @@ export function ChangePasswordDialog({
         onMethodChange={setSelectedVerificationMethod}
         title={t("verificationTitle")}
         description={selectedVerificationMethod === "two_factor" ? t("verificationDescription.twoFactor") : t("verificationDescription.email")}
-        debugCode={selectedVerificationMethod === "email" ? debugCode : ""}
         pending={pending}
         sendingCode={sendingCode}
         resendCooldownSeconds={resendCooldownSeconds}
         onSendCode={onSendCode}
-        onSubmit={(code, method) => onSubmit({ ...(pendingPayload ?? { currentPassword: currentPasswordValue, newPassword }), verificationMethod: method, code })}
+        onSubmit={(code, method) => onSubmit({ ...(pendingPayload ?? { currentPassword: currentPasswordValue, newPassword, revokeOtherSessions }), verificationMethod: method, code })}
       />
     </>
   );
@@ -526,8 +528,6 @@ export function EmailSecurityDialog({
   sendingCode,
   currentCodeCooldownSeconds,
   newCodeCooldownSeconds,
-  debugCode,
-  currentDebugCode,
   onSendBootstrapCode,
   onCompleteBootstrap,
   onSendCurrentCode,
@@ -543,8 +543,6 @@ export function EmailSecurityDialog({
   sendingCode: boolean;
   currentCodeCooldownSeconds: number;
   newCodeCooldownSeconds: number;
-  debugCode: string;
-  currentDebugCode: string;
   onSendBootstrapCode: (email: string) => Promise<void>;
   onCompleteBootstrap: (payload: { email: string; code: string }) => Promise<void>;
   onSendCurrentCode: (method: SecurityVerificationMethod) => Promise<void>;
@@ -596,8 +594,6 @@ export function EmailSecurityDialog({
         sendingCode={sendingCode}
         currentCodeCooldownSeconds={currentCodeCooldownSeconds}
         newCodeCooldownSeconds={newCodeCooldownSeconds}
-        debugCode={debugCode}
-        currentDebugCode={selectedCurrentVerificationMethod === "email" ? currentDebugCode : ""}
         onSendCurrentCode={onSendCurrentCode}
         onSendNewCode={() => (bootstrap ? onSendBootstrapCode(email) : onSendNewCode(email))}
         onSubmit={({ currentVerificationMethod, currentCode, newCode }) => (bootstrap

@@ -6,6 +6,13 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleDollarSign, Search
 import { useTranslations } from "next-intl";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
@@ -29,7 +36,7 @@ import {
 const MODEL_MENU_MAX_HEIGHT = 400;
 const MODEL_MENU_VENDOR_ROW_HEIGHT = 28;
 const MODEL_MENU_MODEL_ROW_HEIGHT = 28;
-const MODEL_MENU_TOUCH_ROW_HEIGHT = 44;
+const MODEL_MENU_TOUCH_ROW_HEIGHT = 32;
 const MODEL_MENU_ROW_GAP = 2;
 const MODEL_MENU_LIST_PADDING_BOTTOM = 4;
 const MODEL_MENU_MODEL_PANEL_CHROME_HEIGHT = 12;
@@ -426,14 +433,14 @@ function ChatModelMenuItem({
       data-selected={selected}
       className={cn(
         "group flex items-center rounded-md font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-within:bg-accent focus-within:text-accent-foreground data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground",
-        touch ? "min-h-11 text-xs" : "h-7 text-[11px]",
+        touch ? "h-8 text-[11px]" : "h-7 text-[11px]",
       )}
     >
       <button
         type="button"
         className={cn(
           "flex min-w-0 flex-1 items-center gap-2 rounded-md bg-transparent text-left font-medium leading-none text-inherit outline-none",
-          touch ? "min-h-11 py-2 pl-3 pr-2" : "h-7 py-0 pl-2 pr-1",
+          touch ? "relative h-8 py-0 pl-2 pr-1 after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-['']" : "h-7 py-0 pl-2 pr-1",
         )}
         onClick={onSelect}
       >
@@ -452,7 +459,7 @@ function ChatModelMenuItem({
               type="button"
               className={cn(
                 "flex shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:text-current focus-visible:text-current focus-visible:outline-none group-hover:text-current group-focus-within:text-current group-data-[selected=true]:text-current",
-                touch ? "size-11" : "h-7 w-7",
+                touch ? "relative h-8 w-8 after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-['']" : "h-7 w-7",
               )}
               aria-label={viewPricingLabel}
             >
@@ -918,216 +925,240 @@ export function ChatModelPicker({
     setActiveVendorKey(vendor);
   }, [activeDesktopVendorKey, resetDesktopModelPanelLayout]);
 
-  return (
-    <>
-      <div className="min-w-0 max-w-[min(320px,100%)] shrink">
-        <Popover open={open} onOpenChange={handleOpenChange}>
-          <PopoverTrigger asChild>
-            <InputGroupButton
-              id="chat-model-menu-trigger"
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="w-full min-w-0 max-w-[min(320px,100%)] rounded-lg px-1.5 hover:bg-accent focus-visible:bg-accent data-[state=open]:bg-accent sm:px-2"
-              disabled={disabled || loading || modelOptions.length === 0}
-              aria-label={t("selectModel")}
-            >
-              {loading ? (
-                <ChatModelTriggerSkeleton />
-              ) : selectedModel ? (
-                <ChatModelIdentity model={selectedModel} density="compact" />
-              ) : selectedPlatformModelName.trim() ? (
-                <span className="truncate text-[12px] font-medium text-foreground">
-                  {selectedPlatformModelName}
-                </span>
-              ) : (
-                <span className="truncate text-[12px] font-medium text-muted-foreground">
-                  {t("selectModel")}
-                </span>
-              )}
-            </InputGroupButton>
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            sideOffset={8}
-            className="relative overflow-visible rounded-xl p-1.5"
-            ref={desktopPopoverContentRef}
-            style={{ width: isMobile ? mobileMenuWidth : vendorMenuWidth }}
-            onInteractOutside={(event) => {
-              const target = event.target;
-              if (target instanceof Node && desktopModelPanelRef.current?.contains(target)) {
-                event.preventDefault();
-              }
-            }}
-          >
-            <div className="flex flex-col gap-2">
-              <div className="relative px-2 pt-1">
-                <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder={t("searchPlaceholder")}
-                  aria-label={t("searchPlaceholder")}
-                  className="h-11 rounded-md pl-9 pr-3 text-xs md:h-9"
-                />
-              </div>
+  const triggerButton = (
+    <InputGroupButton
+      id="chat-model-menu-trigger"
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="relative w-full min-w-0 max-w-[min(320px,100%)] rounded-lg px-1.5 hover:bg-accent focus-visible:bg-accent data-[state=open]:bg-accent after:absolute after:-inset-y-1 after:inset-x-0 after:content-[''] sm:px-2 md:after:hidden"
+      disabled={disabled || loading || modelOptions.length === 0}
+      aria-label={t("selectModel")}
+    >
+      {loading ? (
+        <ChatModelTriggerSkeleton />
+      ) : selectedModel ? (
+        <ChatModelIdentity model={selectedModel} density="compact" />
+      ) : selectedPlatformModelName.trim() ? (
+        <span className="truncate text-[12px] font-medium text-foreground">
+          {selectedPlatformModelName}
+        </span>
+      ) : (
+        <span className="truncate text-[12px] font-medium text-muted-foreground">
+          {t("selectModel")}
+        </span>
+      )}
+    </InputGroupButton>
+  );
 
-              {isSearchMode ? (
-                <ModelMenuScrollContainer maxHeight={searchResultsMaxHeight}>
-                  {selectedModelSearchableGroups.length > 0 ? (
-                    <ModelPickerGroupedModelList
-                      groups={selectedModelSearchableGroups}
-                      density={isMobile ? "touch" : "compact"}
+  const modelPickerBody = (
+    <div className="flex min-h-0 flex-col gap-2">
+      <div className="relative px-2 pt-0.5">
+        <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder={t("searchPlaceholder")}
+          aria-label={t("searchPlaceholder")}
+          className="h-8 rounded-md pl-9 pr-3 text-xs"
+        />
+      </div>
+
+      {isSearchMode ? (
+        <ModelMenuScrollContainer maxHeight={searchResultsMaxHeight}>
+          {selectedModelSearchableGroups.length > 0 ? (
+            <ModelPickerGroupedModelList
+              groups={selectedModelSearchableGroups}
+              density={isMobile ? "touch" : "compact"}
+              selectedPlatformModelName={selectedPlatformModelName}
+              pricingLabels={pricingLabels}
+              viewPricingLabel={t("viewPricing")}
+              onSelectModel={handleModelSelect}
+            />
+          ) : (
+            <div className="flex min-h-20 items-center justify-center px-3 py-4 text-center text-xs text-muted-foreground">
+              {t("noMatches")}
+            </div>
+          )}
+        </ModelMenuScrollContainer>
+      ) : isMobile ? (
+        <>
+          <div className="flex h-8 items-center justify-between gap-2 px-2">
+            {mobileVendorGroup ? (
+              <button
+                type="button"
+                className="-ml-1.5 flex h-8 min-w-0 items-center gap-0.5 rounded-md px-2 text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
+                onClick={() => setMobileVendorKey(null)}
+              >
+                <ChevronLeft className="size-4" strokeWidth={1.8} />
+                <span>{t("vendor")}</span>
+              </button>
+            ) : (
+              <span className="text-xs font-medium text-foreground">{t("vendor")}</span>
+            )}
+            <span className="min-w-0 truncate text-right text-[10px] font-medium text-muted-foreground">
+              {mobileVendorGroup ? mobileVendorGroup.label : selectedVendorLabel}
+            </span>
+          </div>
+          <ModelMenuScrollContainer maxHeight={mobileVendorMenuMaxHeight}>
+            {mobileVendorGroup ? (
+              <ModelPickerModelList
+                items={mobileVendorGroup.items}
+                density="touch"
+                selectedPlatformModelName={selectedPlatformModelName}
+                pricingLabels={pricingLabels}
+                viewPricingLabel={t("viewPricing")}
+                onSelectModel={handleModelSelect}
+              />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {recentModels.length > 0 ? (
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2 px-2 pt-1 text-[10px] font-medium text-muted-foreground">
+                      <Clock3 className="size-3.5" />
+                      <span className="min-w-0 flex-1 truncate">{t("recent")}</span>
+                      <span className="shrink-0 tabular-nums">{recentModels.length}</span>
+                    </div>
+                    <ModelPickerModelList
+                      items={recentModels}
+                      density="touch"
                       selectedPlatformModelName={selectedPlatformModelName}
                       pricingLabels={pricingLabels}
                       viewPricingLabel={t("viewPricing")}
                       onSelectModel={handleModelSelect}
                     />
-                  ) : (
-                    <div className="flex min-h-20 items-center justify-center px-3 py-4 text-center text-xs text-muted-foreground">
-                      {t("noMatches")}
-                    </div>
-                  )}
-                </ModelMenuScrollContainer>
-              ) : isMobile ? (
-                <>
-                  <div className="flex h-11 items-center justify-between gap-2 px-2">
-                    {mobileVendorGroup ? (
+                  </div>
+                ) : null}
+                <div className="flex flex-col gap-0.5">
+                  {vendorGroups.map((group) => {
+                    const selectedVendor = group.vendor === selectedVendorKey;
+                    const vendorIconURL = resolveLobeHubIconURL(group.icon);
+                    return (
                       <button
                         type="button"
-                        className="-ml-1.5 flex h-11 min-w-0 items-center gap-0.5 rounded-md px-2 text-xs font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground"
-                        onClick={() => setMobileVendorKey(null)}
+                        key={group.vendor}
+                        className={cn(
+                          "relative flex h-8 w-full items-center gap-2 rounded-md px-2 py-0 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-['']",
+                          selectedVendor ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                        )}
+                        onClick={() => {
+                          setMobileVendorKey(group.vendor);
+                        }}
                       >
-                        <ChevronLeft className="size-4" strokeWidth={1.8} />
-                        <span>{t("vendor")}</span>
+                        <LobeHubIcon iconUrl={vendorIconURL} label={group.label} />
+                        <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
+                        <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">
+                          {group.items.length}
+                        </span>
                       </button>
-                    ) : (
-                      <span className="text-xs font-medium text-foreground">{t("vendor")}</span>
-                    )}
-                    <span className="min-w-0 truncate text-right text-[10px] font-medium text-muted-foreground">
-                      {mobileVendorGroup ? mobileVendorGroup.label : selectedVendorLabel}
-                    </span>
-                  </div>
-                  <ModelMenuScrollContainer maxHeight={mobileVendorMenuMaxHeight}>
-                    {mobileVendorGroup ? (
-                      <ModelPickerModelList
-                        items={mobileVendorGroup.items}
-                        density="touch"
-                        selectedPlatformModelName={selectedPlatformModelName}
-                        pricingLabels={pricingLabels}
-                        viewPricingLabel={t("viewPricing")}
-                        onSelectModel={handleModelSelect}
-                      />
-                    ) : (
-                      <div className="flex flex-col gap-2">
-                        {recentModels.length > 0 ? (
-                          <div className="flex flex-col gap-0.5">
-                            <div className="flex items-center gap-2 px-2 pt-1 text-[10px] font-medium text-muted-foreground">
-                              <Clock3 className="size-3.5" />
-                              <span className="min-w-0 flex-1 truncate">{t("recent")}</span>
-                              <span className="shrink-0 tabular-nums">{recentModels.length}</span>
-                            </div>
-                            <ModelPickerModelList
-                              items={recentModels}
-                              density="touch"
-                              selectedPlatformModelName={selectedPlatformModelName}
-                              pricingLabels={pricingLabels}
-                              viewPricingLabel={t("viewPricing")}
-                              onSelectModel={handleModelSelect}
-                            />
-                          </div>
-                        ) : null}
-                        <div className="flex flex-col gap-0.5">
-                          {vendorGroups.map((group) => {
-                            const selectedVendor = group.vendor === selectedVendorKey;
-                            const vendorIconURL = resolveLobeHubIconURL(group.icon);
-                            return (
-                              <button
-                                type="button"
-                                key={group.vendor}
-                                className={cn(
-                                  "flex h-11 w-full items-center gap-2 rounded-md px-3 py-0 text-left text-xs font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                                  selectedVendor ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-                                )}
-                                onClick={() => {
-                                  setMobileVendorKey(group.vendor);
-                                }}
-                              >
-                                <LobeHubIcon iconUrl={vendorIconURL} label={group.label} />
-                                <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-                                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">
-                                  {group.items.length}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </ModelMenuScrollContainer>
-                </>
-              ) : (
-                <div className="relative">
-                  <div className="flex h-7 items-center justify-between gap-3 px-2">
-                    <span className="text-[11px] font-medium text-foreground">{t("vendor")}</span>
-                    <span className="truncate text-[10px] font-medium text-muted-foreground">
-                      {selectedVendorLabel}
-                    </span>
-                  </div>
-                  <ModelMenuScrollContainer maxHeight={vendorMenuMaxHeight}>
-                    <div className="flex flex-col gap-2">
-                      {recentModels.length > 0 ? (
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-2 px-2 pt-1 text-[10px] font-medium text-muted-foreground">
-                            <Clock3 className="size-3.5" />
-                            <span className="min-w-0 flex-1 truncate">{t("recent")}</span>
-                            <span className="shrink-0 tabular-nums">{recentModels.length}</span>
-                          </div>
-                          <ModelPickerModelList
-                            items={recentModels}
-                            density="compact"
-                            selectedPlatformModelName={selectedPlatformModelName}
-                            pricingLabels={pricingLabels}
-                            viewPricingLabel={t("viewPricing")}
-                            onSelectModel={handleModelSelect}
-                          />
-                        </div>
-                      ) : null}
-                      <div className="flex flex-col gap-0.5">
-                        {vendorGroups.map((group) => {
-                          const selectedVendor = group.vendor === selectedVendorKey;
-                          const activeVendor = group.vendor === activeDesktopVendorGroup?.vendor;
-                          const vendorIconURL = resolveLobeHubIconURL(group.icon);
-                          return (
-                            <button
-                              type="button"
-                              key={group.vendor}
-                              className={cn(
-                                "flex h-7 w-full items-center gap-2 rounded-md px-2 py-0 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                                activeVendor ? "bg-accent text-accent-foreground" : "text-muted-foreground",
-                                selectedVendor && !activeVendor ? "text-foreground" : null,
-                              )}
-                              onMouseEnter={() => selectDesktopVendor(group.vendor)}
-                              onFocus={() => selectDesktopVendor(group.vendor)}
-                              onClick={() => selectDesktopVendor(group.vendor)}
-                            >
-                              <LobeHubIcon iconUrl={vendorIconURL} label={group.label} />
-                              <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
-                              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">
-                                {group.items.length}
-                              </span>
-                              <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/65" strokeWidth={1.8} />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </ModelMenuScrollContainer>
+                    );
+                  })}
                 </div>
-              )}
+              </div>
+            )}
+          </ModelMenuScrollContainer>
+        </>
+      ) : (
+        <div className="relative">
+          <div className="flex h-7 items-center justify-between gap-3 px-2">
+            <span className="text-[11px] font-medium text-foreground">{t("vendor")}</span>
+            <span className="truncate text-[10px] font-medium text-muted-foreground">
+              {selectedVendorLabel}
+            </span>
+          </div>
+          <ModelMenuScrollContainer maxHeight={vendorMenuMaxHeight}>
+            <div className="flex flex-col gap-2">
+              {recentModels.length > 0 ? (
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2 px-2 pt-1 text-[10px] font-medium text-muted-foreground">
+                    <Clock3 className="size-3.5" />
+                    <span className="min-w-0 flex-1 truncate">{t("recent")}</span>
+                    <span className="shrink-0 tabular-nums">{recentModels.length}</span>
+                  </div>
+                  <ModelPickerModelList
+                    items={recentModels}
+                    density="compact"
+                    selectedPlatformModelName={selectedPlatformModelName}
+                    pricingLabels={pricingLabels}
+                    viewPricingLabel={t("viewPricing")}
+                    onSelectModel={handleModelSelect}
+                  />
+                </div>
+              ) : null}
+              <div className="flex flex-col gap-0.5">
+                {vendorGroups.map((group) => {
+                  const selectedVendor = group.vendor === selectedVendorKey;
+                  const activeVendor = group.vendor === activeDesktopVendorGroup?.vendor;
+                  const vendorIconURL = resolveLobeHubIconURL(group.icon);
+                  return (
+                    <button
+                      type="button"
+                      key={group.vendor}
+                      className={cn(
+                        "flex h-7 w-full items-center gap-2 rounded-md px-2 py-0 text-left text-[11px] font-medium outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                        activeVendor ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                        selectedVendor && !activeVendor ? "text-foreground" : null,
+                      )}
+                      onMouseEnter={() => selectDesktopVendor(group.vendor)}
+                      onFocus={() => selectDesktopVendor(group.vendor)}
+                      onClick={() => selectDesktopVendor(group.vendor)}
+                    >
+                      <LobeHubIcon iconUrl={vendorIconURL} label={group.label} />
+                      <span className="min-w-0 flex-1 truncate font-medium">{group.label}</span>
+                      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/80">
+                        {group.items.length}
+                      </span>
+                      <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/65" strokeWidth={1.8} />
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </PopoverContent>
-        </Popover>
+          </ModelMenuScrollContainer>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      <div className="min-w-0 max-w-[min(320px,100%)] shrink">
+        {isMobile ? (
+          <Drawer open={open} onOpenChange={handleOpenChange} direction="bottom">
+            <DrawerTrigger asChild>
+              {triggerButton}
+            </DrawerTrigger>
+            <DrawerContent className="flex max-h-[min(58dvh,24rem)] flex-col overflow-hidden rounded-t-xl border-border bg-popover text-popover-foreground">
+              <DrawerHeader className="px-3 pb-1.5 pt-2.5 text-left">
+                <DrawerTitle className="text-sm">{t("selectModel")}</DrawerTitle>
+              </DrawerHeader>
+              <div className="min-h-0 flex-1 overflow-hidden px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)]">
+                {modelPickerBody}
+              </div>
+            </DrawerContent>
+          </Drawer>
+        ) : (
+          <Popover open={open} onOpenChange={handleOpenChange}>
+            <PopoverTrigger asChild>
+              {triggerButton}
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              sideOffset={8}
+              className="relative overflow-visible rounded-xl p-1.5"
+              ref={desktopPopoverContentRef}
+              style={{ width: vendorMenuWidth }}
+              onInteractOutside={(event) => {
+                const target = event.target;
+                if (target instanceof Node && desktopModelPanelRef.current?.contains(target)) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              {modelPickerBody}
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
       {open && !isMobile && !isSearchMode && activeDesktopVendorGroup && desktopModelPanelLayout && desktopModelPanelLayout.key === desktopModelPanelKey && typeof document !== "undefined"
         ? createPortal(

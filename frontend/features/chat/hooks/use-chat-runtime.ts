@@ -20,6 +20,11 @@ export function useChatRuntime({
   selectedPlatformModelName,
   modelOptions,
   selectedToolIDs,
+  confirmedToolIDs,
+  webSearchEnabled,
+  codeSandboxEnabled,
+  researchMaxLLMCalls,
+  researchMaxToolCalls,
   htmlVisualPromptEnabled,
   htmlVisualColorMode,
   options,
@@ -47,6 +52,11 @@ export function useChatRuntime({
   selectedPlatformModelName: string;
   modelOptions: ChatModelOption[];
   selectedToolIDs: number[];
+  confirmedToolIDs: number[];
+  webSearchEnabled: boolean;
+  codeSandboxEnabled: boolean;
+  researchMaxLLMCalls: number;
+  researchMaxToolCalls: number;
   htmlVisualPromptEnabled: boolean;
   htmlVisualColorMode: "light" | "dark";
   options: ConversationOptions;
@@ -89,6 +99,11 @@ export function useChatRuntime({
     selectedPlatformModelName,
     modelOptions,
     selectedToolIDs,
+    confirmedToolIDs,
+    webSearchEnabled,
+    codeSandboxEnabled,
+    researchMaxLLMCalls,
+    researchMaxToolCalls,
     htmlVisualPromptEnabled,
     htmlVisualColorMode,
     options,
@@ -164,6 +179,7 @@ export function useChatRuntime({
   return {
     currentLeafMessage: branchState.currentLeafMessage,
     onCycleMessageBranch: submitState.onCycleMessageBranch,
+    onDeleteMessage: submitState.onDeleteMessage,
     onEditAssistantMessage: submitState.onEditAssistantMessage,
     onEditUserMessage: submitState.onEditUserMessage,
     onContinueAssistantMessage: submitState.onContinueAssistantMessage,

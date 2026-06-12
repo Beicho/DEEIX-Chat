@@ -1,0 +1,27 @@
+{
+  "title": "Content checks",
+  "description": "Recent messages stopped by content checks.",
+  "empty": "No records.",
+  "loadFailed": "Records could not be loaded.",
+  "fields": {
+    "time": "Time",
+    "direction": "Direction",
+    "action": "Action",
+    "score": "Score",
+    "threshold": "Limit",
+    "reason": "Reason",
+    "user": "User",
+    "conversation": "Conversation"
+  },
+  "direction": {
+    "input": "Input",
+    "output": "Output"
+  },
+  "action": {
+    "block": "Blocked"
+  },
+  "reason": {
+    "blocked": "Stopped",
+    "check_failed": "Check failed"
+  }
+}

@@ -15,13 +15,17 @@ type BillingRepository interface {
 	GetPlanByID(ctx context.Context, planID uint) (*domainbilling.Plan, error)
 	ListPlansByIDs(ctx context.Context, planIDs []uint) ([]domainbilling.Plan, error)
 	GetActivePlanByCode(ctx context.Context, code string) (*domainbilling.Plan, error)
+	CreatePlanWithDefaultPrice(ctx context.Context, plan *domainbilling.Plan, price *domainbilling.Price) (*domainbilling.Plan, *domainbilling.Price, error)
 	UpdatePlanWithDefaultPrice(ctx context.Context, plan *domainbilling.Plan, price *domainbilling.Price) error
+	DeletePlan(ctx context.Context, planID uint) error
 	ListCurrentSubscriptionsByUserIDs(ctx context.Context, userIDs []uint, now time.Time) ([]domainbilling.Subscription, error)
 	ListSubscriptionEntitlementsByUserIDs(ctx context.Context, userIDs []uint, now time.Time) ([]domainbilling.Subscription, error)
 	ReplaceSubscription(ctx context.Context, item *domainbilling.Subscription) error
 	CreatePaymentOrder(ctx context.Context, item *domainbilling.PaymentOrder) (*domainbilling.PaymentOrder, error)
 	UpdatePaymentOrderCheckout(ctx context.Context, orderNo string, externalCheckoutID string, checkoutURL string) error
 	GetPaymentOrderByOrderNo(ctx context.Context, orderNo string) (*domainbilling.PaymentOrder, error)
+	ListPaymentOrders(ctx context.Context, filter PaymentOrderListFilter, offset int, limit int) ([]domainbilling.PaymentOrder, int64, error)
+	UpdatePaymentOrderStatus(ctx context.Context, orderNo string, status string) (*domainbilling.PaymentOrder, error)
 	MarkPaymentOrderPaidAndGrantSubscription(ctx context.Context, orderNo string, externalPaymentID string, paidAt time.Time, subscription *domainbilling.Subscription) (*domainbilling.PaymentOrder, bool, error)
 	AddUsage(ctx context.Context, usage *domainbilling.UsageLedger) error
 	AddUsageAndDebitBalance(ctx context.Context, usage *domainbilling.UsageLedger) error
@@ -31,6 +35,16 @@ type BillingRepository interface {
 	GetOrCreateBillingAccount(ctx context.Context, userID uint) (*domainbilling.BillingAccount, error)
 	ListBillingAccountsByUserIDs(ctx context.Context, userIDs []uint) ([]domainbilling.BillingAccount, error)
 	SetBillingAccountBalance(ctx context.Context, userID uint, balanceNanousd int64, refNo string, description string) (*domainbilling.BillingAccount, error)
+	AdjustBillingAccountBalance(ctx context.Context, userID uint, deltaNanousd int64, refNo string, description string) (*domainbilling.BillingAccount, *domainbilling.BalanceTransaction, error)
+	ListBalanceTransactions(ctx context.Context, filter BalanceTransactionListFilter, offset int, limit int) ([]domainbilling.BalanceTransaction, int64, error)
+	ClaimDailyCheckIn(ctx context.Context, input CheckInClaimInput) (*CheckInClaimResult, error)
+	GetLatestCheckIn(ctx context.Context, userID uint) (*domainbilling.CheckInRecord, error)
+	GetExternalAccountLink(ctx context.Context, userID uint, platform string) (*domainbilling.ExternalAccountLink, error)
+	FindUserLinuxDOSub(ctx context.Context, userID uint) (string, error)
+	UpsertExternalAccountLink(ctx context.Context, link *domainbilling.ExternalAccountLink) (*domainbilling.ExternalAccountLink, error)
+	CreditExternalTransfer(ctx context.Context, input ExternalTransferCreditInput) (*domainbilling.ExternalTransfer, *domainbilling.BalanceTransaction, error)
+	ListExternalTransfers(ctx context.Context, filter ExternalTransferListFilter, offset int, limit int) ([]domainbilling.ExternalTransfer, int64, error)
+	UpdateExternalTransferStatus(ctx context.Context, idempotencyKey string, status string, failureReason string) error
 	MarkPaymentOrderPaidAndCreditBalance(ctx context.Context, orderNo string, externalPaymentID string, paidAt time.Time) (*domainbilling.PaymentOrder, bool, error)
 	ListRedemptionCodes(ctx context.Context, filter RedemptionCodeListFilter, offset int, limit int) ([]domainbilling.RedemptionCode, int64, error)
 	GetRedemptionCodeByID(ctx context.Context, id uint) (*domainbilling.RedemptionCode, error)
@@ -38,6 +52,7 @@ type BillingRepository interface {
 	PatchRedemptionCode(ctx context.Context, id uint, patch RedemptionCodePatch) (*domainbilling.RedemptionCode, error)
 	DeleteRedemptionCode(ctx context.Context, id uint) error
 	RedeemCode(ctx context.Context, input RedemptionApplyInput) (*RedemptionApplyResult, error)
+	ListRedemptions(ctx context.Context, filter RedemptionListFilter, offset int, limit int) ([]domainbilling.Redemption, int64, error)
 	GetBillingMode(ctx context.Context) (string, error)
 	GetBillingPrepaidAmountNanousd(ctx context.Context) (int64, error)
 	GetNativeToolBillingEnabled(ctx context.Context) (bool, error)
@@ -52,6 +67,77 @@ type BillingRepository interface {
 	ListDailyUsageByUser(ctx context.Context, userID uint, startDate time.Time, endDate time.Time) ([]domainbilling.UsageDailySummary, error)
 	SumBillableNanousd(ctx context.Context, userID uint, startAt time.Time, endAt time.Time) (int64, error)
 	GetAdminDashboardStats(ctx context.Context, startAt time.Time, endAt time.Time, limit int) (*domainbilling.AdminDashboardStats, error)
+	GetBillingRiskSummary(ctx context.Context) (*domainbilling.RiskSummary, error)
+}
+
+// PaymentOrderListFilter 描述支付单分页筛选条件。
+type PaymentOrderListFilter struct {
+	UserID    uint
+	Status    string
+	OrderType string
+	Provider  string
+	Query     string
+	Sort      string
+}
+
+// BalanceTransactionListFilter 描述余额流水分页筛选条件。
+type BalanceTransactionListFilter struct {
+	UserID uint
+	Type   string
+	Query  string
+	Sort   string
+	From   *time.Time
+	To     *time.Time
+}
+
+// CheckInClaimInput 描述每日签到奖励入账请求。
+type CheckInClaimInput struct {
+	UserID         uint
+	CheckInDate    time.Time
+	RewardNanousd  int64
+	RefNo          string
+	Description    string
+	ConsecutiveDay int
+}
+
+// CheckInClaimResult 描述每日签到事务结果。
+type CheckInClaimResult struct {
+	Record         domainbilling.CheckInRecord
+	Account        *domainbilling.BillingAccount
+	Transaction    *domainbilling.BalanceTransaction
+	AlreadyClaimed bool
+}
+
+// ExternalTransferCreditInput 描述一次外部余额划转本地入账。
+type ExternalTransferCreditInput struct {
+	UserID                uint
+	LinkID                uint
+	Platform              string
+	Direction             string
+	ExternalTransferID    string
+	IdempotencyKey        string
+	ExternalAmountUSD     float64
+	CreditedAmountNanousd int64
+	RefNo                 string
+	Description           string
+}
+
+// ExternalTransferListFilter 描述外部划转分页筛选条件。
+type ExternalTransferListFilter struct {
+	UserID      uint
+	Platform    string
+	Status      string
+	Sort        string
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
+}
+
+// RedemptionListFilter 描述用户兑换记录分页筛选条件。
+type RedemptionListFilter struct {
+	UserID uint
+	Mode   string
+	Query  string
+	Sort   string
 }
 
 // RedemptionCodeListFilter 描述管理员兑换码列表筛选条件。
@@ -92,9 +178,11 @@ type RedemptionApplyResult struct {
 
 // UsageListFilter 描述用户用量账本的筛选和排序条件。
 type UsageListFilter struct {
-	Query  string
-	Status string
-	Sort   string
+	Query       string
+	Status      string
+	Sort        string
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
 }
 
 // UsageLogListFilter 描述管理员调用日志筛选和排序条件。

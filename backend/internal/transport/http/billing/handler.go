@@ -1,7 +1,9 @@
 package billing
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
 	"net/http"
 	"strconv"
@@ -10,6 +12,7 @@ import (
 
 	appbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/billing"
 	appsettings "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/settings"
+	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
@@ -220,6 +223,131 @@ func (h *Handler) ListPlans(c *gin.Context) {
 	response.Success(c, toPlanListResponse(items))
 }
 
+// ListPaymentOrders godoc
+// @Summary 查询当前用户支付单
+// @Tags billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Param status query string false "状态"
+// @Param order_type query string false "订单类型"
+// @Success 200 {object} PaymentOrderListResponseDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /billing/payments [get]
+func (h *Handler) ListPaymentOrders(c *gin.Context) {
+	page, pageSize := pageParams(c)
+	items, total, err := h.service.ListPaymentOrders(c.Request.Context(), appbilling.PaymentOrderListInput{
+		UserID:    middleware.MustUserID(c),
+		Status:    c.Query("status"),
+		OrderType: c.Query("order_type"),
+		Provider:  c.Query("provider"),
+		Query:     c.Query("q"),
+		Sort:      c.Query("sort"),
+		Page:      page,
+		PageSize:  pageSize,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list payment orders failed")
+		return
+	}
+	response.SuccessPage(c, total, toPaymentOrderResponses(items, false))
+}
+
+// GetPaymentOrder godoc
+// @Summary 查询当前用户支付单状态
+// @Tags billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param order_no path string true "支付单号"
+// @Success 200 {object} PaymentOrderResponseDoc
+// @Failure 404 {object} ErrorDoc
+// @Router /billing/payments/{order_no} [get]
+func (h *Handler) GetPaymentOrder(c *gin.Context) {
+	orderNo := strings.TrimSpace(c.Param("order_no"))
+	order, err := h.service.GetPaymentOrder(c.Request.Context(), orderNo)
+	if err != nil {
+		response.ErrorFrom(c, http.StatusNotFound, err)
+		return
+	}
+	if order.UserID != middleware.MustUserID(c) {
+		response.Error(c, http.StatusNotFound, "payment order not found")
+		return
+	}
+	response.Success(c, PaymentOrderDataResponse{Order: toPaymentOrderResponse(*order, false)})
+}
+
+// ListAdminPaymentOrders godoc
+// @Summary 管理员查询支付单
+// @Tags admin-billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} PaymentOrderListResponseDoc
+// @Router /admin/billing/payment-orders [get]
+func (h *Handler) ListAdminPaymentOrders(c *gin.Context) {
+	page, pageSize := pageParams(c)
+	items, total, err := h.service.ListPaymentOrders(c.Request.Context(), appbilling.PaymentOrderListInput{
+		UserID:    parseUintQuery(c.Query("user_id")),
+		Status:    c.Query("status"),
+		OrderType: c.Query("order_type"),
+		Provider:  c.Query("provider"),
+		Query:     c.Query("q"),
+		Sort:      c.Query("sort"),
+		Page:      page,
+		PageSize:  pageSize,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list payment orders failed")
+		return
+	}
+	response.SuccessPage(c, total, toPaymentOrderResponses(items, true))
+}
+
+// ApplyPaymentOrderAction godoc
+// @Summary 管理员处理支付单
+// @Tags admin-billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param order_no path string true "支付单号"
+// @Param body body PaymentOrderActionRequest true "动作"
+// @Success 200 {object} PaymentOrderResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Router /admin/billing/payment-orders/{order_no}/actions [post]
+func (h *Handler) ApplyPaymentOrderAction(c *gin.Context) {
+	orderNo := strings.TrimSpace(c.Param("order_no"))
+	var req PaymentOrderActionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	order, activated, err := h.service.ApplyPaymentOrderAction(c.Request.Context(), appbilling.PaymentOrderActionInput{
+		OrderNo:           orderNo,
+		Action:            req.Action,
+		ExternalPaymentID: req.ExternalPaymentID,
+	})
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	actorUserID := middleware.MustUserID(c)
+	h.recordAudit(
+		c,
+		actorUserID,
+		"payment_order_action",
+		"billing_payment_order",
+		orderNo,
+		map[string]interface{}{
+			"action":    req.Action,
+			"activated": activated,
+		},
+	)
+	response.Success(c, PaymentOrderDataResponse{Order: toPaymentOrderResponse(*order, true), Activated: activated})
+}
+
 // GetBillingAccount godoc
 // @Summary 获取按量计费账户
 // @Description 查询当前用户按量余额
@@ -237,6 +365,158 @@ func (h *Handler) GetBillingAccount(c *gin.Context) {
 		return
 	}
 	response.Success(c, BillingAccountDataResponse{Account: toBillingAccountResponse(account)})
+}
+
+// GetCheckInStatus godoc
+// @Summary 查询每日签到状态
+// @Tags billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} CheckInStatusDataResponse
+// @Router /billing/checkin [get]
+func (h *Handler) GetCheckInStatus(c *gin.Context) {
+	status, err := h.service.GetCheckInStatus(c.Request.Context(), middleware.MustUserID(c), time.Now())
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "get check-in status failed")
+		return
+	}
+	response.Success(c, CheckInStatusDataResponse{CheckIn: toCheckInStatusResponse(status)})
+}
+
+// ClaimDailyCheckIn godoc
+// @Summary 领取每日签到奖励
+// @Tags billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} CheckInClaimDataResponse
+// @Router /billing/checkin [post]
+func (h *Handler) ClaimDailyCheckIn(c *gin.Context) {
+	result, err := h.service.ClaimDailyCheckIn(c.Request.Context(), middleware.MustUserID(c), time.Now())
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	response.Success(c, CheckInClaimDataResponse{CheckIn: toCheckInClaimResponse(result)})
+}
+
+// ListUserBalanceTransactions godoc
+// @Summary 查询当前用户余额流水
+// @Tags billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} BalanceTransactionListResponseDoc
+// @Router /billing/balance-transactions [get]
+func (h *Handler) ListUserBalanceTransactions(c *gin.Context) {
+	page, pageSize := pageParams(c)
+	items, total, err := h.service.ListBalanceTransactions(c.Request.Context(), appbilling.BalanceTransactionListInput{
+		UserID:   middleware.MustUserID(c),
+		Type:     c.Query("type"),
+		Query:    c.Query("q"),
+		Sort:     c.Query("sort"),
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list balance transactions failed")
+		return
+	}
+	response.SuccessPage(c, total, toBalanceTransactionResponses(items))
+}
+
+// LinkNewAPIAccount godoc
+// @Summary 绑定 NewAPI 账号
+// @Tags billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} NewAPIBalanceDataResponse
+// @Router /billing/external/newapi/link [post]
+func (h *Handler) LinkNewAPIAccount(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	if _, err := h.service.LinkNewAPIAccount(c.Request.Context(), userID); err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	balance, err := h.service.GetNewAPIBalance(c.Request.Context(), userID)
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	response.Success(c, NewAPIBalanceDataResponse{Balance: toNewAPIBalanceResponse(balance)})
+}
+
+// GetNewAPIBalance godoc
+// @Summary 查询 NewAPI 绑定与余额
+// @Tags billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} NewAPIBalanceDataResponse
+// @Router /billing/external/newapi/balance [get]
+func (h *Handler) GetNewAPIBalance(c *gin.Context) {
+	balance, err := h.service.GetNewAPIBalance(c.Request.Context(), middleware.MustUserID(c))
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	response.Success(c, NewAPIBalanceDataResponse{Balance: toNewAPIBalanceResponse(balance)})
+}
+
+// TransferFromNewAPI godoc
+// @Summary 从 NewAPI 转入余额
+// @Tags billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body NewAPITransferRequest true "转入金额"
+// @Success 200 {object} NewAPITransferDataResponse
+// @Router /billing/external/newapi/transfer [post]
+func (h *Handler) TransferFromNewAPI(c *gin.Context) {
+	var req NewAPITransferRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	result, err := h.service.TransferFromNewAPI(c.Request.Context(), appbilling.NewAPITransferInput{
+		UserID:         middleware.MustUserID(c),
+		AmountUSD:      req.AmountUSD,
+		IdempotencyKey: req.IdempotencyKey,
+		RefNo:          middleware.MustRequestID(c),
+	})
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	var tx *BalanceTransactionResponse
+	if result.Transaction != nil {
+		converted := toBalanceTransactionResponse(*result.Transaction)
+		tx = &converted
+	}
+	response.Success(c, NewAPITransferDataResponse{
+		Transfer:    toExternalTransferResponse(result.Transfer),
+		Account:     toBillingAccountResponse(result.Account),
+		Transaction: tx,
+	})
+}
+
+// ListNewAPITransfers godoc
+// @Summary 查询 NewAPI 转入历史
+// @Tags billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Router /billing/external/newapi/transfers [get]
+func (h *Handler) ListNewAPITransfers(c *gin.Context) {
+	page, pageSize := pageParams(c)
+	items, total, err := h.service.ListExternalTransfers(c.Request.Context(), middleware.MustUserID(c), page, pageSize)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list external transfers failed")
+		return
+	}
+	response.SuccessPage(c, total, toExternalTransferResponses(items))
 }
 
 // UpdateBillingAccountBalance godoc
@@ -286,6 +566,94 @@ func (h *Handler) UpdateBillingAccountBalance(c *gin.Context) {
 		},
 	)
 	response.Success(c, BillingAccountDataResponse{Account: toBillingAccountResponse(account)})
+}
+
+// AdjustBillingAccountBalance godoc
+// @Summary 管理员原子增减用户余额
+// @Tags admin-billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param user_id path int true "用户ID"
+// @Param body body AdjustBillingAccountBalanceRequest true "余额增减"
+// @Success 200 {object} BalanceDeltaResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Router /admin/billing/accounts/{user_id}/balance-delta [post]
+func (h *Handler) AdjustBillingAccountBalance(c *gin.Context) {
+	targetUserID, err := strconv.ParseUint(c.Param("user_id"), 10, 64)
+	if err != nil || targetUserID == 0 {
+		response.Error(c, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	var req AdjustBillingAccountBalanceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	result, err := h.service.AdjustBillingAccountBalance(c.Request.Context(), appbilling.BillingAccountDeltaInput{
+		UserID:      uint(targetUserID),
+		DeltaUSD:    req.DeltaUSD,
+		RefNo:       middleware.MustRequestID(c),
+		Description: req.Description,
+	})
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	actorUserID := middleware.MustUserID(c)
+	h.recordAudit(
+		c,
+		actorUserID,
+		"adjust_billing_balance",
+		"billing_account",
+		strconv.FormatUint(targetUserID, 10),
+		map[string]interface{}{
+			"user_id":   targetUserID,
+			"delta_usd": req.DeltaUSD,
+		},
+	)
+	response.Success(c, BalanceDeltaDataResponse{
+		Account:     toBillingAccountResponse(&result.Account),
+		Transaction: toBalanceTransactionResponse(result.Transaction),
+	})
+}
+
+// ListAdminBalanceTransactions godoc
+// @Summary 管理员查询余额流水
+// @Tags admin-billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} BalanceTransactionListResponseDoc
+// @Router /admin/billing/balance-transactions [get]
+func (h *Handler) ListAdminBalanceTransactions(c *gin.Context) {
+	page, pageSize := pageParams(c)
+	userID := parseUintQuery(c.Query("user_id"))
+	createdFrom, ok := parseBillingOptionalTime(c.Query("created_from"))
+	if !ok {
+		response.Error(c, http.StatusBadRequest, "invalid created_from")
+		return
+	}
+	createdTo, ok := parseBillingOptionalTime(c.Query("created_to"))
+	if !ok {
+		response.Error(c, http.StatusBadRequest, "invalid created_to")
+		return
+	}
+	items, total, err := h.service.ListBalanceTransactions(c.Request.Context(), appbilling.BalanceTransactionListInput{
+		UserID:   userID,
+		Type:     c.Query("type"),
+		Query:    c.Query("q"),
+		Sort:     c.Query("sort"),
+		From:     createdFrom,
+		To:       createdTo,
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list balance transactions failed")
+		return
+	}
+	response.SuccessPage(c, total, toBalanceTransactionResponses(items))
 }
 
 // ListRedemptionCodes godoc
@@ -615,6 +983,31 @@ func (h *Handler) RedeemCode(c *gin.Context) {
 	})
 }
 
+// ListRedemptions godoc
+// @Summary 查询当前用户兑换记录
+// @Tags billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} RedemptionListResponseDoc
+// @Router /billing/redemptions [get]
+func (h *Handler) ListRedemptions(c *gin.Context) {
+	page, pageSize := pageParams(c)
+	items, total, err := h.service.ListRedemptions(c.Request.Context(), appbilling.RedemptionListInput{
+		UserID:   middleware.MustUserID(c),
+		Mode:     c.Query("mode"),
+		Query:    c.Query("q"),
+		Sort:     c.Query("sort"),
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list redemptions failed")
+		return
+	}
+	response.SuccessPage(c, total, toRedemptionRecordResponses(items))
+}
+
 // GetBillingOverview godoc
 // @Summary 获取当前用户计费概览
 // @Description 查询当前计费方式、周期额度或按量余额
@@ -632,6 +1025,45 @@ func (h *Handler) GetBillingOverview(c *gin.Context) {
 		return
 	}
 	response.Success(c, BillingOverviewDataResponse{Overview: toBillingOverviewResponse(overview)})
+}
+
+// CreatePlan godoc
+// @Summary 管理员创建周期套餐
+// @Tags admin-billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body CreateBillingPlanRequest true "套餐配置"
+// @Success 200 {object} BillingPlanResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Router /admin/billing/plans [post]
+func (h *Handler) CreatePlan(c *gin.Context) {
+	var req CreateBillingPlanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	item, err := h.service.CreatePlan(c.Request.Context(), planCreateInputFromRequest(req))
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	userID := middleware.MustUserID(c)
+	h.recordAudit(
+		c,
+		userID,
+		"create_billing_plan",
+		"billing_plan",
+		item.Code,
+		map[string]interface{}{
+			"code":              req.Code,
+			"name":              req.Name,
+			"period_credit_usd": req.PeriodCreditUSD,
+			"amount_usd":        req.AmountUSD,
+			"billing_interval":  req.BillingInterval,
+		},
+	)
+	response.Success(c, BillingPlanDataResponse{Plan: toPlanListResponse([]appbilling.BillingPlanView{*item})[0]})
 }
 
 // UpdatePlan godoc
@@ -684,6 +1116,38 @@ func (h *Handler) UpdatePlan(c *gin.Context) {
 	)
 
 	response.Success(c, BillingPlanDataResponse{Plan: toPlanListResponse([]appbilling.BillingPlanView{*item})[0]})
+}
+
+// DeletePlan godoc
+// @Summary 管理员删除周期套餐
+// @Tags admin-billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "套餐ID"
+// @Success 200 {object} BillingPlanDeleteResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Router /admin/billing/plans/{id} [delete]
+func (h *Handler) DeletePlan(c *gin.Context) {
+	planID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || planID == 0 {
+		response.Error(c, http.StatusBadRequest, "invalid plan id")
+		return
+	}
+	if err := h.service.DeletePlan(c.Request.Context(), uint(planID)); err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	userID := middleware.MustUserID(c)
+	h.recordAudit(
+		c,
+		userID,
+		"delete_billing_plan",
+		"billing_plan",
+		strconv.FormatUint(planID, 10),
+		map[string]interface{}{"plan_id": planID},
+	)
+	response.Success(c, BillingPlanDeleteDataResponse{Deleted: true})
 }
 
 // Subscribe godoc
@@ -752,10 +1216,22 @@ func (h *Handler) Subscribe(c *gin.Context) {
 func (h *Handler) ListUsage(c *gin.Context) {
 	userID := middleware.MustUserID(c)
 	page, pageSize := pageParams(c)
+	createdFrom, ok := parseBillingOptionalTime(c.Query("created_from"))
+	if !ok {
+		response.Error(c, http.StatusBadRequest, "invalid created_from")
+		return
+	}
+	createdTo, ok := parseBillingOptionalTime(c.Query("created_to"))
+	if !ok {
+		response.Error(c, http.StatusBadRequest, "invalid created_to")
+		return
+	}
 	filter := appbilling.UsageListFilter{
-		Query:  c.Query("query"),
-		Status: c.Query("status"),
-		Sort:   c.Query("sort"),
+		Query:       c.Query("query"),
+		Status:      c.Query("status"),
+		Sort:        c.Query("sort"),
+		CreatedFrom: createdFrom,
+		CreatedTo:   createdTo,
 	}
 
 	items, total, err := h.service.ListUsage(c.Request.Context(), userID, page, pageSize, filter)
@@ -768,6 +1244,38 @@ func (h *Handler) ListUsage(c *gin.Context) {
 		usages = append(usages, toUsageLedgerResponse(u))
 	}
 	response.SuccessPage(c, total, usages)
+}
+
+// ExportUsageCSV godoc
+// @Summary 导出当前用户用量 CSV
+// @Tags billing
+// @Produce text/csv
+// @Security BearerAuth
+// @Router /billing/usage.csv [get]
+func (h *Handler) ExportUsageCSV(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	createdFrom, ok := parseBillingOptionalTime(c.Query("created_from"))
+	if !ok {
+		response.Error(c, http.StatusBadRequest, "invalid created_from")
+		return
+	}
+	createdTo, ok := parseBillingOptionalTime(c.Query("created_to"))
+	if !ok {
+		response.Error(c, http.StatusBadRequest, "invalid created_to")
+		return
+	}
+	items, _, err := h.service.ListUsage(c.Request.Context(), userID, 1, 1000, appbilling.UsageListFilter{
+		Query:       c.Query("query"),
+		Status:      c.Query("status"),
+		Sort:        c.Query("sort"),
+		CreatedFrom: createdFrom,
+		CreatedTo:   createdTo,
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "export usage failed")
+		return
+	}
+	writeUsageCSV(c, "deeix-chat-usage.csv", items)
 }
 
 // ListMonthlyUsage godoc
@@ -867,6 +1375,39 @@ func (h *Handler) ListDailyUsage(c *gin.Context) {
 	response.Success(c, results)
 }
 
+// ExportAdminUsageCSV godoc
+// @Summary 管理员导出调用日志 CSV
+// @Tags admin-billing
+// @Produce text/csv
+// @Security BearerAuth
+// @Router /admin/billing/usage.csv [get]
+func (h *Handler) ExportAdminUsageCSV(c *gin.Context) {
+	createdFrom, ok := parseBillingOptionalTime(c.Query("created_from"))
+	if !ok {
+		response.Error(c, http.StatusBadRequest, "invalid created_from")
+		return
+	}
+	createdTo, ok := parseBillingOptionalTime(c.Query("created_to"))
+	if !ok {
+		response.Error(c, http.StatusBadRequest, "invalid created_to")
+		return
+	}
+	items, _, err := h.service.ListUsageLogs(c.Request.Context(), 1, 1000, appbilling.UsageLogListFilter{
+		Query:             c.Query("query"),
+		PlatformModelName: c.Query("platform_model_name"),
+		BillingMode:       c.Query("billing_mode"),
+		UserID:            parseUintQuery(c.Query("user_id")),
+		CreatedFrom:       createdFrom,
+		CreatedTo:         createdTo,
+		Sort:              c.Query("sort"),
+	})
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "export usage logs failed")
+		return
+	}
+	writeUsageCSV(c, "deeix-chat-admin-usage.csv", items)
+}
+
 // ListModelPricing godoc
 // @Summary 管理员查询模型按量单价
 // @Description 按平台模型名查询模型按量计费配置
@@ -952,6 +1493,23 @@ func (h *Handler) UpsertModelPricing(c *gin.Context) {
 	})
 }
 
+// GetBillingRiskSummary godoc
+// @Summary 管理员查询计费风控摘要
+// @Tags admin-billing
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} BillingRiskSummaryResponseDoc
+// @Router /admin/billing/risk-summary [get]
+func (h *Handler) GetBillingRiskSummary(c *gin.Context) {
+	item, err := h.service.GetBillingRiskSummary(c.Request.Context())
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "get risk summary failed")
+		return
+	}
+	response.Success(c, BillingRiskSummaryDataResponse{Risk: toBillingRiskSummaryResponse(item)})
+}
+
 func pageParams(c *gin.Context) (int, int) {
 	page := 1
 	pageSize := 20
@@ -971,4 +1529,71 @@ func pageParams(c *gin.Context) (int, int) {
 	}
 
 	return page, pageSize
+}
+
+func parseUintQuery(raw string) uint {
+	value, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return uint(value)
+}
+
+func parseBillingOptionalTime(raw string) (*time.Time, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return nil, true
+	}
+	parsed, err := time.Parse(time.RFC3339, text)
+	if err != nil {
+		date, dateErr := time.Parse("2006-01-02", text)
+		if dateErr != nil {
+			return nil, false
+		}
+		parsed = date
+	}
+	return &parsed, true
+}
+
+func writeUsageCSV(c *gin.Context, filename string, items []domainbilling.UsageLedger) {
+	var buffer bytes.Buffer
+	writer := csv.NewWriter(&buffer)
+	_ = writer.Write([]string{
+		"id",
+		"user_id",
+		"created_at",
+		"usage_date",
+		"model",
+		"calls",
+		"input_tokens",
+		"cache_read_tokens",
+		"cache_write_tokens",
+		"output_tokens",
+		"reasoning_tokens",
+		"duration_seconds",
+		"latency_ms",
+		"billed_usd",
+	})
+	for _, item := range items {
+		_ = writer.Write([]string{
+			strconv.FormatUint(uint64(item.ID), 10),
+			strconv.FormatUint(uint64(item.UserID), 10),
+			item.CreatedAt.Format(time.RFC3339),
+			item.UsageDate.Format("2006-01-02"),
+			item.PlatformModelName,
+			strconv.FormatInt(item.CallCount, 10),
+			strconv.FormatInt(item.InputTokens, 10),
+			strconv.FormatInt(item.CacheReadTokens, 10),
+			strconv.FormatInt(item.CacheWriteTokens+item.CacheWrite5mTokens+item.CacheWrite1hTokens, 10),
+			strconv.FormatInt(item.OutputTokens, 10),
+			strconv.FormatInt(item.ReasoningTokens, 10),
+			strconv.FormatInt(item.DurationSeconds, 10),
+			strconv.FormatInt(item.LatencyMS, 10),
+			strconv.FormatFloat(nanousdToUSD(item.BilledNanousd), 'f', 9, 64),
+		})
+	}
+	writer.Flush()
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
+	c.String(http.StatusOK, buffer.String())
 }

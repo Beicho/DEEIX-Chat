@@ -9,9 +9,10 @@ import (
 
 // AnnouncementRepository 定义公告流程依赖的持久化能力。
 type AnnouncementRepository interface {
-	ListActiveAnnouncements(ctx context.Context, userID uint, now time.Time) ([]domainannouncement.Announcement, error)
+	ListActiveAnnouncements(ctx context.Context, userID uint, now time.Time, includeDismissed bool) ([]domainannouncement.Announcement, error)
 	ListAdminAnnouncements(ctx context.Context, filter AnnouncementListFilter, offset int, limit int) ([]domainannouncement.Announcement, int64, error)
 	CreateAnnouncement(ctx context.Context, item *domainannouncement.Announcement) (*domainannouncement.Announcement, error)
+	GetAnnouncementByTitle(ctx context.Context, title string) (*domainannouncement.Announcement, error)
 	PatchAnnouncement(ctx context.Context, id uint, patch AnnouncementPatch) (*domainannouncement.Announcement, error)
 	DeleteAnnouncement(ctx context.Context, id uint) error
 	DismissAnnouncementToday(ctx context.Context, userID uint, announcementID uint, announcementUpdatedAt time.Time, now time.Time, dismissedUntil time.Time) error

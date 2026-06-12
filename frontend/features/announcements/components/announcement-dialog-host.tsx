@@ -16,6 +16,15 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StreamdownRender } from "@/features/chat/components/markdown/streamdown-render";
+import {
+  announcementTime,
+  announcementTypeAccentClassName,
+  announcementTypeRank,
+  compareAnnouncementReadState,
+  formatAnnouncementDate,
+  formatAnnouncementTime,
+  isAnnouncementRead,
+} from "@/features/announcements/model/announcement-display";
 import { closeAnnouncement, dismissAnnouncementToday, listAnnouncements } from "@/shared/api/announcements";
 import type { AnnouncementDTO } from "@/shared/api/announcements.types";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
@@ -28,86 +37,6 @@ function isSkippedPath(pathname: string | null): boolean {
     return false;
   }
   return pathname === "/share" || pathname.startsWith("/share/");
-}
-
-function formatAnnouncementDate(value: string, locale: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "-";
-  }
-  return new Intl.DateTimeFormat(locale, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-}
-
-function formatAnnouncementTime(value: string, locale: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "-";
-  }
-  return new Intl.DateTimeFormat(locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(date);
-}
-
-function normalizeAnnouncementType(value: string): "critical" | "warning" | "info" | "normal" | "general" {
-  switch (value) {
-    case "critical":
-    case "warning":
-    case "info":
-    case "normal":
-    case "general":
-      return value;
-    default:
-      return "general";
-  }
-}
-
-function announcementTypeRank(value: string): number {
-  switch (normalizeAnnouncementType(value)) {
-    case "critical":
-      return 5;
-    case "warning":
-      return 4;
-    case "info":
-      return 3;
-    case "normal":
-      return 2;
-    default:
-      return 1;
-  }
-}
-
-function announcementTypeAccentClassName(value: string): string {
-  switch (normalizeAnnouncementType(value)) {
-    case "critical":
-      return "before:bg-red-500/55 dark:before:bg-red-400/55";
-    case "warning":
-      return "before:bg-yellow-500/60 dark:before:bg-yellow-400/55";
-    case "info":
-      return "before:bg-blue-500/55 dark:before:bg-blue-400/55";
-    case "normal":
-      return "before:bg-emerald-500/55 dark:before:bg-emerald-400/55";
-    default:
-      return "before:bg-border";
-  }
-}
-
-function announcementTime(value: string): number {
-  const time = new Date(value).getTime();
-  return Number.isNaN(time) ? 0 : time;
-}
-
-function isAnnouncementRead(item: AnnouncementDTO): boolean {
-  return Boolean(item.closedAt);
-}
-
-function compareReadState(a: AnnouncementDTO, b: AnnouncementDTO): number {
-  return Number(isAnnouncementRead(a)) - Number(isAnnouncementRead(b));
 }
 
 export function AnnouncementDialogHost() {
@@ -151,10 +80,10 @@ export function AnnouncementDialogHost() {
 
   const sortedQueue = React.useMemo(() => {
     if (sortMode === "time") {
-      return [...queue].sort((a, b) => compareReadState(a, b) || announcementTime(b.updatedAt) - announcementTime(a.updatedAt) || b.id - a.id);
+      return [...queue].sort((a, b) => compareAnnouncementReadState(a, b) || announcementTime(b.updatedAt) - announcementTime(a.updatedAt) || b.id - a.id);
     }
     if (sortMode === "type") {
-      return [...queue].sort((a, b) => compareReadState(a, b) || announcementTypeRank(b.type) - announcementTypeRank(a.type) || announcementTime(b.updatedAt) - announcementTime(a.updatedAt) || b.id - a.id);
+      return [...queue].sort((a, b) => compareAnnouncementReadState(a, b) || announcementTypeRank(b.type) - announcementTypeRank(a.type) || announcementTime(b.updatedAt) - announcementTime(a.updatedAt) || b.id - a.id);
     }
     return queue;
   }, [queue, sortMode]);

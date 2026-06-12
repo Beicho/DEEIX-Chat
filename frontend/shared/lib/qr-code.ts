@@ -53,7 +53,7 @@ export function createQRCodeSVG(value: string, scale = 4, ariaLabel = "QR code")
     }
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewSize} ${viewSize}" width="${viewSize * scale}" height="${viewSize * scale}" shape-rendering="crispEdges" role="img" aria-label="${escapeSVGAttribute(ariaLabel)}"><rect width="100%" height="100%" fill="#fff"/> <g fill="#000">${rects.join("")}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewSize} ${viewSize}" width="${viewSize * scale}" height="${viewSize * scale}" shape-rendering="crispEdges" role="img" aria-label="${escapeSVGAttribute(ariaLabel)}"><rect width="100%" height="100%" fill="Canvas"/> <g fill="CanvasText">${rects.join("")}</g></svg>`;
 }
 
 function createDataCodewords(data: Uint8Array, totalCodewords: number): number[] {

@@ -97,6 +97,26 @@ func (UserContactVerification) TableName() string {
 	return "identity_contact_verifications"
 }
 
+// InvitationCode stores operator-managed registration invite codes.
+type InvitationCode struct {
+	BaseModel
+	PublicID   string     `gorm:"size:32;not null;default:'';uniqueIndex:idx_identity_invitation_codes_public_id;comment:公开邀请码ID"`
+	CodeHash   string     `gorm:"size:64;not null;default:'';uniqueIndex:idx_identity_invitation_codes_hash;comment:邀请码哈希"`
+	Label      string     `gorm:"size:80;not null;default:'';comment:显示标签"`
+	MaxUses    int        `gorm:"not null;default:1;comment:最大使用次数，0表示不限"`
+	UsedCount  int        `gorm:"not null;default:0;comment:已使用次数"`
+	Enabled    bool       `gorm:"not null;default:true;index:idx_identity_invitation_codes_enabled;comment:是否启用"`
+	ExpiresAt  *time.Time `gorm:"index:idx_identity_invitation_codes_expires_at;comment:过期时间"`
+	LastUsedAt *time.Time `gorm:"comment:最近使用时间"`
+	CreatedBy  uint       `gorm:"not null;default:0;index:idx_identity_invitation_codes_created_by;comment:创建人用户ID"`
+	DisabledAt *time.Time `gorm:"comment:停用时间"`
+	DisabledBy *uint      `gorm:"index:idx_identity_invitation_codes_disabled_by;comment:停用人用户ID"`
+}
+
+func (InvitationCode) TableName() string {
+	return "identity_invitation_codes"
+}
+
 // UserCredential 存储登录凭据，不暴露到业务响应。
 type UserCredential struct {
 	BaseModel

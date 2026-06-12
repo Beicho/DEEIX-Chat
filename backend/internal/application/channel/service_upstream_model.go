@@ -204,6 +204,7 @@ func (s *Service) ensurePlatformModel(ctx context.Context, platformModelName str
 		}
 		return item, false, nil
 	}
+	s.notifyPlatformModelCreated(ctx, item.PlatformModelName)
 	return item, true, nil
 }
 

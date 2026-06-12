@@ -6,7 +6,9 @@
   "actions": {
     "importPricing": "Import",
     "exportPricing": "Export",
+    "exportBillingCSV": "Export usage CSV",
     "editPlan": "Edit plan",
+    "deletePlan": "Delete plan",
     "editPricing": "Edit pricing",
     "editRedemptionCode": "Edit redemption code"
   },
@@ -51,6 +53,14 @@
   },
   "plans": {
     "title": "Plans",
+    "createPlan": "Create plan",
+    "createTitle": "Create subscription plan",
+    "createDescription": "The plan is available to users after creation. Confirm the price and credit before saving.",
+    "code": "Plan code",
+    "codePlaceholder": "Lowercase letters, numbers, or hyphens",
+    "deleteTitle": "Delete subscription plan",
+    "deleteDescription": "This disables \"{name}\" and its prices. History is retained.",
+    "deleting": "Deleting",
     "dialogTitle": "Subscription plan",
     "dialogDescription": "Configure plan price, usage credit, and discount.",
     "name": "Name",
@@ -70,6 +80,52 @@
       "lifetime": "Lifetime",
       "month": "Month",
       "year": "Year"
+    }
+  },
+  "orders": {
+    "title": "Payment orders",
+    "searchPlaceholder": "Search order number",
+    "status": "Status",
+    "allStatuses": "All statuses",
+    "empty": "No payment orders",
+    "complete": "Complete",
+    "expire": "Expire",
+    "fail": "Fail",
+    "statuses": {
+      "pending": "Pending",
+      "paid": "Paid",
+      "failed": "Failed",
+      "expired": "Expired"
+    },
+    "columns": {
+      "order": "Order",
+      "user": "User",
+      "amount": "Amount",
+      "status": "Status"
+    }
+  },
+  "balance": {
+    "title": "Balance ledger",
+    "userID": "User ID",
+    "deltaUSD": "Delta amount",
+    "description": "Description",
+    "applyDelta": "Apply delta",
+    "empty": "No balance ledger entries",
+    "columns": {
+      "time": "Time",
+      "user": "User",
+      "amount": "Amount"
+    }
+  },
+  "risk": {
+    "title": "Risk overview",
+    "loading": "Loading",
+    "refresh": "Refresh",
+    "metrics": {
+      "multiAccountClusterCount": "Multi-account signals",
+      "highRiskClusterCount": "High-risk signals",
+      "ignoredClusterCount": "Ignored signals",
+      "uniqueIPCount": "Unique IPs"
     }
   },
   "redemption": {
@@ -261,6 +317,22 @@
     "freeSaveFailed": "Failed to save free status",
     "planSaved": "Subscription plan saved",
     "planSaveFailed": "Failed to save subscription plan",
+    "planCreateInvalid": "Enter a plan code and name.",
+    "planCreated": "Subscription plan created",
+    "planCreateFailed": "Failed to create subscription plan",
+    "planDeleted": "Subscription plan deleted",
+    "planDeleteFailed": "Failed to delete subscription plan",
+    "paymentOrdersLoadFailed": "Failed to load payment orders",
+    "paymentOrderUpdated": "Payment order updated",
+    "paymentOrderUpdateFailed": "Failed to update payment order",
+    "balanceTransactionsLoadFailed": "Failed to load balance ledger",
+    "balanceDeltaInvalid": "Enter a valid user ID and a non-zero delta amount.",
+    "balanceDeltaSaved": "Balance delta saved",
+    "balanceDeltaFailed": "Failed to save balance delta",
+    "riskLoadFailed": "Failed to load risk overview",
+    "billingCSVExported": "Usage CSV exported",
+    "billingCSVExportFailed": "Failed to export usage CSV",
+    "redemptionLoadFailed": "Failed to load redemption codes",
     "redemptionInvalid": "Invalid redemption code settings",
     "redemptionInvalidCodeFormat": "Code must be 3-64 letters, numbers, hyphens, or underscores.",
     "redemptionInvalidQuantity": "Quantity must be a positive integer.",

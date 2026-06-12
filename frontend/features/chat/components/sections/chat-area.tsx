@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
 import { ChatLabel } from "@/features/chat/components/sections/chat-label";
+import { useMessageBookmark } from "@/features/chat/hooks/use-message-bookmark";
 import { useMessageFeedback } from "@/features/chat/hooks/use-message-feedback";
 import {
   AssistantMessageSkeleton,
@@ -43,7 +44,7 @@ function CompactDivider({ summaryPreview }: { summaryPreview: string }) {
         <div className="h-px flex-1 bg-border/50" />
         <button
           type="button"
-          className="min-h-11 shrink-0 cursor-pointer px-2 text-[11px] text-muted-foreground/60 hover:text-muted-foreground md:min-h-0 md:px-0"
+          className="relative shrink-0 cursor-pointer text-[11px] text-muted-foreground/60 hover:text-muted-foreground after:absolute after:-inset-y-2 after:inset-x-0 after:content-[''] md:after:hidden"
           onClick={() => setExpanded((v) => !v)}
         >
           {t("contextCompressed")}
@@ -88,6 +89,7 @@ type ChatAreaProps = {
   onRetryUserMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onRetryAssistantMessage: (message: ChatAreaMessage, platformModelName?: string) => Promise<void> | void;
   onContinueAssistantMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onDeleteMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
@@ -100,9 +102,11 @@ type ChatAreaProps = {
   shareActive?: boolean;
   onExport?: () => void | Promise<void>;
   onExportMarkdown?: () => void | Promise<void>;
+  onExportImage?: () => void | Promise<void>;
   onCopyMarkdown?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
   onQuoteSelection?: (text: string) => void;
+  readOnly?: boolean;
   modelOptions?: ChatModelOption[];
   selectedPlatformModelName?: string;
   markdownRender?: boolean;
@@ -243,7 +247,7 @@ function SelectionQuoteToolbar({
         type="button"
         variant="ghost"
         size="sm"
-        className="min-h-11 rounded-full px-3 text-xs md:min-h-8"
+        className="relative h-8 rounded-full px-3 text-xs after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-[''] md:after:hidden"
         onClick={onQuote}
       >
         <Quote className="size-3.5" strokeWidth={1.8} />
@@ -253,7 +257,7 @@ function SelectionQuoteToolbar({
         type="button"
         variant="ghost"
         size="sm"
-        className="min-h-11 rounded-full px-3 text-xs md:min-h-8"
+        className="relative h-8 rounded-full px-3 text-xs after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-[''] md:after:hidden"
         onClick={onCopy}
       >
         <Copy className="size-3.5" strokeWidth={1.8} />
@@ -267,14 +271,17 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   item,
   busy,
   reaction,
+  bookmarked,
   onRetryUserMessage,
   onRetryAssistantMessage,
   onContinueAssistantMessage,
+  onDeleteMessage,
   onEditAssistantMessage,
   onEditUserMessage,
   onEditImageAttachment,
   onCycleMessageBranch,
   onReactAssistantMessage,
+  onToggleMessageBookmark,
   onOpenCodeArtifact,
   activeSpeechMessageKey,
   speechPaused,
@@ -287,18 +294,22 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   showLatency,
   showTokenUsage,
   showBillingCost,
+  readOnly,
 }: {
   item: ChatAreaMessage;
   busy: boolean;
   reaction: AssistantReaction;
+  bookmarked: boolean;
   onRetryUserMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onRetryAssistantMessage: (message: ChatAreaMessage, platformModelName?: string) => Promise<void> | void;
   onContinueAssistantMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onDeleteMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
+  onToggleMessageBookmark: (publicID: string) => void;
   onOpenCodeArtifact?: (message: ChatAreaMessage, artifact: OpenCodeArtifactInput) => void;
   activeSpeechMessageKey: string | null;
   speechPaused: boolean;
@@ -311,6 +322,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   showLatency: boolean;
   showTokenUsage: boolean;
   showBillingCost: boolean;
+  readOnly: boolean;
 }) {
   const t = useTranslations("chat.messages");
   const isUser = item.role === "user";
@@ -340,9 +352,13 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         item={item}
         busy={busy}
         onRetryUserMessage={onRetryUserMessage}
+        onDeleteMessage={() => onDeleteMessage(item)}
         onEditUserMessage={onEditUserMessage}
         onCycleMessageBranch={onCycleMessageBranch}
         onCopy={() => void onCopy()}
+        bookmarked={bookmarked}
+        onToggleBookmark={() => onToggleMessageBookmark(item.publicID)}
+        readOnly={readOnly}
       />
     );
   }
@@ -355,10 +371,13 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         reaction={reaction}
         onRetryAssistantMessage={onRetryAssistantMessage}
         onContinueAssistantMessage={onContinueAssistantMessage}
+        onDeleteMessage={() => onDeleteMessage(item)}
         onEditAssistantMessage={onEditAssistantMessage}
         onCycleMessageBranch={onCycleMessageBranch}
         onReactAssistantMessage={onReactAssistantMessage}
         onCopy={() => void onCopy()}
+        bookmarked={bookmarked}
+        onToggleBookmark={() => onToggleMessageBookmark(item.publicID)}
         onEditImageAttachment={onEditImageAttachment}
         artifactActions={artifactActions}
         speechSupported={speechSupported}
@@ -372,6 +391,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         showLatency={showLatency}
         showTokenUsage={showTokenUsage}
         showBillingCost={showBillingCost}
+        readOnly={readOnly}
       />
     );
   }
@@ -424,6 +444,7 @@ export function ChatArea({
   onRetryUserMessage,
   onRetryAssistantMessage,
   onContinueAssistantMessage,
+  onDeleteMessage,
   onEditAssistantMessage,
   onEditUserMessage,
   onEditImageAttachment,
@@ -436,9 +457,11 @@ export function ChatArea({
   shareActive = false,
   onExport,
   onExportMarkdown,
+  onExportImage,
   onCopyMarkdown,
   onDelete,
   onQuoteSelection,
+  readOnly = false,
   modelOptions = [],
   selectedPlatformModelName = "",
   markdownRender = true,
@@ -452,10 +475,12 @@ export function ChatArea({
   const tSelection = useTranslations("chat.selection");
   const { locale } = useAppLocale();
   const { getReaction, onReactAssistantMessage } = useMessageFeedback(messages);
+  const { getBookmarked, onToggleMessageBookmark } = useMessageBookmark(messages);
   const messageSpeech = useMessageSpeech(locale);
   const stableOnRetryUserMessage = useStableEvent(onRetryUserMessage);
   const stableOnRetryAssistantMessage = useStableEvent(onRetryAssistantMessage);
   const stableOnContinueAssistantMessage = useStableEvent(onContinueAssistantMessage ?? (() => undefined));
+  const stableOnDeleteMessage = useStableEvent(onDeleteMessage);
   const stableOnEditAssistantMessage = useStableEvent(onEditAssistantMessage);
   const stableOnEditUserMessage = useStableEvent(onEditUserMessage);
   const stableOnEditImageAttachment = useStableEvent((attachment: MessageAttachment, sourceModelName?: string) => {
@@ -463,6 +488,7 @@ export function ChatArea({
   });
   const stableOnCycleMessageBranch = useStableEvent(onCycleMessageBranch);
   const stableOnReactAssistantMessage = useStableEvent(onReactAssistantMessage);
+  const stableOnToggleMessageBookmark = useStableEvent(onToggleMessageBookmark);
   const editImageAttachmentHandler = onEditImageAttachment ? stableOnEditImageAttachment : undefined;
   const shareLabel = shareActive ? t("manageShare") : t("shareConversation");
   const shareExportLabel = t("labelMenu.shareAndExport");
@@ -594,6 +620,7 @@ export function ChatArea({
                 shareActive={shareActive}
                 onExport={canOperateConversation ? onExport : undefined}
                 onExportMarkdown={canOperateConversation ? onExportMarkdown : undefined}
+                onExportImage={canOperateConversation ? onExportImage : undefined}
                 onCopyMarkdown={canOperateConversation ? onCopyMarkdown : undefined}
                 onDelete={canOperateConversation ? onDelete : undefined}
               />
@@ -602,7 +629,7 @@ export function ChatArea({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-11 rounded-full md:size-8"
+                  className="relative size-8 rounded-full after:absolute after:-inset-1.5 after:content-[''] md:after:hidden"
                   aria-label={t("find.open")}
                   onClick={() => setFindOpen(true)}
                 >
@@ -614,11 +641,13 @@ export function ChatArea({
                     shareLabel={shareLabel}
                     exportLabel={t("labelMenu.exportJSON")}
                     exportMarkdownLabel={t("labelMenu.exportMarkdown")}
+                    exportImageLabel={t("labelMenu.exportImage")}
                     copyMarkdownLabel={t("labelMenu.copyMarkdown")}
                     active={shareActive}
                     onShare={onShare}
                     onExport={onExport}
                     onExportMarkdown={onExportMarkdown}
+                    onExportImage={onExportImage}
                     onCopyMarkdown={onCopyMarkdown}
                   />
                 ) : null}
@@ -661,14 +690,17 @@ export function ChatArea({
                   item={item}
                   busy={busy}
                   reaction={getReaction(item)}
+                  bookmarked={getBookmarked(item)}
                   onRetryUserMessage={stableOnRetryUserMessage}
                   onRetryAssistantMessage={stableOnRetryAssistantMessage}
                   onContinueAssistantMessage={onContinueAssistantMessage ? stableOnContinueAssistantMessage : undefined}
+                  onDeleteMessage={stableOnDeleteMessage}
                   onEditAssistantMessage={stableOnEditAssistantMessage}
                   onEditUserMessage={stableOnEditUserMessage}
                   onEditImageAttachment={editImageAttachmentHandler}
                   onCycleMessageBranch={stableOnCycleMessageBranch}
                   onReactAssistantMessage={stableOnReactAssistantMessage}
+                  onToggleMessageBookmark={stableOnToggleMessageBookmark}
                   onOpenCodeArtifact={onOpenCodeArtifact}
                   activeSpeechMessageKey={messageSpeech.activeMessageKey}
                   speechPaused={messageSpeech.paused}
@@ -681,6 +713,7 @@ export function ChatArea({
                   showLatency={showLatency}
                   showTokenUsage={showTokenUsage}
                   showBillingCost={showBillingCost}
+                  readOnly={readOnly}
                 />
               );
 
@@ -696,7 +729,7 @@ export function ChatArea({
                     data-find-active={activeFindMatch?.messageKey === item.key ? "true" : undefined}
                     className={cn(
                       spacingClass,
-                      "rounded-xl transition-[background-color,box-shadow] duration-200 data-[find-active=true]:bg-primary/5 data-[find-active=true]:ring-2 data-[find-active=true]:ring-primary/20",
+                      "rounded-xl [contain-intrinsic-size:1px_180px] [content-visibility:auto] transition-[background-color,box-shadow] duration-200 data-[find-active=true]:bg-primary/5 data-[find-active=true]:ring-2 data-[find-active=true]:ring-primary/20",
                     )}
                   >
                     {compactDivider}
@@ -713,7 +746,7 @@ export function ChatArea({
                   layout="position"
                   className={cn(
                     spacingClass,
-                    "rounded-xl transition-[background-color,box-shadow] duration-200 data-[find-active=true]:bg-primary/5 data-[find-active=true]:ring-2 data-[find-active=true]:ring-primary/20",
+                    "rounded-xl [contain-intrinsic-size:1px_180px] [content-visibility:auto] transition-[background-color,box-shadow] duration-200 data-[find-active=true]:bg-primary/5 data-[find-active=true]:ring-2 data-[find-active=true]:ring-primary/20",
                   )}
                   transition={MESSAGE_SWITCH_TRANSITION}
                   style={{ willChange: "transform" }}
@@ -730,7 +763,7 @@ export function ChatArea({
         {showScrollToLatestButton ? (
           <button
             type="button"
-            className="absolute bottom-4 left-1/2 z-20 inline-flex size-11 -translate-x-1/2 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground shadow-md transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 md:size-8"
+            className="absolute bottom-4 left-1/2 z-20 inline-flex size-8 -translate-x-1/2 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground shadow-md transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 after:absolute after:-inset-1.5 after:content-[''] md:after:hidden"
             aria-label={t("messages.scrollToBottom")}
             title={t("messages.scrollToBottom")}
             onClick={onScrollToLatest}
@@ -811,7 +844,7 @@ export function ChatAreaLoadError({
   onNewConversation,
 }: {
   onRefresh: () => void | Promise<void>;
-  onNewConversation: () => void;
+  onNewConversation?: () => void;
 }) {
   const t = useTranslations("chat.loadError");
   return (
@@ -826,16 +859,21 @@ export function ChatAreaLoadError({
             className="rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => void onRefresh()}
           >
-            {t("refresh")}
-          </button>{" "}
-          {t("or")}{" "}
-          <button
-            type="button"
-            className="rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={onNewConversation}
-          >
-            {t("newChat")}
+          {t("refresh")}
           </button>
+          {onNewConversation ? (
+            <>
+              {" "}
+              {t("or")}{" "}
+              <button
+                type="button"
+                className="rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={onNewConversation}
+              >
+                {t("newChat")}
+              </button>
+            </>
+          ) : null}
         </>
       }
     />

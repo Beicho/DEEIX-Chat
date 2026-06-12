@@ -76,13 +76,17 @@ type EmailRegistrationCompleteRequest struct {
 	Password       string `json:"password" binding:"required,min=8,max=128"`
 	Code           string `json:"code" binding:"omitempty,len=6"`
 	TurnstileToken string `json:"turnstileToken" binding:"omitempty,max=2048"`
+	InviteCode     string `json:"inviteCode" binding:"omitempty,max=64"`
+	Locale         string `json:"locale" binding:"omitempty,max=64"`
+	Timezone       string `json:"timezone" binding:"omitempty,max=64"`
 }
 
 type ChangePasswordRequest struct {
-	CurrentPassword    string `json:"currentPassword" binding:"omitempty,max=128"`
-	NewPassword        string `json:"newPassword" binding:"required,min=8,max=128"`
-	VerificationMethod string `json:"verificationMethod" binding:"omitempty,oneof=none two_factor email"`
-	Code               string `json:"code" binding:"omitempty,min=6,max=32"`
+	CurrentPassword     string `json:"currentPassword" binding:"omitempty,max=128"`
+	NewPassword         string `json:"newPassword" binding:"required,min=8,max=128"`
+	VerificationMethod  string `json:"verificationMethod" binding:"omitempty,oneof=none two_factor email"`
+	Code                string `json:"code" binding:"omitempty,min=6,max=32"`
+	RevokeOtherSessions *bool  `json:"revokeOtherSessions"`
 }
 
 type ChangePasswordResponse struct {
@@ -102,8 +106,27 @@ type SecurityVerificationStartRequest struct {
 }
 
 type DeleteAccountRequest struct {
-	VerificationMethod string `json:"verificationMethod" binding:"required,oneof=two_factor email"`
-	Code               string `json:"code" binding:"required,min=6,max=32"`
+	VerificationMethod string `json:"verificationMethod" binding:"required,oneof=two_factor email username"`
+	Code               string `json:"code" binding:"required,min=1,max=128"`
+}
+
+type PasswordResetStartRequest struct {
+	Email string `json:"email" binding:"required,max=128,email"`
+}
+
+type PasswordResetCompleteRequest struct {
+	Email       string `json:"email" binding:"required,max=128,email"`
+	Code        string `json:"code" binding:"required,len=6"`
+	NewPassword string `json:"newPassword" binding:"required,min=8,max=128"`
+}
+
+type EmailCodeLoginStartRequest struct {
+	Email string `json:"email" binding:"required,max=128,email"`
+}
+
+type EmailCodeLoginCompleteRequest struct {
+	Email string `json:"email" binding:"required,max=128,email"`
+	Code  string `json:"code" binding:"required,len=6"`
 }
 
 type EmailVerificationStartResponse struct {
@@ -195,9 +218,43 @@ type LoginOptionsResponse struct {
 	EmailEnabled                 bool                       `json:"emailEnabled"`
 	EmailRegistrationEnabled     bool                       `json:"emailRegistrationEnabled"`
 	EmailVerificationEnabled     bool                       `json:"emailVerificationEnabled"`
+	PasswordResetEnabled         bool                       `json:"passwordResetEnabled"`
+	EmailCodeLoginEnabled        bool                       `json:"emailCodeLoginEnabled"`
+	InviteRegistrationRequired   bool                       `json:"inviteRegistrationRequired"`
 	TurnstileRegistrationEnabled bool                       `json:"turnstileRegistrationEnabled"`
 	TurnstileSiteKey             string                     `json:"turnstileSiteKey"`
 	Providers                    []IdentityProviderResponse `json:"providers"`
+}
+
+type InvitationCodeCreateRequest struct {
+	Label     string     `json:"label" binding:"omitempty,max=80"`
+	MaxUses   int        `json:"maxUses" binding:"omitempty,min=0,max=100000"`
+	ExpiresAt *time.Time `json:"expiresAt"`
+}
+
+type InvitationCodeUpdateRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+type InvitationCodeResponse struct {
+	PublicID   string     `json:"publicID"`
+	Label      string     `json:"label"`
+	MaxUses    int        `json:"maxUses"`
+	UsedCount  int        `json:"usedCount"`
+	Enabled    bool       `json:"enabled"`
+	ExpiresAt  *time.Time `json:"expiresAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
+	CreatedBy  uint       `json:"createdBy"`
+	DisabledAt *time.Time `json:"disabledAt"`
+	DisabledBy *uint      `json:"disabledBy"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
+	Code       string     `json:"code,omitempty"`
+}
+
+type InvitationCodeListResponse struct {
+	Total   int                      `json:"total"`
+	Results []InvitationCodeResponse `json:"results"`
 }
 
 type UpsertIdentityProviderRequest struct {
@@ -572,9 +629,38 @@ func toLoginOptionsResponse(d *appauth.LoginOptions) LoginOptionsResponse {
 		EmailEnabled:                 d.EmailEnabled,
 		EmailRegistrationEnabled:     d.EmailRegistrationEnabled,
 		EmailVerificationEnabled:     d.EmailVerificationEnabled,
+		PasswordResetEnabled:         d.PasswordResetEnabled,
+		EmailCodeLoginEnabled:        d.EmailCodeLoginEnabled,
+		InviteRegistrationRequired:   d.InviteRegistrationRequired,
 		TurnstileRegistrationEnabled: d.TurnstileRegistrationEnabled,
 		TurnstileSiteKey:             d.TurnstileSiteKey,
 		Providers:                    toIdentityProviderResponses(d.Providers),
+	}
+}
+
+func toInvitationCodeResponses(items []appauth.InvitationCodeResult) []InvitationCodeResponse {
+	results := make([]InvitationCodeResponse, 0, len(items))
+	for _, item := range items {
+		results = append(results, toInvitationCodeResponse(item))
+	}
+	return results
+}
+
+func toInvitationCodeResponse(item appauth.InvitationCodeResult) InvitationCodeResponse {
+	return InvitationCodeResponse{
+		PublicID:   item.PublicID,
+		Label:      item.Label,
+		MaxUses:    item.MaxUses,
+		UsedCount:  item.UsedCount,
+		Enabled:    item.Enabled,
+		ExpiresAt:  item.ExpiresAt,
+		LastUsedAt: item.LastUsedAt,
+		CreatedBy:  item.CreatedBy,
+		DisabledAt: item.DisabledAt,
+		DisabledBy: item.DisabledBy,
+		CreatedAt:  item.CreatedAt,
+		UpdatedAt:  item.UpdatedAt,
+		Code:       item.Code,
 	}
 }
 

@@ -89,10 +89,13 @@ type ChatMessageBotProps = {
   reaction: AssistantReaction;
   onRetryAssistantMessage: (message: ChatAreaMessage, platformModelName?: string) => Promise<void> | void;
   onContinueAssistantMessage?: (message: ChatAreaMessage) => Promise<void> | void;
+  onDeleteMessage?: () => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
   onCopy: () => void;
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
   markdownRender?: boolean;
   showModelInfo?: boolean;
   showLatency?: boolean;
@@ -117,10 +120,13 @@ export function ChatMessageBot({
   reaction,
   onRetryAssistantMessage,
   onContinueAssistantMessage,
+  onDeleteMessage,
   onEditAssistantMessage,
   onCycleMessageBranch,
   onReactAssistantMessage,
   onCopy,
+  bookmarked = false,
+  onToggleBookmark,
   markdownRender = true,
   showModelInfo = true,
   showLatency = true,
@@ -353,8 +359,11 @@ export function ChatMessageBot({
         onCycleBranch={onCycleMessageBranch}
         onRetry={onRetry}
         onContinue={onContinueAssistantMessage ? onContinue : undefined}
+        onDelete={onDeleteMessage}
         onEdit={() => setIsEditing(true)}
         onCopy={onCopy}
+        bookmarked={bookmarked}
+        onToggleBookmark={onToggleBookmark}
         onReact={(value) => onReactAssistantMessage(item.publicID, value)}
         speechSupported={speechSupported}
         speechActive={speechActive}

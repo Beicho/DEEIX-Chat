@@ -1,5 +1,7 @@
 package conversation
 
+import "encoding/json"
+
 // CreateConversationRequest 创建会话请求。
 type CreateConversationRequest struct {
 	Title     string `json:"title" binding:"max=255"`
@@ -42,6 +44,16 @@ type BatchSetConversationProjectRequest struct {
 	ProjectID             string   `json:"projectID" binding:"omitempty,max=32"`
 }
 
+// AddProjectDocumentsRequest 添加项目资料请求。
+type AddProjectDocumentsRequest struct {
+	FileIDs []string `json:"fileIDs" binding:"required,max=100"`
+}
+
+// MarkProjectDocumentIndexRequest 标记项目资料索引状态请求。
+type MarkProjectDocumentIndexRequest struct {
+	IndexStatus string `json:"indexStatus" binding:"required,oneof=pending indexing ready failed stale"`
+}
+
 // RenameConversationRequest 重命名会话请求。
 type RenameConversationRequest struct {
 	Title string `json:"title" binding:"required,max=255"`
@@ -57,9 +69,24 @@ type SetConversationArchiveRequest struct {
 	Archived bool `json:"archived"`
 }
 
+// UpsertConversationDraftRequest 保存输入框草稿请求。
+type UpsertConversationDraftRequest struct {
+	Draft       string          `json:"draft" binding:"max=20000"`
+	Attachments json.RawMessage `json:"attachments"`
+}
+
 // CreateConversationShareRequest 创建会话公开分享请求。
 type CreateConversationShareRequest struct {
 	DefaultMessagePublicIDs []string `json:"defaultMessagePublicIDs" binding:"max=1000"`
+	Scope                   string   `json:"scope" binding:"omitempty,oneof=current full"`
+	ExpiresInDays           int      `json:"expiresInDays" binding:"omitempty,oneof=0 7 30"`
+	Password                string   `json:"password" binding:"omitempty,max=80"`
+	IncludeThinking         bool     `json:"includeThinking"`
+}
+
+// SharedConversationAccessRequest 公开分享访问请求。
+type SharedConversationAccessRequest struct {
+	Password string `json:"password" binding:"omitempty,max=80"`
 }
 
 // RevokeConversationSharesRequest 批量关闭会话公开分享请求。
@@ -87,8 +114,14 @@ type SendMessageRequest struct {
 	ClientRunID             string                 `json:"clientRunID" binding:"omitempty,max=64"`
 	FileIDs                 []string               `json:"fileIDs" binding:"max=20"`
 	SelectedToolIDs         []uint                 `json:"selectedToolIDs" binding:"max=128"`
+	ConfirmedToolIDs        []uint                 `json:"confirmedToolIDs" binding:"max=128"`
+	WebSearchEnabled        bool                   `json:"webSearchEnabled"`
+	CodeSandboxEnabled      bool                   `json:"codeSandboxEnabled"`
+	ResearchMaxLLMCalls     int                    `json:"researchMaxLLMCalls" binding:"omitempty,min=0,max=32"`
+	ResearchMaxToolCalls    int                    `json:"researchMaxToolCalls" binding:"omitempty,min=0,max=64"`
 	HTMLVisualPromptEnabled bool                   `json:"htmlVisualPrompt"`
 	HTMLVisualColorMode     string                 `json:"htmlVisualColorMode" binding:"omitempty,oneof=light dark"`
+	AssistantID             string                 `json:"assistantID" binding:"omitempty,max=32"`
 	ParentMessagePublicID   string                 `json:"parentMessagePublicID" binding:"omitempty,max=32"`
 	SourceMessagePublicID   string                 `json:"sourceMessagePublicID" binding:"omitempty,max=32"`
 	BranchReason            string                 `json:"branchReason" binding:"omitempty,oneof=default retry edit"`
@@ -110,6 +143,13 @@ type MediaImageRequest struct {
 // SetMessageFeedbackRequest 设置消息反馈请求。
 type SetMessageFeedbackRequest struct {
 	Feedback string `json:"feedback" binding:"omitempty,oneof=up down"`
+}
+
+// SetMessageBookmarkRequest 设置消息收藏请求。
+type SetMessageBookmarkRequest struct {
+	Bookmarked bool     `json:"bookmarked"`
+	Note       string   `json:"note" binding:"omitempty,max=512"`
+	Tags       []string `json:"tags" binding:"max=12,dive,max=40"`
 }
 
 // UpdateMessageRequest 更新消息内容请求。

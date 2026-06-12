@@ -19,12 +19,13 @@ type billingModelPricingFilter interface {
 
 // Service 封装上游、平台模型与路由绑定业务能力。
 type Service struct {
-	cfg                *config.Runtime
-	repo               repository.ChannelRepository
-	cache              repository.ChannelCacheRepository
-	llmClient          *llm.Client
-	modelPricingFilter billingModelPricingFilter
-	logger             *zap.Logger
+	cfg                      *config.Runtime
+	repo                     repository.ChannelRepository
+	cache                    repository.ChannelCacheRepository
+	llmClient                *llm.Client
+	modelPricingFilter       billingModelPricingFilter
+	modelAnnouncementService modelAnnouncementService
+	logger                   *zap.Logger
 
 	modelCatalogMu         sync.RWMutex
 	modelCatalog           []ModelView

@@ -21,10 +21,12 @@ import (
 	authhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/auth"
 	billinghttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/billing"
 	channelhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/channel"
+	collaborationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/collaboration"
 	conversationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/conversation"
 	mcphttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/mcp"
 	memoryhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/memory"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
+	notificationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/notification"
 	securityhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/security"
 	settingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/settings"
 	usersettingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/usersettings"
@@ -50,21 +52,23 @@ type HealthChecker interface {
 
 // Modules 聚合可注册的业务模块。
 type Modules struct {
-	Auth         *authhttp.Module
-	AuthService  middleware.SessionValidator
-	Channel      *channelhttp.Module
-	Conversation *conversationhttp.Module
-	MCP          *mcphttp.Module
-	Memory       *memoryhttp.Module
-	Security     *securityhttp.Module
-	BrowserProof middleware.BrowserProofVerifier
-	Fingerprint  middleware.FingerprintRecorder
-	Billing      *billinghttp.Module
-	Admin        *adminhttp.Module
-	Announcement *announcementhttp.Module
-	Settings     *settingshttp.Module
-	UserSettings *usersettingshttp.Module
-	StartupLog   func(*zap.Logger)
+	Auth          *authhttp.Module
+	AuthService   middleware.SessionValidator
+	Channel       *channelhttp.Module
+	Conversation  *conversationhttp.Module
+	MCP           *mcphttp.Module
+	Memory        *memoryhttp.Module
+	Security      *securityhttp.Module
+	BrowserProof  middleware.BrowserProofVerifier
+	Fingerprint   middleware.FingerprintRecorder
+	Billing       *billinghttp.Module
+	Admin         *adminhttp.Module
+	Announcement  *announcementhttp.Module
+	Notification  *notificationhttp.Module
+	Collaboration *collaborationhttp.Module
+	Settings      *settingshttp.Module
+	UserSettings  *usersettingshttp.Module
+	StartupLog    func(*zap.Logger)
 }
 
 type frontendShareMetadataProvider interface {
@@ -116,7 +120,7 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		c.Header("Pragma", "no-cache")
 		c.JSON(http.StatusOK, buildinfo.Snapshot())
 	})
-	if modules.Auth != nil || modules.Settings != nil || modules.Billing != nil || modules.Conversation != nil {
+	if modules.Auth != nil || modules.Settings != nil || modules.Billing != nil || modules.Conversation != nil || modules.Channel != nil {
 		publicAuth := api.Group("")
 		publicAuth.Use(middleware.PublicAuthRateLimit(limiter, cfg))
 		if modules.Auth != nil {
@@ -130,6 +134,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		}
 		if modules.Billing != nil {
 			modules.Billing.RegisterPublicRoutes(publicAuth)
+		}
+		if modules.Channel != nil {
+			modules.Channel.RegisterPublicRoutes(publicAuth)
 		}
 	}
 
@@ -167,13 +174,20 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.Announcement != nil {
 		modules.Announcement.RegisterRoutes(authRequired)
 	}
+	if modules.Notification != nil {
+		modules.Notification.RegisterRoutes(authRequired)
+	}
+	if modules.Collaboration != nil {
+		modules.Collaboration.RegisterRoutes(authRequired)
+	}
 	if modules.UserSettings != nil {
 		modules.UserSettings.RegisterRoutes(authRequired)
 	}
 	if modules.Settings != nil {
 		modules.Settings.RegisterRoutes(authRequired)
 	}
-	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.MCP != nil || modules.Settings != nil || modules.Security != nil || modules.Announcement != nil {
+	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.Conversation != nil || modules.MCP != nil || modules.Settings != nil || modules.Security != nil || modules.Announcement != nil || modules.Notification != nil || modules.Collaboration != nil {
+
 		adminGroup := authRequired.Group("/admin")
 		adminGroup.Use(middleware.AdminOnly())
 		if modules.Auth != nil {
@@ -187,6 +201,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		}
 		if modules.Channel != nil {
 			modules.Channel.RegisterAdminRoutes(adminGroup)
+		}
+		if modules.Conversation != nil {
+			modules.Conversation.RegisterAdminRoutes(adminGroup)
 		}
 		if modules.MCP != nil {
 			modules.MCP.RegisterAdminRoutes(adminGroup)

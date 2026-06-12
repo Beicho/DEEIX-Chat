@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ClipboardCopy, Download, FileText, Share2 } from "lucide-react";
+import { ClipboardCopy, Download, FileText, ImageDown, Share2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,10 +20,12 @@ type ConversationShareExportActionsProps = {
   shareLabel: string;
   exportLabel: string;
   exportMarkdownLabel?: string;
+  exportImageLabel?: string;
   copyMarkdownLabel?: string;
   onShare?: () => void;
   onExport?: () => void | Promise<void>;
   onExportMarkdown?: () => void | Promise<void>;
+  onExportImage?: () => void | Promise<void>;
   onCopyMarkdown?: () => void | Promise<void>;
 };
 
@@ -35,10 +37,12 @@ export function ConversationShareExportMenuItems({
   shareLabel,
   exportLabel,
   exportMarkdownLabel,
+  exportImageLabel,
   copyMarkdownLabel,
   onShare,
   onExport,
   onExportMarkdown,
+  onExportImage,
   onCopyMarkdown,
   onCloseMenu,
 }: ConversationShareExportMenuItemsProps) {
@@ -88,6 +92,22 @@ export function ConversationShareExportMenuItems({
           {exportMarkdownLabel}
         </DropdownMenuItem>
       ) : null}
+      {exportImageLabel ? (
+        <DropdownMenuItem
+          disabled={!onExportImage}
+          onSelect={(event) => {
+            event.preventDefault();
+            if (!onExportImage) {
+              return;
+            }
+            onCloseMenu?.();
+            void onExportImage();
+          }}
+        >
+          <DropdownMenuItemIcon icon={ImageDown} />
+          {exportImageLabel}
+        </DropdownMenuItem>
+      ) : null}
       {copyMarkdownLabel ? (
         <DropdownMenuItem
           disabled={!onCopyMarkdown}
@@ -119,12 +139,14 @@ export function ConversationShareExportIconDropdown({
   shareLabel,
   exportLabel,
   exportMarkdownLabel,
+  exportImageLabel,
   copyMarkdownLabel,
   active = false,
   className,
   onShare,
   onExport,
   onExportMarkdown,
+  onExportImage,
   onCopyMarkdown,
 }: ConversationShareExportIconDropdownProps) {
   const [open, setOpen] = React.useState(false);
@@ -137,11 +159,11 @@ export function ConversationShareExportIconDropdown({
           variant="ghost"
           size="icon"
           className={cn(
-            "size-11 shrink-0 rounded-lg text-muted-foreground shadow-none hover:bg-muted hover:text-foreground md:size-8",
+            "relative size-8 shrink-0 rounded-lg text-muted-foreground shadow-none hover:bg-muted hover:text-foreground after:absolute after:-inset-1.5 after:content-[''] md:after:hidden",
             active && "text-foreground",
             className,
           )}
-          disabled={!onShare && !onExport && !onExportMarkdown && !onCopyMarkdown}
+          disabled={!onShare && !onExport && !onExportMarkdown && !onExportImage && !onCopyMarkdown}
           aria-label={label}
           title={label}
         >
@@ -153,10 +175,12 @@ export function ConversationShareExportIconDropdown({
           shareLabel={shareLabel}
           exportLabel={exportLabel}
           exportMarkdownLabel={exportMarkdownLabel}
+          exportImageLabel={exportImageLabel}
           copyMarkdownLabel={copyMarkdownLabel}
           onShare={onShare}
           onExport={onExport}
           onExportMarkdown={onExportMarkdown}
+          onExportImage={onExportImage}
           onCopyMarkdown={onCopyMarkdown}
           onCloseMenu={() => setOpen(false)}
         />
@@ -170,16 +194,18 @@ export function ConversationShareExportSubmenu({
   shareLabel,
   exportLabel,
   exportMarkdownLabel,
+  exportImageLabel,
   copyMarkdownLabel,
   onShare,
   onExport,
   onExportMarkdown,
+  onExportImage,
   onCopyMarkdown,
   onCloseMenu,
 }: { label: string } & ConversationShareExportMenuItemsProps) {
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger disabled={!onShare && !onExport && !onExportMarkdown && !onCopyMarkdown}>
+      <DropdownMenuSubTrigger disabled={!onShare && !onExport && !onExportMarkdown && !onExportImage && !onCopyMarkdown}>
         <DropdownMenuItemIcon icon={Share2} />
         {label}
       </DropdownMenuSubTrigger>
@@ -188,10 +214,12 @@ export function ConversationShareExportSubmenu({
           shareLabel={shareLabel}
           exportLabel={exportLabel}
           exportMarkdownLabel={exportMarkdownLabel}
+          exportImageLabel={exportImageLabel}
           copyMarkdownLabel={copyMarkdownLabel}
           onShare={onShare}
           onExport={onExport}
           onExportMarkdown={onExportMarkdown}
+          onExportImage={onExportImage}
           onCopyMarkdown={onCopyMarkdown}
           onCloseMenu={onCloseMenu}
         />

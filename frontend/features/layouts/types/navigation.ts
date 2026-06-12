@@ -11,7 +11,7 @@ export type NavigationIconProps = {
 }
 
 export type NavigationItem = {
-  id: "newChat" | "search" | "recent" | "files"
+  id: "newChat" | "search" | "recent" | "files" | "announcements" | "bookmarks"
   title: string
   url: string
   icon: React.ComponentType<NavigationIconProps>
@@ -22,10 +22,14 @@ export type NavigationItem = {
 }
 
 export type ConversationSearchResult = {
+  resultID: string
   publicID: string
   title: string
   searchText: string
   href: string
+  snippet?: string
+  messagePublicID?: string
+  matchedTitle?: boolean
   updatedAt: string
 }
 

@@ -65,6 +65,7 @@ type AuthRepository interface {
 	TouchSessionActivity(ctx context.Context, userID uint, sessionID string, input UpdateSessionActivityInput) error
 	RevokeSession(ctx context.Context, userID uint, sessionID string, reason string) error
 	RevokeAllSessions(ctx context.Context, userID uint, reason string) error
+	RevokeOtherSessions(ctx context.Context, userID uint, currentSessionID string, reason string) error
 	ListActiveSessionsByUserID(ctx context.Context, userID uint, now time.Time) ([]domainuser.Session, error)
 	HasActiveSuperAdminIdentity(ctx context.Context) (bool, error)
 	ListIdentityProviders(ctx context.Context, includeDisabled bool) ([]domainuser.IdentityProvider, error)
@@ -86,4 +87,8 @@ type AuthRepository interface {
 	GetPendingContactVerificationForUser(ctx context.Context, userID uint, channel string, purpose string, target string, now time.Time) (*domainuser.ContactVerification, error)
 	IncrementContactVerificationAttempt(ctx context.Context, verificationID uint) error
 	MarkContactVerificationVerified(ctx context.Context, verificationID uint, now time.Time) error
+	ListInvitationCodes(ctx context.Context, now time.Time) ([]domainuser.InvitationCode, error)
+	CreateInvitationCode(ctx context.Context, item *domainuser.InvitationCode) (*domainuser.InvitationCode, error)
+	UpdateInvitationCodeEnabled(ctx context.Context, publicID string, enabled bool, actorUserID uint, now time.Time) (*domainuser.InvitationCode, error)
+	ConsumeInvitationCode(ctx context.Context, codeHash string, now time.Time) (*domainuser.InvitationCode, error)
 }

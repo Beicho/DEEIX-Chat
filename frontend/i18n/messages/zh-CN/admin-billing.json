@@ -6,7 +6,9 @@
   "actions": {
     "importPricing": "导入模型定价",
     "exportPricing": "导出模型定价",
+    "exportBillingCSV": "导出调用日志 CSV",
     "editPlan": "编辑周期套餐",
+    "deletePlan": "删除周期套餐",
     "editPricing": "编辑模型基础价格",
     "editRedemptionCode": "编辑兑换码"
   },
@@ -51,6 +53,14 @@
   },
   "plans": {
     "title": "订阅方案",
+    "createPlan": "创建套餐",
+    "createTitle": "创建周期套餐",
+    "createDescription": "创建后会立即出现在用户可选套餐中，请确认价格和额度。",
+    "code": "套餐代码",
+    "codePlaceholder": "小写字母、数字或短横线",
+    "deleteTitle": "删除周期套餐",
+    "deleteDescription": "将停用「{name}」及其价格，已有历史记录保留。",
+    "deleting": "删除中",
     "dialogTitle": "周期套餐",
     "dialogDescription": "配置周期套餐价格、用量额度与折扣。",
     "name": "名称",
@@ -70,6 +80,52 @@
       "lifetime": "永久",
       "month": "月",
       "year": "年"
+    }
+  },
+  "orders": {
+    "title": "支付订单",
+    "searchPlaceholder": "搜索订单号",
+    "status": "状态",
+    "allStatuses": "全部状态",
+    "empty": "暂无支付订单",
+    "complete": "完成",
+    "expire": "过期",
+    "fail": "失败",
+    "statuses": {
+      "pending": "待支付",
+      "paid": "已支付",
+      "failed": "失败",
+      "expired": "已过期"
+    },
+    "columns": {
+      "order": "订单",
+      "user": "用户",
+      "amount": "金额",
+      "status": "状态"
+    }
+  },
+  "balance": {
+    "title": "余额流水",
+    "userID": "用户 ID",
+    "deltaUSD": "调整金额",
+    "description": "说明",
+    "applyDelta": "应用调整",
+    "empty": "暂无余额流水",
+    "columns": {
+      "time": "时间",
+      "user": "用户",
+      "amount": "金额"
+    }
+  },
+  "risk": {
+    "title": "风控概览",
+    "loading": "加载中",
+    "refresh": "刷新",
+    "metrics": {
+      "multiAccountClusterCount": "多账号线索",
+      "highRiskClusterCount": "高风险线索",
+      "ignoredClusterCount": "已忽略线索",
+      "uniqueIPCount": "独立 IP"
     }
   },
   "redemption": {
@@ -261,6 +317,22 @@
     "freeSaveFailed": "免费状态保存失败",
     "planSaved": "周期套餐已保存",
     "planSaveFailed": "保存周期套餐失败",
+    "planCreateInvalid": "请填写套餐代码和名称。",
+    "planCreated": "周期套餐已创建",
+    "planCreateFailed": "创建周期套餐失败",
+    "planDeleted": "周期套餐已删除",
+    "planDeleteFailed": "删除周期套餐失败",
+    "paymentOrdersLoadFailed": "支付订单加载失败",
+    "paymentOrderUpdated": "支付订单已更新",
+    "paymentOrderUpdateFailed": "更新支付订单失败",
+    "balanceTransactionsLoadFailed": "余额流水加载失败",
+    "balanceDeltaInvalid": "请输入有效用户 ID 和非零调整金额。",
+    "balanceDeltaSaved": "余额调整已保存",
+    "balanceDeltaFailed": "保存余额调整失败",
+    "riskLoadFailed": "风控概览加载失败",
+    "billingCSVExported": "调用日志 CSV 已导出",
+    "billingCSVExportFailed": "导出调用日志 CSV 失败",
+    "redemptionLoadFailed": "兑换码加载失败",
     "redemptionInvalid": "兑换码配置无效",
     "redemptionInvalidCodeFormat": "兑换码只能包含 3-64 位字母、数字、横线或下划线。",
     "redemptionInvalidQuantity": "数量必须是大于 0 的整数。",

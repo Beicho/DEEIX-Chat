@@ -25,12 +25,12 @@ func NewService(repo repository.AnnouncementRepository) *Service {
 	return &Service{repo: repo}
 }
 
-// ListActive 查询当前用户可展示公告。
-func (s *Service) ListActive(ctx context.Context, userID uint, now time.Time) ([]domainannouncement.Announcement, error) {
+// ListActive 查询当前用户可展示公告；includeDismissed 用于公告中心展示今日已暂不显示的公告。
+func (s *Service) ListActive(ctx context.Context, userID uint, now time.Time, includeDismissed bool) ([]domainannouncement.Announcement, error) {
 	if userID == 0 {
 		return nil, repository.ErrInvalidInput
 	}
-	return s.repo.ListActiveAnnouncements(ctx, userID, now)
+	return s.repo.ListActiveAnnouncements(ctx, userID, now, includeDismissed)
 }
 
 // ListAdmin 查询管理员公告列表。
@@ -55,6 +55,29 @@ func (s *Service) Create(ctx context.Context, actorUserID uint, input WriteInput
 	}
 	item.CreatedByUserID = actorUserID
 	return s.repo.CreateAnnouncement(ctx, item)
+}
+
+// CreateNewModelDraft 为新发现的平台模型创建公告草稿；已存在同标题公告时跳过。
+func (s *Service) CreateNewModelDraft(ctx context.Context, modelName string) error {
+	modelName = strings.TrimSpace(modelName)
+	if modelName == "" {
+		return repository.ErrInvalidInput
+	}
+	title := "新模型上线：" + modelName
+	if _, err := s.repo.GetAnnouncementByTitle(ctx, title); err == nil {
+		return nil
+	} else if !errors.Is(err, repository.ErrNotFound) {
+		return err
+	}
+	_, err := s.repo.CreateAnnouncement(ctx, &domainannouncement.Announcement{
+		Title:           title,
+		ContentMarkdown: modelName + " 已加入模型列表。发布后，用户可在公告中看到这条说明。",
+		Status:          domainannouncement.StatusDraft,
+		Type:            domainannouncement.TypeInfo,
+		Pinned:          false,
+		Priority:        0,
+	})
+	return err
 }
 
 // Update 更新公告。
@@ -225,6 +248,8 @@ func normalizeStatus(status string) string {
 		return domainannouncement.StatusActive
 	case domainannouncement.StatusInactive:
 		return domainannouncement.StatusInactive
+	case domainannouncement.StatusDraft:
+		return domainannouncement.StatusDraft
 	default:
 		return ""
 	}

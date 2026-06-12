@@ -7,6 +7,7 @@ type Conversation struct {
 	BaseModel
 	UserID                uint       `gorm:"not null;index:idx_chat_conversations_user_id;comment:用户ID"`
 	ProjectID             *uint      `gorm:"index:idx_chat_conversations_project_id;comment:项目分组ID"`
+	AssistantID           *uint      `gorm:"index:idx_chat_conversations_assistant_id;comment:助手预设ID"`
 	PublicID              string     `gorm:"size:32;not null;default:'';index:idx_chat_conversations_public_id;comment:公开会话ID"`
 	Title                 string     `gorm:"size:255;not null;default:'';comment:会话标题"`
 	LabelsJSON            string     `gorm:"type:text;not null;default:'[]';comment:会话标签JSON"`
@@ -47,6 +48,113 @@ func (ConversationProject) TableName() string {
 	return "chat_conversation_projects"
 }
 
+// Assistant 存储用户助手预设。
+type Assistant struct {
+	BaseModel
+	PublicID       string     `gorm:"size:32;not null;default:'';uniqueIndex:idx_assistants_public_id;comment:公开助手ID"`
+	OwnerUserID    uint       `gorm:"not null;index:idx_assistants_owner_user_id;comment:创建用户ID"`
+	Name           string     `gorm:"size:80;not null;default:'';comment:助手名称"`
+	AvatarURL      string     `gorm:"size:2048;not null;default:'';comment:头像地址"`
+	Description    string     `gorm:"size:255;not null;default:'';comment:描述"`
+	SystemPrompt   string     `gorm:"type:text;not null;default:'';comment:助手系统提示词"`
+	DefaultModel   string     `gorm:"size:128;not null;default:'';comment:默认模型"`
+	OpeningMessage string     `gorm:"type:text;not null;default:'';comment:开场白"`
+	Visibility     string     `gorm:"size:32;not null;default:'private';index:idx_assistants_visibility;comment:可见范围(private/public)"`
+	Status         string     `gorm:"size:32;not null;default:'active';index:idx_assistants_status;comment:状态(active/deleted)"`
+	PublishedAt    *time.Time `gorm:"index:idx_assistants_published_at;comment:发布时间"`
+}
+
+// TableName 指定表名。
+func (Assistant) TableName() string {
+	return "assistants"
+}
+
+// AssistantInstall 存储助手安装关系。
+type AssistantInstall struct {
+	BaseModel
+	UserID      uint `gorm:"not null;uniqueIndex:idx_assistant_installs_user_assistant,priority:1;index:idx_assistant_installs_user_id;comment:用户ID"`
+	AssistantID uint `gorm:"not null;uniqueIndex:idx_assistant_installs_user_assistant,priority:2;index:idx_assistant_installs_assistant_id;comment:助手ID"`
+}
+
+// TableName 指定表名。
+func (AssistantInstall) TableName() string {
+	return "assistant_installs"
+}
+
+// ScheduledPrompt 存储定时提示。
+type ScheduledPrompt struct {
+	BaseModel
+	PublicID             string     `gorm:"size:32;not null;default:'';uniqueIndex:idx_scheduled_prompts_public_id;comment:公开定时提示ID"`
+	UserID               uint       `gorm:"not null;index:idx_scheduled_prompts_user_id;comment:用户ID"`
+	AssistantID          *uint      `gorm:"index:idx_scheduled_prompts_assistant_id;comment:助手ID"`
+	TargetConversationID *uint      `gorm:"index:idx_scheduled_prompts_target_conversation_id;comment:目标会话ID"`
+	Title                string     `gorm:"size:120;not null;default:'';comment:标题"`
+	Content              string     `gorm:"type:text;not null;default:'';comment:提示内容"`
+	DueAt                time.Time  `gorm:"not null;index:idx_scheduled_prompts_due_at;comment:兼容到期时间"`
+	NextRunAt            time.Time  `gorm:"index:idx_scheduled_prompts_next_run_at;comment:下次运行时间"`
+	ScheduleType         string     `gorm:"size:32;not null;default:'once';comment:计划类型(once/daily/weekly/cron)"`
+	ScheduleTime         string     `gorm:"size:8;not null;default:'';comment:每天/每周运行时间HH:mm"`
+	ScheduleWeekday      int        `gorm:"not null;default:0;comment:每周运行日"`
+	CronExpression       string     `gorm:"size:128;not null;default:'';comment:cron表达式"`
+	Model                string     `gorm:"size:128;not null;default:'';comment:运行模型"`
+	Enabled              bool       `gorm:"not null;default:true;index:idx_scheduled_prompts_enabled;comment:是否启用"`
+	Status               string     `gorm:"size:32;not null;default:'scheduled';index:idx_scheduled_prompts_status;comment:状态(scheduled/paused/deleted)"`
+	LastTriggeredAt      *time.Time `gorm:"index:idx_scheduled_prompts_last_triggered_at;comment:最近触发时间"`
+	RetryCount           int        `gorm:"not null;default:0;comment:当前运行重试次数"`
+	LastError            string     `gorm:"type:text;not null;default:'';comment:最近错误"`
+	ConversationID       *uint      `gorm:"index:idx_scheduled_prompts_conversation_id;comment:最近写入会话ID"`
+}
+
+// TableName 指定表名。
+func (ScheduledPrompt) TableName() string {
+	return "scheduled_prompts"
+}
+
+// TeamSpace 存储团队空间。
+type TeamSpace struct {
+	BaseModel
+	PublicID    string `gorm:"size:32;not null;default:'';uniqueIndex:idx_team_spaces_public_id;comment:公开团队ID"`
+	OwnerUserID uint   `gorm:"not null;index:idx_team_spaces_owner_user_id;comment:拥有者用户ID"`
+	Name        string `gorm:"size:80;not null;default:'';comment:团队名称"`
+	Description string `gorm:"size:255;not null;default:'';comment:描述"`
+	Status      string `gorm:"size:32;not null;default:'active';index:idx_team_spaces_status;comment:状态(active/deleted)"`
+}
+
+// TableName 指定表名。
+func (TeamSpace) TableName() string {
+	return "team_spaces"
+}
+
+// TeamMember 存储团队成员关系。
+type TeamMember struct {
+	BaseModel
+	TeamID    uint   `gorm:"not null;uniqueIndex:idx_team_members_team_user,priority:1;index:idx_team_members_team_id;comment:团队ID"`
+	UserID    uint   `gorm:"not null;uniqueIndex:idx_team_members_team_user,priority:2;index:idx_team_members_user_id;comment:用户ID"`
+	Role      string `gorm:"size:32;not null;default:'member';index:idx_team_members_role;comment:角色(owner/admin/member)"`
+	InvitedBy uint   `gorm:"not null;default:0;comment:邀请人用户ID"`
+}
+
+// TableName 指定表名。
+func (TeamMember) TableName() string {
+	return "team_members"
+}
+
+// ProjectDocument 存储项目级资料库文件引用。
+type ProjectDocument struct {
+	BaseModel
+	UserID      uint   `gorm:"not null;index:idx_project_documents_user_id;uniqueIndex:idx_project_documents_project_file,priority:3;comment:用户ID"`
+	ProjectID   uint   `gorm:"not null;index:idx_project_documents_project_id;uniqueIndex:idx_project_documents_project_file,priority:1;comment:项目ID"`
+	FileObjID   uint   `gorm:"not null;index:idx_project_documents_file_obj_id;comment:文件对象主键ID"`
+	FileID      string `gorm:"size:64;not null;default:'';uniqueIndex:idx_project_documents_project_file,priority:2;comment:文件对象ID"`
+	IndexStatus string `gorm:"size:32;not null;default:'pending';index:idx_project_documents_index_status;comment:索引状态(pending/ready/failed/stale)"`
+	Status      string `gorm:"size:32;not null;default:'active';index:idx_project_documents_status;comment:状态(active/deleted)"`
+}
+
+// TableName 指定表名。
+func (ProjectDocument) TableName() string {
+	return "project_documents"
+}
+
 // ConversationShare 存储会话公开分享快照。
 type ConversationShare struct {
 	BaseModel
@@ -58,6 +166,10 @@ type ConversationShare struct {
 	ModelSnapshot         string     `gorm:"size:128;not null;default:'';comment:分享时平台模型快照"`
 	MessageIDsJSON        string     `gorm:"type:text;not null;default:'[]';comment:分享时全部分支消息public_id列表JSON"`
 	DefaultMessageIDsJSON string     `gorm:"column:default_message_ids_json;type:text;not null;default:'[]';comment:公开页默认分支消息public_id列表JSON"`
+	ShareScope            string     `gorm:"size:32;not null;default:'current';comment:分享范围(current/full)"`
+	PasswordHash          string     `gorm:"size:255;not null;default:'';comment:访问密码哈希"`
+	IncludeThinking       bool       `gorm:"not null;default:false;comment:是否包含思考轨迹"`
+	ExpiresAt             *time.Time `gorm:"index:idx_chat_conversation_shares_expires_at;comment:分享过期时间"`
 	RevokedAt             *time.Time `gorm:"index:idx_chat_conversation_shares_revoked_at;comment:撤销时间"`
 	RegeneratedAt         *time.Time `gorm:"comment:重新生成时间"`
 	LastAccessedAt        *time.Time `gorm:"index:idx_chat_conversation_shares_last_accessed_at;comment:最近公开访问时间"`
@@ -102,6 +214,7 @@ type Message struct {
 	MyFeedback       string     `gorm:"-"`
 	ThumbsUpCount    int64      `gorm:"-"`
 	ThumbsDownCount  int64      `gorm:"-"`
+	Bookmarked       bool       `gorm:"-"`
 }
 
 // TableName 指定表名。
@@ -121,6 +234,35 @@ type ConversationMessageFeedback struct {
 // TableName 指定表名。
 func (ConversationMessageFeedback) TableName() string {
 	return "chat_feedback"
+}
+
+// MessageBookmark 存储用户收藏的消息。
+type MessageBookmark struct {
+	BaseModel
+	UserID         uint   `gorm:"not null;default:0;uniqueIndex:idx_message_bookmarks_user_message,priority:1;index:idx_message_bookmarks_user_id;comment:收藏用户ID"`
+	ConversationID uint   `gorm:"not null;default:0;index:idx_message_bookmarks_conversation_id;comment:会话ID"`
+	MessageID      uint   `gorm:"not null;default:0;uniqueIndex:idx_message_bookmarks_user_message,priority:2;index:idx_message_bookmarks_message_id;comment:消息ID"`
+	Note           string `gorm:"size:512;not null;default:'';comment:收藏备注"`
+	TagsJSON       string `gorm:"type:text;not null;default:'[]';comment:收藏标签JSON"`
+}
+
+// TableName 指定表名。
+func (MessageBookmark) TableName() string {
+	return "message_bookmarks"
+}
+
+// ConversationDraft 存储跨设备同步的会话输入草稿。
+type ConversationDraft struct {
+	BaseModel
+	UserID               uint   `gorm:"not null;default:0;uniqueIndex:idx_chat_conversation_drafts_user_conversation,priority:1;index:idx_chat_conversation_drafts_user_id;comment:用户ID"`
+	ConversationPublicID string `gorm:"size:64;not null;default:'';uniqueIndex:idx_chat_conversation_drafts_user_conversation,priority:2;index:idx_chat_conversation_drafts_conversation_public_id;comment:会话公开ID或新会话占位键"`
+	Draft                string `gorm:"type:text;not null;default:'';comment:输入框草稿"`
+	AttachmentsJSON      string `gorm:"type:text;not null;default:'[]';comment:草稿附件快照JSON"`
+}
+
+// TableName 指定表名。
+func (ConversationDraft) TableName() string {
+	return "chat_conversation_drafts"
 }
 
 // Attachment 存储多模态附件元信息。
@@ -265,6 +407,32 @@ type ConversationRun struct {
 // TableName 指定表名。
 func (ConversationRun) TableName() string {
 	return "chat_runs"
+}
+
+// ModerationEvent 存储内容检查事件。
+type ModerationEvent struct {
+	BaseModel
+	UserID         uint       `gorm:"not null;default:0;index:idx_moderation_events_user_id;comment:用户ID"`
+	ConversationID uint       `gorm:"not null;default:0;index:idx_moderation_events_conversation_id;comment:会话ID"`
+	MessageID      uint       `gorm:"not null;default:0;index:idx_moderation_events_message_id;comment:消息ID"`
+	RunID          string     `gorm:"size:64;not null;default:'';index:idx_moderation_events_run_id;comment:运行ID"`
+	Direction      string     `gorm:"size:16;not null;default:'';index:idx_moderation_events_direction;comment:检查方向(input/output)"`
+	Action         string     `gorm:"size:32;not null;default:'block';index:idx_moderation_events_action;comment:处理动作"`
+	Model          string     `gorm:"size:128;not null;default:'';comment:检查模型"`
+	Score          float64    `gorm:"not null;default:0;comment:最高分"`
+	Threshold      float64    `gorm:"not null;default:0;comment:命中阈值"`
+	Flagged        bool       `gorm:"not null;default:false;index:idx_moderation_events_flagged;comment:是否命中"`
+	CategoriesJSON string     `gorm:"type:text;not null;default:'{}';comment:分类结果JSON"`
+	Reason         string     `gorm:"size:255;not null;default:'';comment:原因"`
+	ReviewStatus   string     `gorm:"size:32;not null;default:'pending';index:idx_moderation_events_review_status;comment:复核状态"`
+	ReviewedBy     uint       `gorm:"not null;default:0;index:idx_moderation_events_reviewed_by;comment:复核人"`
+	ReviewedAt     *time.Time `gorm:"comment:复核时间"`
+	ReviewNote     string     `gorm:"size:255;not null;default:'';comment:复核备注"`
+	Disposition    string     `gorm:"size:32;not null;default:'';index:idx_moderation_events_disposition;comment:自动处置"`
+}
+
+func (ModerationEvent) TableName() string {
+	return "moderation_events"
 }
 
 // ChatRunEvent 存储运行轨迹、事件流和工具调用明细。

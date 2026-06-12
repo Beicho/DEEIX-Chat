@@ -1,0 +1,20 @@
+{
+  "title": "服务状态",
+  "description": "最近 {hours} 小时的模型可用性。",
+  "updatedAt": "更新于 {time}",
+  "emptyTitle": "暂无近期调用",
+  "emptyDescription": "模型有调用后会显示状态。",
+  "loadFailed": "状态加载失败。",
+  "table": {
+    "model": "模型",
+    "status": "状态",
+    "successRate": "成功率",
+    "calls": "调用数"
+  },
+  "status": {
+    "normal": "可用",
+    "degraded": "变慢",
+    "down": "不可用",
+    "unknown": "未知"
+  }
+}

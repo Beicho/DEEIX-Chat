@@ -100,6 +100,8 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.EmailRegistrationEnabled = toBool(item.Value, cfg.EmailRegistrationEnabled)
 	case "auth:email_verification_enabled":
 		cfg.EmailVerificationEnabled = toBool(item.Value, cfg.EmailVerificationEnabled)
+	case "auth:invite_registration_required":
+		cfg.InviteRegistrationRequired = toBool(item.Value, cfg.InviteRegistrationRequired)
 	case "auth:smtp_host":
 		cfg.SMTPHost = strings.TrimSpace(item.Value)
 	case "auth:smtp_port":
@@ -329,6 +331,38 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.ProcessTracePersistInflight = toBool(item.Value, cfg.ProcessTracePersistInflight)
 	case "chat:context_artifact_retention_days":
 		cfg.ContextArtifactRetentionDays = toInt(item.Value, cfg.ContextArtifactRetentionDays)
+	case "moderation:enabled":
+		cfg.ModerationEnabled = toBool(item.Value, cfg.ModerationEnabled)
+	case "moderation:mode":
+		cfg.ModerationMode = strings.TrimSpace(item.Value)
+	case "moderation:fail_strategy":
+		cfg.ModerationFailStrategy = strings.TrimSpace(item.Value)
+	case "moderation:base_url":
+		cfg.ModerationBaseURL = strings.TrimSpace(item.Value)
+	case "moderation:api_key":
+		cfg.ModerationAPIKey = strings.TrimSpace(item.Value)
+	case "moderation:model":
+		cfg.ModerationModel = strings.TrimSpace(item.Value)
+	case "moderation:threshold":
+		cfg.ModerationThreshold = toFloat(item.Value, cfg.ModerationThreshold)
+	case "moderation:action":
+		cfg.ModerationAction = strings.TrimSpace(item.Value)
+	case "moderation:timeout_seconds":
+		cfg.ModerationTimeoutSeconds = toInt(item.Value, cfg.ModerationTimeoutSeconds)
+	case "moderation:classifier_template":
+		cfg.ModerationClassifierTemplate = item.Value
+	case "moderation:auto_window_hours":
+		cfg.ModerationAutoWindowHours = toInt(item.Value, cfg.ModerationAutoWindowHours)
+	case "moderation:auto_limit_threshold":
+		cfg.ModerationAutoLimitThreshold = toInt(item.Value, cfg.ModerationAutoLimitThreshold)
+	case "moderation:auto_suspend_threshold":
+		cfg.ModerationAutoSuspendThreshold = toInt(item.Value, cfg.ModerationAutoSuspendThreshold)
+	case "status:notifier_enabled":
+		cfg.StatusNotifierEnabled = toBool(item.Value, cfg.StatusNotifierEnabled)
+	case "status:notifier_webhook_url":
+		cfg.StatusNotifierWebhookURL = strings.TrimSpace(item.Value)
+	case "status:notifier_email":
+		cfg.StatusNotifierEmail = strings.TrimSpace(item.Value)
 		// MCP 配置
 	case "mcp:mcp_enable":
 		cfg.MCPEnable = toBool(item.Value, cfg.MCPEnable)
@@ -344,6 +378,38 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.MCPMaxLLMCallsPerRun = toInt(item.Value, cfg.MCPMaxLLMCallsPerRun)
 	case "mcp:mcp_max_tool_calls_per_run":
 		cfg.MCPMaxToolCallsPerRun = toInt(item.Value, cfg.MCPMaxToolCallsPerRun)
+	case "mcp:web_search_provider":
+		cfg.WebSearchProvider = strings.TrimSpace(item.Value)
+	case "mcp:web_search_base_url":
+		cfg.WebSearchBaseURL = strings.TrimSpace(item.Value)
+	case "mcp:web_search_api_key":
+		cfg.WebSearchAPIKey = strings.TrimSpace(item.Value)
+	case "mcp:web_search_timeout_seconds":
+		cfg.WebSearchTimeoutSeconds = toInt(item.Value, cfg.WebSearchTimeoutSeconds)
+	case "mcp:web_search_max_results":
+		cfg.WebSearchMaxResults = toInt(item.Value, cfg.WebSearchMaxResults)
+	case "mcp:code_sandbox_enabled":
+		cfg.CodeSandboxEnabled = toBool(item.Value, cfg.CodeSandboxEnabled)
+	case "mcp:code_sandbox_timeout_seconds":
+		cfg.CodeSandboxTimeoutSeconds = toInt(item.Value, cfg.CodeSandboxTimeoutSeconds)
+	case "mcp:code_sandbox_max_code_chars":
+		cfg.CodeSandboxMaxCodeChars = toInt(item.Value, cfg.CodeSandboxMaxCodeChars)
+	case "mcp:code_sandbox_max_output_chars":
+		cfg.CodeSandboxMaxOutputChars = toInt(item.Value, cfg.CodeSandboxMaxOutputChars)
+	case "voice:asr_enabled":
+		cfg.VoiceASREnabled = toBool(item.Value, cfg.VoiceASREnabled)
+	case "voice:asr_provider":
+		cfg.VoiceASRProvider = strings.TrimSpace(item.Value)
+	case "voice:asr_model":
+		cfg.VoiceASRModel = strings.TrimSpace(item.Value)
+	case "voice:tts_enabled":
+		cfg.VoiceTTSEnabled = toBool(item.Value, cfg.VoiceTTSEnabled)
+	case "voice:tts_provider":
+		cfg.VoiceTTSProvider = strings.TrimSpace(item.Value)
+	case "voice:tts_model":
+		cfg.VoiceTTSModel = strings.TrimSpace(item.Value)
+	case "voice:tts_voice":
+		cfg.VoiceTTSVoice = strings.TrimSpace(item.Value)
 
 	}
 }
@@ -354,6 +420,7 @@ func (r *RuntimeSettings) normalizeConfig(cfg *config.Config) {
 	}
 	if !cfg.EmailRegistrationEnabled {
 		cfg.TurnstileRegistrationEnabled = false
+		cfg.InviteRegistrationRequired = false
 	}
 	if !cfg.EmbeddingEnabled || strings.TrimSpace(cfg.EmbeddingHost) == "" || strings.TrimSpace(cfg.RAGModel) == "" {
 		cfg.RAGEnabled = false
@@ -385,6 +452,64 @@ func (r *RuntimeSettings) normalizeConfig(cfg *config.Config) {
 	}
 	if cfg.MCPMaxSelectedToolsPerMessage > config.MaxMCPSelectedToolsPerMessage {
 		cfg.MCPMaxSelectedToolsPerMessage = config.MaxMCPSelectedToolsPerMessage
+	}
+	if cfg.MCPToolTimeoutSeconds <= 0 {
+		cfg.MCPToolTimeoutSeconds = 60
+	}
+	if cfg.WebSearchProvider == "" {
+		cfg.WebSearchProvider = "disabled"
+	}
+	if cfg.WebSearchTimeoutSeconds <= 0 {
+		cfg.WebSearchTimeoutSeconds = 10
+	}
+	if cfg.WebSearchMaxResults <= 0 {
+		cfg.WebSearchMaxResults = 5
+	}
+	if cfg.WebSearchMaxResults > 10 {
+		cfg.WebSearchMaxResults = 10
+	}
+	if cfg.CodeSandboxTimeoutSeconds <= 0 {
+		cfg.CodeSandboxTimeoutSeconds = 5
+	}
+	if cfg.CodeSandboxMaxCodeChars <= 0 {
+		cfg.CodeSandboxMaxCodeChars = 12000
+	}
+	if cfg.CodeSandboxMaxOutputChars <= 0 {
+		cfg.CodeSandboxMaxOutputChars = 12000
+	}
+	if cfg.ModerationThreshold <= 0 || cfg.ModerationThreshold > 1 {
+		cfg.ModerationThreshold = 0.5
+	}
+	if cfg.ModerationAction == "" {
+		cfg.ModerationAction = "block"
+	}
+	if cfg.ModerationTimeoutSeconds <= 0 {
+		cfg.ModerationTimeoutSeconds = 10
+	}
+	switch strings.TrimSpace(cfg.ModerationMode) {
+	case "moderations", "chat_classifier":
+	default:
+		cfg.ModerationMode = "moderations"
+	}
+	switch strings.TrimSpace(cfg.ModerationFailStrategy) {
+	case "fail_open", "fail_close":
+	default:
+		cfg.ModerationFailStrategy = "fail_open"
+	}
+	if cfg.ModerationAutoWindowHours <= 0 {
+		cfg.ModerationAutoWindowHours = 24
+	}
+	if cfg.ModerationAutoLimitThreshold < 0 {
+		cfg.ModerationAutoLimitThreshold = 0
+	}
+	if cfg.ModerationAutoSuspendThreshold < 0 {
+		cfg.ModerationAutoSuspendThreshold = 0
+	}
+	if cfg.VoiceASRProvider == "" {
+		cfg.VoiceASRProvider = "disabled"
+	}
+	if cfg.VoiceTTSProvider == "" {
+		cfg.VoiceTTSProvider = "disabled"
 	}
 	if !cfg.FileFullContextLimitEnabled {
 		cfg.FileFullContextMaxBytes = 0

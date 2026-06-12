@@ -1,0 +1,25 @@
+{
+  "title": "Notifications",
+  "description": "View recent updates and messages.",
+  "open": "Open notifications",
+  "refresh": "Refresh",
+  "markAllRead": "Mark all read",
+  "read": "Read",
+  "unread": "Unread",
+  "unreadCount": "{count} unread",
+  "countOverflow": "99+",
+  "emptyTitle": "No notifications",
+  "emptyDescription": "New updates will appear here.",
+  "emptyBody": "No details.",
+  "partialList": "Showing {count} of {total}.",
+  "sources": {
+    "announcement": "Announcement",
+    "system": "Notification"
+  },
+  "toast": {
+    "loadFailed": "Failed to load notifications",
+    "markReadFailed": "Failed to mark notification read",
+    "markAllReadFailed": "Failed to mark notifications read",
+    "retryLater": "Please try again later."
+  }
+}

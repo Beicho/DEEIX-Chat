@@ -7,6 +7,8 @@ const (
 	StatusActive = "active"
 	// StatusInactive 表示公告停用。
 	StatusInactive = "inactive"
+	// StatusDraft 表示公告草稿，仅管理员可见。
+	StatusDraft = "draft"
 
 	// TypeCritical 表示紧急公告。
 	TypeCritical = "critical"

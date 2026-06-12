@@ -12,6 +12,25 @@
     "type": "Type",
     "time": "Time"
   },
+  "center": {
+    "title": "Announcement center",
+    "description": "Review active site announcements. Read announcements will not open automatically again.",
+    "refresh": "Refresh",
+    "loadFailed": "Failed to load announcements",
+    "markReadFailed": "Failed to save announcement state",
+    "markAllRead": "Mark all read",
+    "markRead": "Mark read",
+    "read": "Read",
+    "unread": "Unread",
+    "unreadCount": "{count} unread",
+    "emptyTitle": "No announcements",
+    "emptyDescription": "New announcements will appear here.",
+    "filters": {
+      "all": "All",
+      "unread": "Unread",
+      "read": "Read"
+    }
+  },
   "dismissAllToday": "Don't show today",
   "dismissFailed": "Failed to save announcement state",
   "closeFailed": "Failed to save announcement close state",

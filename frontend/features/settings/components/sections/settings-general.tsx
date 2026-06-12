@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { dispatchUserProfileUpdated } from "@/features/settings/events/user-profile-events";
+import { SettingsData } from "@/features/settings/components/sections/settings-data";
 import { useTheme } from "@/shared/components/theme-provider";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -1066,6 +1067,10 @@ export function SettingsGeneral() {
           />
         </SettingsFieldRow>
       </SettingsSection>
+
+      <SettingsSectionSeparator />
+
+      <SettingsData />
 
       <SettingsSectionSeparator />
 

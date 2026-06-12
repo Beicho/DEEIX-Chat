@@ -10,12 +10,14 @@ import { NavProjects } from "@/features/layouts/components/navigation/nav-projec
 import { NavStarred } from "@/features/layouts/components/navigation/nav-starred"
 import { NavRecents } from "@/features/layouts/components/navigation/nav-recents"
 import { NavUser } from "@/features/layouts/components/navigation/nav-user"
+import { NotificationCenterPopover } from "@/features/notifications/components/notification-center-popover"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  useSidebar,
 } from "@/components/ui/sidebar"
 
 const data = {
@@ -28,12 +30,14 @@ const data = {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const sidebarData = useSidebarData()
+  const { isMobile } = useSidebar()
   const user = sidebarData.user ?? data.user
 
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader className="group-data-[collapsible=icon]:bg-background">
         <NavControl />
+        {!isMobile ? <NotificationCenterPopover variant="sidebar" /> : null}
       </SidebarHeader>
       <SidebarContent className="min-h-0 overflow-hidden group-data-[collapsible=icon]:bg-background">
         <NavMain />

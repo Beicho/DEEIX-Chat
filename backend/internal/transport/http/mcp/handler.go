@@ -35,7 +35,8 @@ func (h *Handler) ListServers(c *gin.Context) {
 }
 
 func (h *Handler) ListAvailableTools(c *gin.Context) {
-	items, err := h.service.ListAvailableTools(c.Request.Context())
+	userID := middleware.MustUserID(c)
+	items, err := h.service.ListAvailableTools(c.Request.Context(), userID)
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "list mcp tools failed")
 		return
@@ -47,6 +48,20 @@ func (h *Handler) ListAvailableTools(c *gin.Context) {
 	response.Success(c, ToolListResponse{Results: results})
 }
 
+func (h *Handler) ListUserServers(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	items, err := h.service.ListUserServers(c.Request.Context(), userID)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list connector servers failed")
+		return
+	}
+	results := make([]ServerResponse, 0, len(items))
+	for _, item := range items {
+		results = append(results, toServerResponse(item))
+	}
+	response.Success(c, ServerListResponse{Results: results})
+}
+
 func (h *Handler) CreateServer(c *gin.Context) {
 	var req CreateServerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -54,11 +69,48 @@ func (h *Handler) CreateServer(c *gin.Context) {
 		return
 	}
 	item, err := h.service.CreateServer(c.Request.Context(), appmcp.ServerInput{
-		Name:        req.Name,
-		BaseURL:     req.BaseURL,
-		AuthToken:   req.AuthToken,
-		HeadersJSON: req.HeadersJSON,
-		Status:      req.Status,
+		Name:              req.Name,
+		BaseURL:           req.BaseURL,
+		AuthToken:         req.AuthToken,
+		HeadersJSON:       req.HeadersJSON,
+		Status:            req.Status,
+		TimeoutSeconds:    req.TimeoutSeconds,
+		OAuthClientID:     req.OAuthClientID,
+		OAuthClientSecret: req.OAuthClientSecret,
+		OAuthAuthURL:      req.OAuthAuthURL,
+		OAuthTokenURL:     req.OAuthTokenURL,
+		OAuthScopes:       req.OAuthScopes,
+		OAuthAccessToken:  req.OAuthAccessToken,
+		OAuthRefreshToken: req.OAuthRefreshToken,
+	})
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	response.Success(c, ServerDataResponse{Server: toServerResponse(*item)})
+}
+
+func (h *Handler) CreateUserServer(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	var req CreateServerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	item, err := h.service.CreateUserServer(c.Request.Context(), userID, appmcp.ServerInput{
+		Name:              req.Name,
+		BaseURL:           req.BaseURL,
+		AuthToken:         req.AuthToken,
+		HeadersJSON:       req.HeadersJSON,
+		Status:            req.Status,
+		TimeoutSeconds:    req.TimeoutSeconds,
+		OAuthClientID:     req.OAuthClientID,
+		OAuthClientSecret: req.OAuthClientSecret,
+		OAuthAuthURL:      req.OAuthAuthURL,
+		OAuthTokenURL:     req.OAuthTokenURL,
+		OAuthScopes:       req.OAuthScopes,
+		OAuthAccessToken:  req.OAuthAccessToken,
+		OAuthRefreshToken: req.OAuthRefreshToken,
 	})
 	if err != nil {
 		writeServiceError(c, err)
@@ -78,11 +130,52 @@ func (h *Handler) UpdateServer(c *gin.Context) {
 		return
 	}
 	item, err := h.service.UpdateServer(c.Request.Context(), serverID, appmcp.ServerInput{
-		Name:        req.Name,
-		BaseURL:     req.BaseURL,
-		AuthToken:   req.AuthToken,
-		HeadersJSON: req.HeadersJSON,
-		Status:      req.Status,
+		Name:              req.Name,
+		BaseURL:           req.BaseURL,
+		AuthToken:         req.AuthToken,
+		HeadersJSON:       req.HeadersJSON,
+		Status:            req.Status,
+		TimeoutSeconds:    req.TimeoutSeconds,
+		OAuthClientID:     req.OAuthClientID,
+		OAuthClientSecret: req.OAuthClientSecret,
+		OAuthAuthURL:      req.OAuthAuthURL,
+		OAuthTokenURL:     req.OAuthTokenURL,
+		OAuthScopes:       req.OAuthScopes,
+		OAuthAccessToken:  req.OAuthAccessToken,
+		OAuthRefreshToken: req.OAuthRefreshToken,
+	})
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	response.Success(c, ServerDataResponse{Server: toServerResponse(*item)})
+}
+
+func (h *Handler) UpdateUserServer(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	serverID, ok := parseIDParam(c, "id", "connector server")
+	if !ok {
+		return
+	}
+	var req CreateServerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	item, err := h.service.UpdateUserServer(c.Request.Context(), userID, serverID, appmcp.ServerInput{
+		Name:              req.Name,
+		BaseURL:           req.BaseURL,
+		AuthToken:         req.AuthToken,
+		HeadersJSON:       req.HeadersJSON,
+		Status:            req.Status,
+		TimeoutSeconds:    req.TimeoutSeconds,
+		OAuthClientID:     req.OAuthClientID,
+		OAuthClientSecret: req.OAuthClientSecret,
+		OAuthAuthURL:      req.OAuthAuthURL,
+		OAuthTokenURL:     req.OAuthTokenURL,
+		OAuthScopes:       req.OAuthScopes,
+		OAuthAccessToken:  req.OAuthAccessToken,
+		OAuthRefreshToken: req.OAuthRefreshToken,
 	})
 	if err != nil {
 		writeServiceError(c, err)
@@ -103,6 +196,19 @@ func (h *Handler) DeleteServer(c *gin.Context) {
 	response.Success(c, DeleteServerResponse{Deleted: true})
 }
 
+func (h *Handler) DeleteUserServer(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	serverID, ok := parseIDParam(c, "id", "connector server")
+	if !ok {
+		return
+	}
+	if err := h.service.DeleteUserServer(c.Request.Context(), userID, serverID); err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	response.Success(c, DeleteServerResponse{Deleted: true})
+}
+
 func (h *Handler) SyncServerTools(c *gin.Context) {
 	serverID, ok := parseIDParam(c, "id", "mcp server")
 	if !ok {
@@ -114,6 +220,49 @@ func (h *Handler) SyncServerTools(c *gin.Context) {
 	})
 	if err != nil {
 		writeServiceError(c, err)
+		return
+	}
+	results := make([]ToolResponse, 0, len(items))
+	for _, item := range items {
+		results = append(results, toToolResponse(item))
+	}
+	response.Success(c, ToolListResponse{Results: results})
+}
+
+func (h *Handler) SyncUserServerTools(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	serverID, ok := parseIDParam(c, "id", "connector server")
+	if !ok {
+		return
+	}
+	items, err := h.service.SyncUserServerTools(c.Request.Context(), userID, appmcp.SyncServerToolsInput{
+		ServerID:  serverID,
+		RequestID: middleware.MustRequestID(c),
+	})
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	results := make([]ToolResponse, 0, len(items))
+	for _, item := range items {
+		results = append(results, toToolResponse(item))
+	}
+	response.Success(c, ToolListResponse{Results: results})
+}
+
+func (h *Handler) ListUserServerTools(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	serverID, ok := parseIDParam(c, "id", "connector server")
+	if !ok {
+		return
+	}
+	if _, err := h.service.GetUserServer(c.Request.Context(), userID, serverID); err != nil {
+		writeServiceError(c, appmcp.ErrServerNotFound)
+		return
+	}
+	items, err := h.service.ListTools(c.Request.Context(), serverID, false)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "list connector tools failed")
 		return
 	}
 	results := make([]ToolResponse, 0, len(items))
@@ -151,9 +300,11 @@ func (h *Handler) UpdateTool(c *gin.Context) {
 		return
 	}
 	item, err := h.service.UpdateTool(c.Request.Context(), toolID, appmcp.ToolInput{
-		DisplayName: req.DisplayName,
-		Description: req.Description,
-		Status:      req.Status,
+		DisplayName:     req.DisplayName,
+		Description:     req.Description,
+		Status:          req.Status,
+		DefaultEnabled:  req.DefaultEnabled,
+		RequiresConfirm: req.RequiresConfirm,
 	})
 	if err != nil {
 		writeServiceError(c, err)
@@ -184,6 +335,121 @@ func (h *Handler) UpdateServerToolsStatus(c *gin.Context) {
 	response.Success(c, ToolListResponse{Results: results})
 }
 
+func (h *Handler) TestServerConnection(c *gin.Context) {
+	serverID, ok := parseIDParam(c, "id", "mcp server")
+	if !ok {
+		return
+	}
+	response.Success(c, toConnectionTestResponse(h.service.TestServerConnection(c.Request.Context(), serverID)))
+}
+
+func (h *Handler) TestUserServerConnection(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	serverID, ok := parseIDParam(c, "id", "connector server")
+	if !ok {
+		return
+	}
+	response.Success(c, toConnectionTestResponse(h.service.TestUserServerConnection(c.Request.Context(), userID, serverID)))
+}
+
+func (h *Handler) GetToolPreference(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	conversationPublicID := c.Query("conversationPublicID")
+	item, err := h.service.GetToolPreference(c.Request.Context(), userID, conversationPublicID)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "load tool selection failed")
+		return
+	}
+	response.Success(c, toToolPreferenceResponse(*item))
+}
+
+func (h *Handler) PutToolPreference(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	var req ToolPreferenceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	item, err := h.service.UpsertToolPreference(c.Request.Context(), userID, appmcp.ToolPreferenceInput{
+		ConversationPublicID: req.ConversationPublicID,
+		SelectedToolIDs:      req.SelectedToolIDs,
+		ConfirmedToolIDs:     req.ConfirmedToolIDs,
+		WebSearchEnabled:     req.WebSearchEnabled,
+		CodeSandboxEnabled:   req.CodeSandboxEnabled,
+		ResearchMaxLLMCalls:  req.ResearchMaxLLMCalls,
+		ResearchMaxToolCalls: req.ResearchMaxToolCalls,
+	})
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	response.Success(c, toToolPreferenceResponse(*item))
+}
+
+func (h *Handler) StartOAuth(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	serverID, ok := parseIDParam(c, "id", "connector server")
+	if !ok {
+		return
+	}
+	var req OAuthStartRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	result, err := h.service.StartServerOAuth(c.Request.Context(), userID, serverID, req.RedirectURI)
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	response.Success(c, OAuthStartResponse{AuthorizationURL: result.AuthorizationURL, State: result.State})
+}
+
+func (h *Handler) CompleteOAuthCallback(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	var req OAuthCallbackRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	if err := h.service.CompleteOAuthCallback(c.Request.Context(), userID, req.ServerID, req.Code, req.State); err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	response.Success(c, OAuthCallbackResponse{Accepted: true, Status: "pending_token_exchange"})
+}
+
+func (h *Handler) GetVoiceConfig(c *gin.Context) {
+	cfg := h.service.VoiceConfig()
+	response.Success(c, VoiceConfigResponse{
+		ASREnabled:  cfg.ASREnabled,
+		ASRProvider: cfg.ASRProvider,
+		ASRModel:    cfg.ASRModel,
+		TTSEnabled:  cfg.TTSEnabled,
+		TTSProvider: cfg.TTSProvider,
+		TTSModel:    cfg.TTSModel,
+		TTSVoice:    cfg.TTSVoice,
+	})
+}
+
+func (h *Handler) ASR(c *gin.Context) {
+	cfg := h.service.VoiceConfig()
+	if !cfg.ASREnabled {
+		response.Error(c, http.StatusServiceUnavailable, "voice transcription is not available")
+		return
+	}
+	response.Error(c, http.StatusNotImplemented, "voice transcription provider is not configured")
+}
+
+func (h *Handler) TTS(c *gin.Context) {
+	cfg := h.service.VoiceConfig()
+	if !cfg.TTSEnabled {
+		response.Error(c, http.StatusServiceUnavailable, "voice playback is not available")
+		return
+	}
+	response.Error(c, http.StatusNotImplemented, "voice playback provider is not configured")
+}
+
 func parseIDParam(c *gin.Context, key string, resource string) (uint, bool) {
 	raw := c.Param(key)
 	parsed, err := strconv.ParseUint(raw, 10, 64)
@@ -200,23 +466,38 @@ func writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, appmcp.ErrInvalidServerBaseURL),
 		errors.Is(err, appmcp.ErrInvalidServerStatus),
 		errors.Is(err, appmcp.ErrInvalidServerHeaders),
+		errors.Is(err, appmcp.ErrInvalidServerTimeout),
 		errors.Is(err, appmcp.ErrInvalidToolStatus),
 		errors.Is(err, appmcp.ErrInvalidToolName),
 		errors.Is(err, appmcp.ErrInvalidToolDesc),
 		errors.Is(err, appmcp.ErrInvalidToolSelection):
 		response.ErrorFrom(c, http.StatusBadRequest, err)
+	case errors.Is(err, appmcp.ErrServerNotFound):
+		response.ErrorFrom(c, http.StatusNotFound, err)
 	default:
 		response.ErrorFrom(c, http.StatusInternalServerError, err)
 	}
 }
 
 func toServerResponse(item domainmcp.Server) ServerResponse {
+	scope := "user"
+	if item.OwnerUserID == 0 {
+		scope = "platform"
+	}
 	return ServerResponse{
 		ID:              item.ID,
+		OwnerUserID:     item.OwnerUserID,
+		Scope:           scope,
 		Name:            item.Name,
 		BaseURL:         item.BaseURL,
 		HeadersJSON:     security.RedactHeadersJSON(item.HeadersJSON),
 		Status:          item.Status,
+		TimeoutSeconds:  item.TimeoutSeconds,
+		OAuthClientID:   item.OAuthClientID,
+		OAuthAuthURL:    item.OAuthAuthURL,
+		OAuthTokenURL:   item.OAuthTokenURL,
+		OAuthScopes:     item.OAuthScopes,
+		OAuthStatus:     item.OAuthStatus,
 		ToolCount:       item.ToolCount,
 		ActiveToolCount: item.ActiveToolCount,
 		LastSyncedAt:    item.LastSyncedAt,
@@ -236,7 +517,32 @@ func toToolResponse(item domainmcp.Tool) ToolResponse {
 		Description:     item.Description,
 		InputSchemaJSON: item.InputSchemaJSON,
 		Status:          item.Status,
+		DefaultEnabled:  item.DefaultEnabled,
+		RequiresConfirm: item.RequiresConfirm,
+		ToolKind:        item.ToolKind,
 		CreatedAt:       item.CreatedAt,
 		UpdatedAt:       item.UpdatedAt,
+	}
+}
+
+func toToolPreferenceResponse(item domainmcp.ToolPreference) ToolPreferenceResponse {
+	return ToolPreferenceResponse{
+		ConversationPublicID: item.ConversationPublicID,
+		SelectedToolIDs:      item.SelectedToolIDs,
+		ConfirmedToolIDs:     item.ConfirmedToolIDs,
+		WebSearchEnabled:     item.WebSearchEnabled,
+		CodeSandboxEnabled:   item.CodeSandboxEnabled,
+		ResearchMaxLLMCalls:  item.ResearchMaxLLMCalls,
+		ResearchMaxToolCalls: item.ResearchMaxToolCalls,
+		UpdatedAt:            item.UpdatedAt,
+	}
+}
+
+func toConnectionTestResponse(item appmcp.ConnectionTestResult) ConnectionTestResponse {
+	return ConnectionTestResponse{
+		OK:        item.OK,
+		ErrorCode: item.ErrorCode,
+		Message:   item.Message,
+		ToolCount: item.ToolCount,
 	}
 }

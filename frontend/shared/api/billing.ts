@@ -1,9 +1,14 @@
-import { authedRequest } from "@/shared/api/authed-client";
+import { authedFetch, authedRequest } from "@/shared/api/authed-client";
+import { apiRequest } from "@/shared/api/http-client";
 import type { PagePayload } from "@/shared/api/common.types";
 import type {
   BillingAccountData,
+  BillingBalanceTransactionDTO,
   BillingConfigData,
   BillingOverviewData,
+  BillingPaymentOrderDTO,
+  BillingPaymentOrderData,
+  BillingRedemptionDTO,
   BillingUsageDailyDTO,
   BillingPlanDTO,
   BillingUsageLedgerDTO,
@@ -23,6 +28,10 @@ export async function listBillingPlans(accessToken: string): Promise<BillingPlan
   return authedRequest<BillingPlanDTO[]>("/api/v1/billing/plans", { accessToken }, true);
 }
 
+export async function listPublicBillingPlans(): Promise<BillingPlanDTO[]> {
+  return apiRequest<BillingPlanDTO[]>("/api/v1/public/billing/plans");
+}
+
 export async function getBillingAccount(accessToken: string): Promise<BillingAccountData> {
   return authedRequest<BillingAccountData>("/api/v1/billing/account", { accessToken }, true);
 }
@@ -33,7 +42,7 @@ export async function getBillingOverview(accessToken: string): Promise<BillingOv
 
 export async function listBillingUsage(
   accessToken: string,
-  options: { page?: number; pageSize?: number; query?: string; status?: string; sort?: string } = {},
+  options: { page?: number; pageSize?: number; query?: string; status?: string; sort?: string; createdFrom?: string; createdTo?: string } = {},
 ): Promise<PagePayload<BillingUsageLedgerDTO>> {
   const page = options.page && options.page > 0 ? options.page : 1;
   const pageSize = options.pageSize && options.pageSize > 0 ? options.pageSize : 10;
@@ -44,6 +53,8 @@ export async function listBillingUsage(
   if (options.query?.trim()) params.set("query", options.query.trim());
   if (options.status?.trim()) params.set("status", options.status.trim());
   if (options.sort?.trim()) params.set("sort", options.sort.trim());
+  if (options.createdFrom?.trim()) params.set("created_from", options.createdFrom.trim());
+  if (options.createdTo?.trim()) params.set("created_to", options.createdTo.trim());
   return authedRequest<PagePayload<BillingUsageLedgerDTO>>(
     `/api/v1/billing/usage?${params.toString()}`,
     { accessToken },
@@ -87,6 +98,33 @@ export async function createBillingCheckout(accessToken: string, payload: Create
   );
 }
 
+export async function listBillingPaymentOrders(
+  accessToken: string,
+  options: { page?: number; pageSize?: number; status?: string; orderType?: string; provider?: string; query?: string; sort?: string } = {},
+): Promise<PagePayload<BillingPaymentOrderDTO>> {
+  const page = options.page && options.page > 0 ? options.page : 1;
+  const pageSize = options.pageSize && options.pageSize > 0 ? options.pageSize : 20;
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (options.status?.trim()) params.set("status", options.status.trim());
+  if (options.orderType?.trim()) params.set("order_type", options.orderType.trim());
+  if (options.provider?.trim()) params.set("provider", options.provider.trim());
+  if (options.query?.trim()) params.set("q", options.query.trim());
+  if (options.sort?.trim()) params.set("sort", options.sort.trim());
+  return authedRequest<PagePayload<BillingPaymentOrderDTO>>(
+    `/api/v1/billing/payments?${params.toString()}`,
+    { accessToken },
+    true,
+  );
+}
+
+export async function getBillingPaymentOrder(accessToken: string, orderNo: string): Promise<BillingPaymentOrderData> {
+  return authedRequest<BillingPaymentOrderData>(
+    `/api/v1/billing/payments/${encodeURIComponent(orderNo)}`,
+    { accessToken },
+    true,
+  );
+}
+
 export async function redeemBillingCode(accessToken: string, payload: RedeemBillingCodeRequest): Promise<RedeemBillingCodeData> {
   return authedRequest<RedeemBillingCodeData>(
     "/api/v1/billing/redemptions",
@@ -95,10 +133,63 @@ export async function redeemBillingCode(accessToken: string, payload: RedeemBill
   );
 }
 
-export async function subscribeBillingPlan(accessToken: string, priceID: number): Promise<SubscribeData> {
+export async function listBillingRedemptions(
+  accessToken: string,
+  options: { page?: number; pageSize?: number; mode?: string; query?: string; sort?: string } = {},
+): Promise<PagePayload<BillingRedemptionDTO>> {
+  const page = options.page && options.page > 0 ? options.page : 1;
+  const pageSize = options.pageSize && options.pageSize > 0 ? options.pageSize : 20;
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (options.mode?.trim()) params.set("mode", options.mode.trim());
+  if (options.query?.trim()) params.set("q", options.query.trim());
+  if (options.sort?.trim()) params.set("sort", options.sort.trim());
+  return authedRequest<PagePayload<BillingRedemptionDTO>>(
+    `/api/v1/billing/redemptions?${params.toString()}`,
+    { accessToken },
+    true,
+  );
+}
+
+export async function listBillingBalanceTransactions(
+  accessToken: string,
+  options: { page?: number; pageSize?: number; type?: string; query?: string; sort?: string } = {},
+): Promise<PagePayload<BillingBalanceTransactionDTO>> {
+  const page = options.page && options.page > 0 ? options.page : 1;
+  const pageSize = options.pageSize && options.pageSize > 0 ? options.pageSize : 20;
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (options.type?.trim()) params.set("type", options.type.trim());
+  if (options.query?.trim()) params.set("q", options.query.trim());
+  if (options.sort?.trim()) params.set("sort", options.sort.trim());
+  return authedRequest<PagePayload<BillingBalanceTransactionDTO>>(
+    `/api/v1/billing/balance-transactions?${params.toString()}`,
+    { accessToken },
+    true,
+  );
+}
+
+export function billingUsageCSVURL(options: { query?: string; status?: string; sort?: string; createdFrom?: string; createdTo?: string } = {}): string {
+  const params = new URLSearchParams();
+  if (options.query?.trim()) params.set("query", options.query.trim());
+  if (options.status?.trim()) params.set("status", options.status.trim());
+  if (options.sort?.trim()) params.set("sort", options.sort.trim());
+  if (options.createdFrom?.trim()) params.set("created_from", options.createdFrom.trim());
+  if (options.createdTo?.trim()) params.set("created_to", options.createdTo.trim());
+  const query = params.toString();
+  return `/api/v1/billing/usage.csv${query ? `?${query}` : ""}`;
+}
+
+export async function exportBillingUsageCSV(
+  accessToken: string,
+  options: { query?: string; status?: string; sort?: string; createdFrom?: string; createdTo?: string } = {},
+): Promise<Blob> {
+  const response = await authedFetch(billingUsageCSVURL(options), { accessToken }, true);
+  return response.blob();
+}
+
+export async function subscribeBillingPlan(accessToken: string, priceID: number, cycles = 1): Promise<SubscribeData> {
   return authedRequest<SubscribeData>(
     "/api/v1/billing/subscriptions",
-    { method: "POST", accessToken, body: { priceID: priceID, cycles: 1 } },
+    { method: "POST", accessToken, body: { priceID: priceID, cycles } },
     true,
   );
 }

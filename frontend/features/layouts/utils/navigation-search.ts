@@ -1,4 +1,4 @@
-import type { ConversationDTO } from "@/shared/api/conversation.types"
+import type { ConversationDTO, ConversationSearchResultDTO } from "@/shared/api/conversation.types"
 import type { ConversationSearchResult } from "@/features/layouts/types/navigation"
 import {
   conversationMatchesSearch,
@@ -12,11 +12,34 @@ export function normalizeSearchText(value: string) {
 
 export function toConversationSearchResult(item: ConversationDTO, untitled = "New chat"): ConversationSearchResult {
   return {
+    resultID: item.publicID,
     publicID: item.publicID,
     title: item.title?.trim() || untitled,
     searchText: conversationSearchText(item),
     href: `/chat?conversation_id=${item.publicID}`,
     updatedAt: item.updatedAt,
+  }
+}
+
+export function toServerConversationSearchResult(
+  item: ConversationSearchResultDTO,
+  untitled = "New chat",
+): ConversationSearchResult {
+  const conversation = item.conversation
+  const title = conversation.title?.trim() || untitled
+  const snippet = item.snippet?.trim() || ""
+  const messagePublicID = item.messagePublicID?.trim() || ""
+
+  return {
+    resultID: messagePublicID ? `${conversation.publicID}:${messagePublicID}` : `${conversation.publicID}:title`,
+    publicID: conversation.publicID,
+    title,
+    searchText: [conversationSearchText(conversation), snippet, messagePublicID].filter(Boolean).join(" "),
+    href: `/chat?conversation_id=${conversation.publicID}`,
+    snippet,
+    messagePublicID,
+    matchedTitle: item.matchedTitle,
+    updatedAt: item.matchedAt || conversation.updatedAt,
   }
 }
 

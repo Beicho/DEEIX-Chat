@@ -54,13 +54,9 @@ type UseSettingsAccountResult = {
   currentEmailVerificationDialogOpen: boolean;
   revokingSessionID: string;
   deleteDialogOpen: boolean;
-  deleteCodeDebug: string;
   deleteCodeCooldownSeconds: number;
   sendingDeleteCode: boolean;
   emailVerificationEnabled: boolean;
-  passwordCodeDebug: string;
-  emailCodeDebug: string;
-  currentEmailCodeDebug: string;
   passwordCodeCooldownSeconds: number;
   emailCodeCooldownSeconds: number;
   currentEmailCodeCooldownSeconds: number;
@@ -71,7 +67,7 @@ type UseSettingsAccountResult = {
   setDeleteDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
   handleCopyPublicID: () => Promise<void>;
   handleSendPasswordCode: (method: SecurityVerificationMethod) => Promise<void>;
-  handleChangePassword: (payload: { currentPassword: string; newPassword: string; verificationMethod: SecurityVerificationMethod; code: string }) => Promise<void>;
+  handleChangePassword: (payload: { currentPassword: string; newPassword: string; verificationMethod: SecurityVerificationMethod; code: string; revokeOtherSessions: boolean }) => Promise<void>;
   handleSendEmailBootstrapCode: (email: string) => Promise<void>;
   handleCompleteEmailBootstrap: (payload: { email: string; code: string }) => Promise<void>;
   handleSendCurrentEmailVerificationCode: () => Promise<void>;
@@ -139,10 +135,6 @@ export function useSettingsAccount(): UseSettingsAccountResult {
   const [currentEmailVerificationDialogOpen, setCurrentEmailVerificationDialogOpen] = React.useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const [emailVerificationEnabled, setEmailVerificationEnabled] = React.useState(false);
-  const [passwordCodeDebug, setPasswordCodeDebug] = React.useState("");
-  const [emailCodeDebug, setEmailCodeDebug] = React.useState("");
-  const [currentEmailCodeDebug, setCurrentEmailCodeDebug] = React.useState("");
-  const [deleteCodeDebug, setDeleteCodeDebug] = React.useState("");
   const [passwordCodeResendAt, setPasswordCodeResendAt] = React.useState(0);
   const [emailCodeResendAt, setEmailCodeResendAt] = React.useState(0);
   const [currentEmailCodeResendAt, setCurrentEmailCodeResendAt] = React.useState(0);
@@ -254,14 +246,12 @@ export function useSettingsAccount(): UseSettingsAccountResult {
       return;
     }
     setSendingPasswordCode(true);
-    setPasswordCodeDebug("");
     try {
       const token = await resolveAccessToken();
       if (!token) {
         throw new Error(t("sessionMissing"));
       }
       const result = await startPasswordChangeVerification(token, method);
-      setPasswordCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startPasswordCodeCooldown();
         toast.success(t("codeSent"));
@@ -273,7 +263,7 @@ export function useSettingsAccount(): UseSettingsAccountResult {
     }
   }, [passwordCodeCooldownSeconds, sendingPasswordCode, startPasswordCodeCooldown, t, translateError]);
 
-  const handleChangePassword = React.useCallback(async (payload: { currentPassword: string; newPassword: string; verificationMethod: SecurityVerificationMethod; code: string }) => {
+  const handleChangePassword = React.useCallback(async (payload: { currentPassword: string; newPassword: string; verificationMethod: SecurityVerificationMethod; code: string; revokeOtherSessions: boolean }) => {
     if (changingPassword) {
       return;
     }
@@ -288,26 +278,25 @@ export function useSettingsAccount(): UseSettingsAccountResult {
         newPassword: payload.newPassword,
         verificationMethod: payload.verificationMethod,
         code: payload.code,
+        revokeOtherSessions: payload.revokeOtherSessions,
       });
       toast.success(t("passwordChanged"), { description: t("passwordChangedDescription") });
       setPasswordDialogOpen(false);
-      clearSessionAndRedirectToLogin();
+      await loadAccountData();
     } catch (error) {
       toast.error(t("changePasswordFailed"), { description: translateError(error, t("retryLater")) });
     } finally {
       setChangingPassword(false);
     }
-  }, [changingPassword, t, translateError]);
+  }, [changingPassword, loadAccountData, t, translateError]);
 
   const handleSendEmailBootstrapCode = React.useCallback(async (email: string) => {
     if (sendingEmailCode || emailCodeCooldownSeconds > 0) return;
     setSendingEmailCode(true);
-    setEmailCodeDebug("");
     try {
       const token = await resolveAccessToken();
       if (!token) throw new Error(t("sessionMissing"));
       const result = await startEmailBootstrap(token, email);
-      setEmailCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startEmailCodeCooldown();
         toast.success(t("codeSent"));
@@ -339,12 +328,10 @@ export function useSettingsAccount(): UseSettingsAccountResult {
   const handleSendCurrentEmailVerificationCode = React.useCallback(async () => {
     if (sendingEmailCode || currentEmailCodeCooldownSeconds > 0) return;
     setSendingEmailCode(true);
-    setCurrentEmailCodeDebug("");
     try {
       const token = await resolveAccessToken();
       if (!token) throw new Error(t("sessionMissing"));
       const result = await startCurrentEmailVerification(token);
-      setCurrentEmailCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startCurrentEmailCodeCooldown();
         toast.success(t("currentEmailCodeSent"));
@@ -376,12 +363,10 @@ export function useSettingsAccount(): UseSettingsAccountResult {
   const handleSendCurrentEmailCode = React.useCallback(async (method: SecurityVerificationMethod) => {
     if (method !== "email" || sendingEmailCode || currentEmailCodeCooldownSeconds > 0) return;
     setSendingEmailCode(true);
-    setCurrentEmailCodeDebug("");
     try {
       const token = await resolveAccessToken();
       if (!token) throw new Error(t("sessionMissing"));
       const result = await startCurrentEmailChange(token, method);
-      setCurrentEmailCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startCurrentEmailCodeCooldown();
         toast.success(t("currentEmailCodeSent"));
@@ -396,12 +381,10 @@ export function useSettingsAccount(): UseSettingsAccountResult {
   const handleSendNewEmailCode = React.useCallback(async (email: string) => {
     if (sendingEmailCode || emailCodeCooldownSeconds > 0) return;
     setSendingEmailCode(true);
-    setEmailCodeDebug("");
     try {
       const token = await resolveAccessToken();
       if (!token) throw new Error(t("sessionMissing"));
       const result = await startNewEmailChange(token, email);
-      setEmailCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startEmailCodeCooldown();
         toast.success(t("newEmailCodeSent"));
@@ -438,12 +421,10 @@ export function useSettingsAccount(): UseSettingsAccountResult {
   const handleSendDeleteAccountCode = React.useCallback(async (method: SecurityVerificationMethod) => {
     if (method !== "email" || sendingDeleteCode || deleteCodeCooldownSeconds > 0) return;
     setSendingDeleteCode(true);
-    setDeleteCodeDebug("");
     try {
       const token = await resolveAccessToken();
       if (!token) throw new Error(t("sessionMissing"));
       const result = await startAccountDeleteVerification(token, method);
-      setDeleteCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startDeleteCodeCooldown();
         toast.success(t("deleteAccountCodeSent"));
@@ -645,13 +626,9 @@ export function useSettingsAccount(): UseSettingsAccountResult {
     emailDialogOpen,
     currentEmailVerificationDialogOpen,
     deleteDialogOpen,
-    deleteCodeDebug,
     deleteCodeCooldownSeconds,
     sendingDeleteCode,
     emailVerificationEnabled,
-    passwordCodeDebug,
-    emailCodeDebug,
-    currentEmailCodeDebug,
     passwordCodeCooldownSeconds,
     emailCodeCooldownSeconds,
     currentEmailCodeCooldownSeconds,

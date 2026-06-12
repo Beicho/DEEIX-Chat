@@ -19,6 +19,7 @@ type selectedToolRuntime struct {
 	definitions []llm.ToolDefinition
 	nameMap     map[string]string
 	mcpConfigs  map[string]mcp.CallConfig
+	builtIn     map[string]string
 	schemas     map[string]json.RawMessage
 }
 
@@ -117,27 +118,46 @@ func schemaFieldType(prop map[string]interface{}) string {
 	return ""
 }
 
-func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint) selectedToolRuntime {
-	if s.mcpRepo == nil || len(toolIDs) == 0 || !s.cfg.Snapshot().MCPEnable {
-		return selectedToolRuntime{}
-	}
-	tools, err := s.mcpRepo.ListToolsByIDs(ctx, uniqueToolIDs(toolIDs))
-	if err != nil || len(tools) == 0 {
-		return selectedToolRuntime{}
-	}
-
+func (s *Service) resolveSelectedToolRuntime(ctx context.Context, userID uint, toolIDs []uint, confirmedToolIDs []uint, webSearchEnabled bool, codeSandboxEnabled bool) selectedToolRuntime {
 	cfg := s.cfg.Snapshot()
 	result := selectedToolRuntime{
-		definitions: make([]llm.ToolDefinition, 0, len(tools)),
+		definitions: make([]llm.ToolDefinition, 0, len(toolIDs)+2),
 		nameMap:     map[string]string{},
 		mcpConfigs:  map[string]mcp.CallConfig{},
+		builtIn:     map[string]string{},
 		schemas:     map[string]json.RawMessage{},
 	}
 	usedNames := map[string]int{}
+	if webSearchEnabled {
+		s.addBuiltInToolDefinition(&result, usedNames, "web_search")
+	}
+	if codeSandboxEnabled && cfg.CodeSandboxEnabled {
+		s.addBuiltInToolDefinition(&result, usedNames, "run_python")
+	}
+	if s.mcpRepo == nil || len(toolIDs) == 0 || !cfg.MCPEnable {
+		if len(result.definitions) > 0 {
+			return result
+		}
+		return selectedToolRuntime{}
+	}
+	tools, err := s.mcpRepo.ListToolsByIDsForUser(ctx, uniqueToolIDs(toolIDs), userID)
+	if err != nil || len(tools) == 0 {
+		if len(result.definitions) > 0 {
+			return result
+		}
+		return selectedToolRuntime{}
+	}
+
+	confirmedSet := uintSet(confirmedToolIDs)
 	serverCache := map[uint]*domainmcp.Server{}
 	for _, tool := range tools {
 		if tool.Status != "active" {
 			continue
+		}
+		if tool.RequiresConfirm {
+			if _, ok := confirmedSet[tool.ID]; !ok {
+				continue
+			}
 		}
 		server, ok := serverCache[tool.ServerID]
 		if !ok {
@@ -173,11 +193,46 @@ func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint
 		result.mcpConfigs[modelName] = mcp.CallConfig{
 			BaseURL:   server.BaseURL,
 			AuthToken: token,
-			TimeoutMS: cfg.MCPToolTimeoutSeconds * 1000,
+			TimeoutMS: resolveMCPToolTimeoutMS(server.TimeoutSeconds, cfg.MCPToolTimeoutSeconds),
 			Headers:   headers,
 		}
 	}
 	return result
+}
+
+func (s *Service) addBuiltInToolDefinition(runtime *selectedToolRuntime, usedNames map[string]int, kind string) {
+	if runtime == nil {
+		return
+	}
+	var name string
+	var description string
+	var schema json.RawMessage
+	switch kind {
+	case "web_search":
+		if !webSearchAvailable(s.cfg.Snapshot()) {
+			return
+		}
+		name = uniqueModelToolName("web_search", usedNames)
+		description = "Search the web for current public information. Return concise results with source URLs."
+		schema = json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Search query"},"max_results":{"type":"integer","minimum":1,"maximum":10}},"required":["query"]}`)
+	case "run_python":
+		name = uniqueModelToolName("run_python", usedNames)
+		description = "Run a short Python 3 snippet in an isolated, time-limited process and return stdout, stderr, and exit code."
+		schema = json.RawMessage(`{"type":"object","properties":{"code":{"type":"string","description":"Python code to run"}},"required":["code"]}`)
+	default:
+		return
+	}
+	if name == "" {
+		return
+	}
+	runtime.definitions = append(runtime.definitions, llm.ToolDefinition{
+		Name:        name,
+		Description: description,
+		InputSchema: schema,
+	})
+	runtime.nameMap[name] = kind
+	runtime.schemas[name] = schema
+	runtime.builtIn[name] = kind
 }
 
 func uniqueToolIDs(items []uint) []uint {
@@ -194,6 +249,26 @@ func uniqueToolIDs(items []uint) []uint {
 		result = append(result, item)
 	}
 	return result
+}
+
+func uintSet(items []uint) map[uint]struct{} {
+	result := make(map[uint]struct{}, len(items))
+	for _, item := range items {
+		if item != 0 {
+			result[item] = struct{}{}
+		}
+	}
+	return result
+}
+
+func resolveMCPToolTimeoutMS(serverSeconds int, fallbackSeconds int) int {
+	if serverSeconds > 0 {
+		return serverSeconds * 1000
+	}
+	if fallbackSeconds > 0 {
+		return fallbackSeconds * 1000
+	}
+	return 60000
 }
 
 func uniqueModelToolName(base string, used map[string]int) string {

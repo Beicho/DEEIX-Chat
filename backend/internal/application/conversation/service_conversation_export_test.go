@@ -57,3 +57,51 @@ func TestNormalizeRecentMessageLimitUsesMessageWindow(t *testing.T) {
 		t.Fatalf("expected recent message limit capped at %d, got %d", maxMessagePageSize, got)
 	}
 }
+
+func TestValidateConversationTakeoutRejectsOversizedImport(t *testing.T) {
+	takeout := &ConversationTakeout{
+		Format:  conversationTakeoutFormat,
+		Version: conversationExportVersion,
+		Conversations: []ConversationTakeoutItem{
+			{
+				Conversation: ConversationTakeoutConversation{
+					Title:      "Imported",
+					LabelsJSON: "[]",
+				},
+				Messages: make([]ConversationTakeoutMessage, maxTakeoutImportMessages+1),
+			},
+		},
+	}
+
+	if err := validateConversationTakeout(takeout); err != ErrInvalidConversationImport {
+		t.Fatalf("expected invalid import for oversized message list, got %v", err)
+	}
+}
+
+func TestValidateConversationTakeoutAcceptsSingleConversationExportShape(t *testing.T) {
+	takeout := normalizeConversationTakeoutInput(ConversationTakeout{
+		Version:     conversationExportVersion,
+		ExportScope: conversationExportScopeFull,
+		Conversation: ConversationTakeoutConversation{
+			Title:      "Exported",
+			LabelsJSON: `["work"]`,
+			Model:      "gpt-5-mini",
+		},
+		Messages: []ConversationTakeoutMessage{
+			{
+				PublicID:    "msg_1",
+				Role:        "user",
+				ContentType: "text",
+				Content:     "hello",
+				Status:      "completed",
+			},
+		},
+	})
+
+	if err := validateConversationTakeout(&takeout); err != nil {
+		t.Fatalf("expected single conversation export shape to be importable, got %v", err)
+	}
+	if len(takeout.Conversations) != 1 {
+		t.Fatalf("expected normalized single conversation, got %d", len(takeout.Conversations))
+	}
+}

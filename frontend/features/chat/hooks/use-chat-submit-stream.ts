@@ -23,6 +23,11 @@ export function useChatSubmitStream({
   selectedPlatformModelName,
   modelOptions,
   selectedToolIDs,
+  confirmedToolIDs,
+  webSearchEnabled,
+  codeSandboxEnabled,
+  researchMaxLLMCalls,
+  researchMaxToolCalls,
   htmlVisualPromptEnabled,
   htmlVisualColorMode,
   options,
@@ -58,6 +63,11 @@ export function useChatSubmitStream({
   selectedPlatformModelName: string;
   modelOptions: ChatModelOption[];
   selectedToolIDs: number[];
+  confirmedToolIDs: number[];
+  webSearchEnabled: boolean;
+  codeSandboxEnabled: boolean;
+  researchMaxLLMCalls: number;
+  researchMaxToolCalls: number;
   htmlVisualPromptEnabled: boolean;
   htmlVisualColorMode: "light" | "dark";
   options: ConversationOptions;
@@ -97,6 +107,11 @@ export function useChatSubmitStream({
     selectedPlatformModelName,
     modelOptions,
     selectedToolIDs,
+    confirmedToolIDs,
+    webSearchEnabled,
+    codeSandboxEnabled,
+    researchMaxLLMCalls,
+    researchMaxToolCalls,
     htmlVisualPromptEnabled,
     htmlVisualColorMode,
     options,

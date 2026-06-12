@@ -45,6 +45,8 @@
     "newChat": "New chat",
     "search": "Search",
     "recent": "Recent",
+    "announcements": "Announcements",
+    "bookmarks": "Bookmarks",
     "files": "Files",
     "searchTitle": "Search",
     "searchDescription": "Search by conversation ID, title, label, or model",

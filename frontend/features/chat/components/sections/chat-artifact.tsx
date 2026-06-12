@@ -129,7 +129,7 @@ function ArtifactPreviewFrame({ documentHTML, title }: ArtifactPreviewFrameProps
       sandbox="allow-scripts"
       referrerPolicy="no-referrer"
       srcDoc={documentHTML}
-      className="h-full min-h-[320px] w-full bg-white"
+      className="h-full min-h-[320px] w-full bg-background"
     />
   );
 }
@@ -143,14 +143,41 @@ function ChatArtifactPanel({
 }: ChatArtifactPanelProps) {
   const t = useTranslations("chat.artifacts");
   const [copied, setCopied] = React.useState(false);
+  const previewLabels = React.useMemo(
+    () => ({
+      htmlTitle: t("previewLabels.htmlTitle"),
+      cssTitle: t("previewLabels.cssTitle"),
+      cssEyebrow: t("previewLabels.cssEyebrow"),
+      cssHeading: t("previewLabels.cssHeading"),
+      cssDescription: t("previewLabels.cssDescription"),
+      cssPrimaryAction: t("previewLabels.cssPrimaryAction"),
+      cssSecondaryAction: t("previewLabels.cssSecondaryAction"),
+      cssCardTitle: t("previewLabels.cssCardTitle"),
+      cssCardDescription: t("previewLabels.cssCardDescription"),
+      cssMetricTitle: t("previewLabels.cssMetricTitle"),
+      jsTitle: t("previewLabels.jsTitle"),
+      svgTitle: t("previewLabels.svgTitle"),
+      markdownTitle: t("previewLabels.markdownTitle"),
+      mermaidTitle: t("previewLabels.mermaidTitle"),
+      reactTitle: t("previewLabels.reactTitle"),
+      unknownError: t("previewLabels.unknownError"),
+      reactMissingComponent: t("previewLabels.reactMissingComponent"),
+      reactUnsupportedImport: t("previewLabels.reactUnsupportedImport"),
+    }),
+    [t],
+  );
   const previewHTML = React.useMemo(
-    () => buildArtifactPreviewDocument(artifact.kind, artifact.code),
-    [artifact.code, artifact.kind],
+    () => buildArtifactPreviewDocument(artifact.kind, artifact.code, previewLabels),
+    [artifact.code, artifact.kind, previewLabels],
   );
   const canPreview = artifact.code.trim().length > 0;
   const artifactOptions = React.useMemo(
     () => artifacts.map((item, index) => ({ item, label: artifactLabel(item, index) })),
     [artifacts],
+  );
+  const versionOptions = React.useMemo(
+    () => artifacts.filter((item) => item.kind === artifact.kind && item.blockIndex === artifact.blockIndex),
+    [artifact.blockIndex, artifact.kind, artifacts],
   );
 
   React.useEffect(() => {
@@ -219,6 +246,23 @@ function ChatArtifactPanel({
             </ArtifactActionButton>
           </div>
         </div>
+
+        {versionOptions.length > 1 ? (
+          <div className="flex min-h-10 shrink-0 items-center gap-2 overflow-x-auto border-b border-border/40 px-3 py-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <span className="shrink-0 text-[11px] font-medium text-muted-foreground">{t("versions")}</span>
+            {versionOptions.map((item, index) => (
+              <button
+                key={item.id}
+                type="button"
+                data-active={item.id === artifact.id}
+                className="min-h-7 shrink-0 rounded-md border border-border/70 bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground data-[active=true]:border-primary/30 data-[active=true]:bg-primary/10 data-[active=true]:text-primary"
+                onClick={() => onArtifactChange(item.id)}
+              >
+                {t("versionLabel", { index: versionOptions.length - index, total: versionOptions.length })}
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <TabsContent value="preview" className="mt-0 min-h-0 flex-1 overflow-hidden">
           {canPreview ? (

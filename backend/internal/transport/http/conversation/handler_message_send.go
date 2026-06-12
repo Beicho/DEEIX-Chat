@@ -93,8 +93,14 @@ func (h *Handler) parseSendMessageInput(c *gin.Context) (appconversation.SendMes
 		ClientRunID:             req.ClientRunID,
 		FileIDs:                 req.FileIDs,
 		SelectedToolIDs:         req.SelectedToolIDs,
+		ConfirmedToolIDs:        req.ConfirmedToolIDs,
+		WebSearchEnabled:        req.WebSearchEnabled,
+		CodeSandboxEnabled:      req.CodeSandboxEnabled,
+		ResearchMaxLLMCalls:     req.ResearchMaxLLMCalls,
+		ResearchMaxToolCalls:    req.ResearchMaxToolCalls,
 		HTMLVisualPromptEnabled: req.HTMLVisualPromptEnabled,
 		HTMLVisualColorMode:     req.HTMLVisualColorMode,
+		AssistantPublicID:       req.AssistantID,
 		ParentMessagePublicID:   req.ParentMessagePublicID,
 		SourceMessagePublicID:   req.SourceMessagePublicID,
 		BranchReason:            req.BranchReason,
@@ -298,6 +304,8 @@ func handleSendMessageError(c *gin.Context, err error) {
 		response.Error(c, http.StatusServiceUnavailable, "model route not configured")
 	case errors.Is(err, appconversation.ErrUpstreamEmptyResponse):
 		response.Error(c, http.StatusBadGateway, "model returned empty response")
+	case errors.Is(err, appconversation.ErrModerationBlocked):
+		response.Error(c, http.StatusBadRequest, "message was blocked")
 	case errors.Is(err, appconversation.ErrUpstreamRequestFailed):
 		if code := appconversation.MessageErrorCode(err); code != "" {
 			response.ErrorWithCode(c, http.StatusBadGateway, code, mapClientErrorMessage(err))

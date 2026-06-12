@@ -77,6 +77,10 @@ export type UpdateAdminBillingPlanRequest = {
   billingInterval: "month" | "year" | "lifetime" | string;
 };
 
+export type CreateAdminBillingPlanRequest = UpdateAdminBillingPlanRequest & {
+  code: string;
+};
+
 export type AdminBillingPlanData = {
   plan: AdminBillingPlanDTO;
 };
@@ -133,6 +137,86 @@ export type AdminBillingAccountData = {
 export type UpdateAdminBillingAccountBalanceRequest = {
   balanceUSD: number;
   description?: string;
+};
+
+export type AdjustAdminBillingAccountBalanceRequest = {
+  deltaUSD: number;
+  description?: string;
+};
+
+export type AdminBalanceTransactionDTO = {
+  id: number;
+  accountID: number;
+  userID: number;
+  type: string;
+  amountNanousd: number;
+  amountUSD: number;
+  balanceAfterNanousd: number;
+  balanceAfterUSD: number;
+  refType: string;
+  refID: number;
+  refNo: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminBalanceTransactionPage = PagePayload<AdminBalanceTransactionDTO>;
+
+export type AdminBalanceDeltaData = {
+  account: AdminBillingAccountDTO;
+  transaction: AdminBalanceTransactionDTO;
+};
+
+export type AdminPaymentOrderDTO = {
+  orderNo: string;
+  orderType: "subscription" | "topup" | string;
+  userID: number;
+  planID: number;
+  priceID: number;
+  provider: "stripe" | "epay" | string;
+  status: "pending" | "paid" | "failed" | "expired" | string;
+  baseAmountCents: number;
+  baseCurrency: string;
+  payAmountCents: number;
+  payCurrency: string;
+  fxRate: string;
+  creditNanousd: number;
+  creditUSD: number;
+  billingInterval: string;
+  cycles: number;
+  externalPaymentID?: string;
+  externalCheckoutID?: string;
+  checkoutURL?: string;
+  paidAt: string | null;
+  expiredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminPaymentOrderPage = PagePayload<AdminPaymentOrderDTO>;
+
+export type AdminPaymentOrderData = {
+  order: AdminPaymentOrderDTO;
+  activated?: boolean;
+};
+
+export type AdminPaymentOrderActionRequest = {
+  action: "complete" | "expire" | "fail";
+  externalPaymentID?: string;
+};
+
+export type AdminBillingRiskSummaryDTO = {
+  multiAccountClusterCount: number;
+  highRiskClusterCount: number;
+  ignoredClusterCount: number;
+  uniqueFingerprintCount: number;
+  uniqueIPCount: number;
+  generatedAt: string;
+};
+
+export type AdminBillingRiskSummaryData = {
+  risk: AdminBillingRiskSummaryDTO;
 };
 
 export type AdminRedemptionCodeDTO = {

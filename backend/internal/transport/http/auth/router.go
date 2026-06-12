@@ -10,6 +10,10 @@ func (m *Module) RegisterPublicRoutes(api *gin.RouterGroup) {
 	api.POST("/auth/2fa/verify", m.Handler.VerifyTwoFactorLogin)
 	api.POST("/auth/register/email/start", m.Handler.StartEmailRegistration)
 	api.POST("/auth/register/email/complete", m.Handler.CompleteEmailRegistration)
+	api.POST("/auth/password/reset/start", m.Handler.StartPasswordReset)
+	api.POST("/auth/password/reset/complete", m.Handler.CompletePasswordReset)
+	api.POST("/auth/email-login/start", m.Handler.StartEmailCodeLogin)
+	api.POST("/auth/email-login/complete", m.Handler.CompleteEmailCodeLogin)
 	api.POST("/auth/refresh", m.Handler.RefreshToken)
 	api.GET("/auth/providers/:slug/start", m.Handler.StartProviderLogin)
 	api.GET("/auth/providers/:slug/callback", m.Handler.ProviderCallback)
@@ -56,4 +60,7 @@ func (m *Module) RegisterAdminRoutes(adminGroup *gin.RouterGroup) {
 	adminGroup.PATCH("/auth/provider-order", m.Handler.ReorderIdentityProviders)
 	adminGroup.PATCH("/auth/providers/:provider_id", m.Handler.UpdateIdentityProvider)
 	adminGroup.DELETE("/auth/providers/:provider_id", m.Handler.DeleteIdentityProvider)
+	adminGroup.GET("/auth/invitation-codes", m.Handler.ListInvitationCodes)
+	adminGroup.POST("/auth/invitation-codes", m.Handler.CreateInvitationCode)
+	adminGroup.PATCH("/auth/invitation-codes/:code_id", m.Handler.UpdateInvitationCode)
 }

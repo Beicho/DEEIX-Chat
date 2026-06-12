@@ -16,9 +16,12 @@ type ChatMessageUserProps = {
   item: ChatAreaMessage;
   busy: boolean;
   onRetryUserMessage: (message: ChatAreaMessage) => Promise<void> | void;
+  onDeleteMessage?: () => Promise<void> | void;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onCopy: () => void;
+  bookmarked?: boolean;
+  onToggleBookmark?: () => void;
   readOnly?: boolean;
   attachmentContentLoader?: (file: PreviewDialogFile) => Promise<FileContentResult>;
   showBranchNavigator?: boolean;
@@ -28,9 +31,12 @@ export function ChatMessageUser({
   item,
   busy,
   onRetryUserMessage,
+  onDeleteMessage,
   onEditUserMessage,
   onCycleMessageBranch,
   onCopy,
+  bookmarked = false,
+  onToggleBookmark,
   readOnly = false,
   attachmentContentLoader,
   showBranchNavigator = true,
@@ -130,8 +136,11 @@ export function ChatMessageUser({
         showRetry={!busy && !item.isPending}
         onCycleBranch={onCycleMessageBranch}
         onRetry={onRetry}
+        onDelete={onDeleteMessage}
         onEdit={() => setIsEditing(true)}
         onCopy={onCopy}
+        bookmarked={bookmarked}
+        onToggleBookmark={onToggleBookmark}
         readOnly={readOnly}
         alwaysVisible={readOnly}
         showBranchNavigator={showBranchNavigator}

@@ -19,6 +19,7 @@ func (s modelIdentityResolverStub) ResolvePlatformModelIdentity(context.Context,
 }
 
 type billingRepositoryStub struct {
+	repository.BillingRepository
 	mode                       string
 	pricing                    *domainbilling.ModelPricing
 	listPricing                []domainbilling.ModelPricing
@@ -53,6 +54,10 @@ func (r *billingRepositoryStub) GetNativeToolBillingEnabled(context.Context) (bo
 
 func (r *billingRepositoryStub) GetNativeToolPricingJSON(context.Context) (string, error) {
 	return r.nativeToolPricingJSON, nil
+}
+
+func (r *billingRepositoryStub) GetBillingRiskSummary(context.Context) (*domainbilling.RiskSummary, error) {
+	return &domainbilling.RiskSummary{}, nil
 }
 
 func (r *billingRepositoryStub) GetModelPricing(_ context.Context, platformModelName string) (*domainbilling.ModelPricing, error) {
@@ -118,7 +123,13 @@ func (r *billingRepositoryStub) GetActivePlanByCode(_ context.Context, code stri
 	}
 	return nil, repository.ErrNotFound
 }
+func (r *billingRepositoryStub) CreatePlanWithDefaultPrice(context.Context, *domainbilling.Plan, *domainbilling.Price) (*domainbilling.Plan, *domainbilling.Price, error) {
+	panic("not used")
+}
 func (r *billingRepositoryStub) UpdatePlanWithDefaultPrice(context.Context, *domainbilling.Plan, *domainbilling.Price) error {
+	panic("not used")
+}
+func (r *billingRepositoryStub) DeletePlan(context.Context, uint) error {
 	panic("not used")
 }
 func (r *billingRepositoryStub) ListCurrentSubscriptionsByUserIDs(context.Context, []uint, time.Time) ([]domainbilling.Subscription, error) {
@@ -176,6 +187,9 @@ func (r *billingRepositoryStub) UpdatePaymentOrderCheckout(context.Context, stri
 func (r *billingRepositoryStub) GetPaymentOrderByOrderNo(context.Context, string) (*domainbilling.PaymentOrder, error) {
 	panic("not used")
 }
+func (r *billingRepositoryStub) ListPaymentOrders(context.Context, repository.PaymentOrderListFilter, int, int) ([]domainbilling.PaymentOrder, int64, error) {
+	panic("not used")
+}
 func (r *billingRepositoryStub) MarkPaymentOrderPaidAndGrantSubscription(context.Context, string, string, time.Time, *domainbilling.Subscription) (*domainbilling.PaymentOrder, bool, error) {
 	panic("not used")
 }
@@ -214,6 +228,36 @@ func (r *billingRepositoryStub) ListBillingAccountsByUserIDs(context.Context, []
 func (r *billingRepositoryStub) SetBillingAccountBalance(context.Context, uint, int64, string, string) (*domainbilling.BillingAccount, error) {
 	panic("not used")
 }
+func (r *billingRepositoryStub) AdjustBillingAccountBalance(context.Context, uint, int64, string, string) (*domainbilling.BillingAccount, *domainbilling.BalanceTransaction, error) {
+	panic("not used")
+}
+func (r *billingRepositoryStub) ListBalanceTransactions(context.Context, repository.BalanceTransactionListFilter, int, int) ([]domainbilling.BalanceTransaction, int64, error) {
+	panic("not used")
+}
+func (r *billingRepositoryStub) ClaimDailyCheckIn(context.Context, repository.CheckInClaimInput) (*repository.CheckInClaimResult, error) {
+	panic("not used")
+}
+func (r *billingRepositoryStub) GetLatestCheckIn(context.Context, uint) (*domainbilling.CheckInRecord, error) {
+	panic("not used")
+}
+func (r *billingRepositoryStub) GetExternalAccountLink(context.Context, uint, string) (*domainbilling.ExternalAccountLink, error) {
+	panic("not used")
+}
+func (r *billingRepositoryStub) FindUserLinuxDOSub(context.Context, uint) (string, error) {
+	panic("not used")
+}
+func (r *billingRepositoryStub) UpsertExternalAccountLink(context.Context, *domainbilling.ExternalAccountLink) (*domainbilling.ExternalAccountLink, error) {
+	panic("not used")
+}
+func (r *billingRepositoryStub) CreditExternalTransfer(context.Context, repository.ExternalTransferCreditInput) (*domainbilling.ExternalTransfer, *domainbilling.BalanceTransaction, error) {
+	panic("not used")
+}
+func (r *billingRepositoryStub) ListExternalTransfers(context.Context, repository.ExternalTransferListFilter, int, int) ([]domainbilling.ExternalTransfer, int64, error) {
+	panic("not used")
+}
+func (r *billingRepositoryStub) UpdateExternalTransferStatus(context.Context, string, string, string) error {
+	panic("not used")
+}
 func (r *billingRepositoryStub) MarkPaymentOrderPaidAndCreditBalance(context.Context, string, string, time.Time) (*domainbilling.PaymentOrder, bool, error) {
 	panic("not used")
 }
@@ -233,6 +277,9 @@ func (r *billingRepositoryStub) DeleteRedemptionCode(context.Context, uint) erro
 	panic("not used")
 }
 func (r *billingRepositoryStub) RedeemCode(context.Context, repository.RedemptionApplyInput) (*repository.RedemptionApplyResult, error) {
+	panic("not used")
+}
+func (r *billingRepositoryStub) ListRedemptions(context.Context, repository.RedemptionListFilter, int, int) ([]domainbilling.Redemption, int64, error) {
 	panic("not used")
 }
 func (r *billingRepositoryStub) ListModelPricing(context.Context, string, int, int) ([]domainbilling.ModelPricing, int64, error) {

@@ -14,6 +14,7 @@ var sensitiveSettingKeys = map[string]struct{}{
 	"billing:stripe_secret_key":            {},
 	"billing:stripe_webhook_secret":        {},
 	"billing:epay_key":                     {},
+	"billing:newapi_bridge_hmac_key":       {},
 	"extract:tika_auth_token":              {},
 	"extract:docling_auth_token":           {},
 	"extract:tesseract_ocr_auth_token":     {},
@@ -24,6 +25,9 @@ var sensitiveSettingKeys = map[string]struct{}{
 	"extract:mineru_auth_token":            {},
 	"extract:llm_ocr_auth_token":           {},
 	"file:embedding_key":                   {},
+	"moderation:api_key":                   {},
+	"status:notifier_webhook_url":          {},
+	"mcp:web_search_api_key":               {},
 }
 
 func isSensitiveSetting(namespace string, key string) bool {

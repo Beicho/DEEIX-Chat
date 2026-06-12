@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -15,6 +16,15 @@ const (
 	defaultPageSize             = 20
 	maxPageSize                 = 100
 	maxMessagePageSize          = 1000
+	maxConversationSearchQuery  = 120
+	searchResultSnippetMaxRunes = 180
+	messageBookmarkNoteMaxRunes = 512
+	messageBookmarkTagMaxRunes  = 40
+	messageBookmarkMaxTags      = 12
+	newConversationDraftKey     = "__new__"
+	conversationDraftMaxRunes   = 20000
+	conversationDraftMaxJSONLen = 120000
+	conversationDraftMaxFiles   = 20
 	conversationExportVersion   = 1
 	conversationExportScopeFull = "full"
 )
@@ -92,6 +102,146 @@ func (s *Service) ListConversations(
 ) ([]model.Conversation, int64, error) {
 	offset, limit := normalizePage(page, pageSize)
 	return s.repo.ListConversationsByUser(ctx, userID, offset, limit, statusFilter, starredFilter, shareFilter, normalizeConversationProjectFilter(projectFilter))
+}
+
+// SearchConversations 分页搜索当前用户会话标题、标签和消息正文。
+func (s *Service) SearchConversations(ctx context.Context, userID uint, query string, page int, pageSize int) ([]model.ConversationSearchResult, int64, error) {
+	normalizedQuery := normalizeConversationSearchQuery(query)
+	if normalizedQuery == "" {
+		return []model.ConversationSearchResult{}, 0, nil
+	}
+
+	offset, limit := normalizePage(page, pageSize)
+	if limit > 50 {
+		limit = 50
+	}
+	items, total, err := s.repo.SearchConversationsByUser(ctx, userID, normalizedQuery, offset, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	for index := range items {
+		if strings.TrimSpace(items[index].MessageSnippet) == "" {
+			items[index].MessageSnippet = items[index].Conversation.Title
+		}
+		items[index].MessageSnippet = buildConversationSearchSnippet(items[index].MessageSnippet, normalizedQuery, searchResultSnippetMaxRunes)
+	}
+	return items, total, nil
+}
+
+// GetConversationDraft 查询当前用户某个会话的输入框草稿。
+func (s *Service) GetConversationDraft(ctx context.Context, userID uint, conversationPublicID string) (*model.ConversationDraft, error) {
+	normalizedKey := normalizeConversationDraftKey(conversationPublicID)
+	if err := s.ensureConversationDraftAccess(ctx, userID, normalizedKey); err != nil {
+		return nil, err
+	}
+
+	item, err := s.repo.GetConversationDraft(ctx, userID, normalizedKey)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return emptyConversationDraft(userID, normalizedKey), nil
+		}
+		return nil, err
+	}
+	return item, nil
+}
+
+// UpsertConversationDraft 保存当前用户某个会话的输入框草稿；空草稿会清理服务端记录。
+func (s *Service) UpsertConversationDraft(ctx context.Context, userID uint, conversationPublicID string, draft string, attachmentsJSON string) (*model.ConversationDraft, error) {
+	normalizedKey := normalizeConversationDraftKey(conversationPublicID)
+	if err := s.ensureConversationDraftAccess(ctx, userID, normalizedKey); err != nil {
+		return nil, err
+	}
+	if len([]rune(draft)) > conversationDraftMaxRunes {
+		return nil, ErrInvalidConversationDraft
+	}
+
+	normalizedAttachmentsJSON, err := normalizeConversationDraftAttachmentsJSON(attachmentsJSON)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(draft) == "" && normalizedAttachmentsJSON == "[]" {
+		if err := s.repo.DeleteConversationDraft(ctx, userID, normalizedKey); err != nil {
+			return nil, err
+		}
+		return emptyConversationDraft(userID, normalizedKey), nil
+	}
+
+	return s.repo.UpsertConversationDraft(ctx, &model.ConversationDraft{
+		UserID:               userID,
+		ConversationPublicID: normalizedKey,
+		Draft:                draft,
+		AttachmentsJSON:      normalizedAttachmentsJSON,
+	})
+}
+
+// DeleteConversationDraft 删除当前用户某个会话的输入框草稿。
+func (s *Service) DeleteConversationDraft(ctx context.Context, userID uint, conversationPublicID string) (*model.ConversationDraft, error) {
+	normalizedKey := normalizeConversationDraftKey(conversationPublicID)
+	if err := s.ensureConversationDraftAccess(ctx, userID, normalizedKey); err != nil {
+		return nil, err
+	}
+	if err := s.repo.DeleteConversationDraft(ctx, userID, normalizedKey); err != nil {
+		return nil, err
+	}
+	return emptyConversationDraft(userID, normalizedKey), nil
+}
+
+func normalizeConversationDraftKey(value string) string {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" {
+		return newConversationDraftKey
+	}
+	return normalized
+}
+
+func emptyConversationDraft(userID uint, conversationPublicID string) *model.ConversationDraft {
+	return &model.ConversationDraft{
+		UserID:               userID,
+		ConversationPublicID: conversationPublicID,
+		Draft:                "",
+		AttachmentsJSON:      "[]",
+	}
+}
+
+func (s *Service) ensureConversationDraftAccess(ctx context.Context, userID uint, conversationPublicID string) error {
+	if conversationPublicID == newConversationDraftKey {
+		return nil
+	}
+	if _, err := s.repo.GetConversationByPublicID(ctx, conversationPublicID, userID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrConversationNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+func normalizeConversationDraftAttachmentsJSON(raw string) (string, error) {
+	normalized := strings.TrimSpace(raw)
+	if normalized == "" || normalized == "null" {
+		return "[]", nil
+	}
+	if len([]byte(normalized)) > conversationDraftMaxJSONLen {
+		return "", ErrInvalidConversationDraft
+	}
+
+	items := make([]json.RawMessage, 0)
+	if err := json.Unmarshal([]byte(normalized), &items); err != nil {
+		return "", ErrInvalidConversationDraft
+	}
+	if len(items) > conversationDraftMaxFiles {
+		return "", ErrInvalidConversationDraft
+	}
+	for _, item := range items {
+		if len(item) == 0 || strings.TrimSpace(string(item)) == "null" {
+			return "", ErrInvalidConversationDraft
+		}
+	}
+	compacted, err := json.Marshal(items)
+	if err != nil {
+		return "", ErrInvalidConversationDraft
+	}
+	return string(compacted), nil
 }
 
 // ListMessages 查询会话消息（分页）。
@@ -281,6 +431,73 @@ func (s *Service) SetMessageFeedback(
 	}, nil
 }
 
+// SetMessageBookmark 设置当前用户对任意消息的收藏状态。
+func (s *Service) SetMessageBookmark(
+	ctx context.Context,
+	userID uint,
+	messagePublicID string,
+	bookmarked bool,
+	note string,
+	tags []string,
+) (*MessageBookmarkResult, error) {
+	normalizedPublicID := strings.TrimSpace(messagePublicID)
+	if normalizedPublicID == "" {
+		return nil, ErrMessageNotFound
+	}
+
+	message, err := s.repo.GetMessageByPublicIDForUser(ctx, userID, normalizedPublicID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrMessageNotFound
+		}
+		return nil, err
+	}
+
+	normalizedNote := normalizeMessageBookmarkNote(note)
+	normalizedTags := normalizeMessageBookmarkTags(tags)
+	if !bookmarked {
+		if err = s.repo.DeleteMessageBookmark(ctx, userID, message.ID); err != nil {
+			return nil, err
+		}
+		return &MessageBookmarkResult{
+			MessageID:       message.ID,
+			MessagePublicID: message.PublicID,
+			Bookmarked:      false,
+			Tags:            []string{},
+		}, nil
+	}
+
+	tagsJSONBytes, err := json.Marshal(normalizedTags)
+	if err != nil {
+		tagsJSONBytes = []byte("[]")
+	}
+	if err = s.repo.UpsertMessageBookmark(ctx, &model.MessageBookmark{
+		UserID:         userID,
+		ConversationID: message.ConversationID,
+		MessageID:      message.ID,
+		Note:           normalizedNote,
+		TagsJSON:       string(tagsJSONBytes),
+	}); err != nil {
+		return nil, err
+	}
+	return &MessageBookmarkResult{
+		MessageID:       message.ID,
+		MessagePublicID: message.PublicID,
+		Bookmarked:      true,
+		Note:            normalizedNote,
+		Tags:            normalizedTags,
+	}, nil
+}
+
+// ListMessageBookmarks 分页查询当前用户收藏夹。
+func (s *Service) ListMessageBookmarks(ctx context.Context, userID uint, query string, page int, pageSize int) ([]model.MessageBookmarkListItem, int64, error) {
+	offset, limit := normalizePage(page, pageSize)
+	if limit > 50 {
+		limit = 50
+	}
+	return s.repo.ListMessageBookmarks(ctx, userID, strings.TrimSpace(query), offset, limit)
+}
+
 // UpdateAssistantMessageContent 更新当前用户的一条 assistant 消息正文。
 func (s *Service) UpdateAssistantMessageContent(
 	ctx context.Context,
@@ -324,6 +541,25 @@ func (s *Service) UpdateAssistantMessageContent(
 	}
 	updated = &items[0]
 	return updated, nil
+}
+
+// SoftDeleteMessage 标记当前用户的一条消息为已删除，后续列表、导出和分享默认不再返回它。
+func (s *Service) SoftDeleteMessage(ctx context.Context, userID uint, messagePublicID string) (*model.Message, error) {
+	normalizedPublicID := strings.TrimSpace(messagePublicID)
+	if normalizedPublicID == "" {
+		return nil, ErrMessageNotFound
+	}
+	item, err := s.repo.SoftDeleteMessageForUser(ctx, userID, normalizedPublicID, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrMessageNotFound
+		}
+		if errors.Is(err, repository.ErrConflict) {
+			return nil, ErrMessageEditStateInvalid
+		}
+		return nil, err
+	}
+	return item, nil
 }
 
 // RenameConversation 重命名会话。
@@ -421,6 +657,94 @@ func (s *Service) ListConversationRunsByRunIDs(
 		return nil, ErrConversationNotFound
 	}
 	return s.repo.ListConversationRunsByRunIDs(ctx, userID, conversationID, runIDs)
+}
+
+func normalizeConversationSearchQuery(query string) string {
+	fields := strings.Fields(strings.TrimSpace(query))
+	if len(fields) == 0 {
+		return ""
+	}
+	normalized := strings.Join(fields, " ")
+	runes := []rune(normalized)
+	if len(runes) > maxConversationSearchQuery {
+		return string(runes[:maxConversationSearchQuery])
+	}
+	return normalized
+}
+
+func buildConversationSearchSnippet(content string, query string, maxRunes int) string {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" || maxRunes <= 0 {
+		return trimmed
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= maxRunes {
+		return trimmed
+	}
+
+	lowerContent := strings.ToLower(trimmed)
+	lowerQuery := strings.ToLower(strings.TrimSpace(query))
+	matchByteIndex := strings.Index(lowerContent, lowerQuery)
+	if matchByteIndex < 0 {
+		return strings.TrimSpace(string(runes[:maxRunes])) + "..."
+	}
+
+	matchRuneIndex := len([]rune(trimmed[:matchByteIndex]))
+	start := matchRuneIndex - maxRunes/3
+	if start < 0 {
+		start = 0
+	}
+	if start+maxRunes > len(runes) {
+		start = len(runes) - maxRunes
+	}
+	end := start + maxRunes
+
+	prefix := ""
+	if start > 0 {
+		prefix = "..."
+	}
+	suffix := ""
+	if end < len(runes) {
+		suffix = "..."
+	}
+	return prefix + strings.TrimSpace(string(runes[start:end])) + suffix
+}
+
+func normalizeMessageBookmarkNote(note string) string {
+	normalized := strings.TrimSpace(note)
+	runes := []rune(normalized)
+	if len(runes) > messageBookmarkNoteMaxRunes {
+		return string(runes[:messageBookmarkNoteMaxRunes])
+	}
+	return normalized
+}
+
+func normalizeMessageBookmarkTags(tags []string) []string {
+	if len(tags) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]struct{}, len(tags))
+	result := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		normalized := strings.Join(strings.Fields(strings.TrimSpace(tag)), " ")
+		if normalized == "" {
+			continue
+		}
+		runes := []rune(normalized)
+		if len(runes) > messageBookmarkTagMaxRunes {
+			normalized = string(runes[:messageBookmarkTagMaxRunes])
+		}
+		key := strings.ToLower(normalized)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, normalized)
+		if len(result) >= messageBookmarkMaxTags {
+			break
+		}
+	}
+	return result
 }
 
 func normalizePage(page int, pageSize int) (int, int) {

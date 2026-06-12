@@ -14,6 +14,7 @@ import (
 	appprocessing "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/processing"
 	apprag "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/rag"
 	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
+	domaincollab "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/collaboration"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	domainmemory "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/memory"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
@@ -52,6 +53,10 @@ type auditWriter interface {
 	Write(ctx context.Context, requestID string, actorUserID uint, action string, resource string, resourceID string, ip string, userAgent string, detail interface{})
 }
 
+type assistantResolver interface {
+	ResolveAssistantPrompt(ctx context.Context, userID uint, publicID string) (*domaincollab.Assistant, error)
+}
+
 type basicServiceBillingContextKey struct{}
 
 type basicServiceBillingContext struct {
@@ -77,6 +82,8 @@ type Service struct {
 	ragSvc            *apprag.Service
 	billingSvc        *appbilling.Service
 	auditWriter       auditWriter
+	assistantResolver assistantResolver
+	userEnforcer      moderationUserEnforcer
 	storeProvider     appstorage.Provider
 	logger            *zap.Logger
 	toolLimiters      sync.Map
@@ -84,6 +91,16 @@ type Service struct {
 	snapshotCache     sync.Map // conversationID (uint) → *cachedSnapshot
 	userMemCache      sync.Map // userID (uint) → *cachedUserMemories
 	userSettingCache  sync.Map // "userID:key" (string) → *cachedUserSetting
+}
+
+// SetAssistantResolver enables assistant preset prompt injection.
+func (s *Service) SetAssistantResolver(resolver assistantResolver) {
+	s.assistantResolver = resolver
+}
+
+// SetModerationUserEnforcer enables automatic account disposition for repeated content-policy hits.
+func (s *Service) SetModerationUserEnforcer(enforcer moderationUserEnforcer) {
+	s.userEnforcer = enforcer
 }
 
 func (s *Service) llmAttribution() (string, string) {
@@ -133,8 +150,14 @@ type SendMessageInput struct {
 	ClientRunID             string
 	FileIDs                 []string
 	SelectedToolIDs         []uint
+	ConfirmedToolIDs        []uint
+	WebSearchEnabled        bool
+	CodeSandboxEnabled      bool
+	ResearchMaxLLMCalls     int
+	ResearchMaxToolCalls    int
 	HTMLVisualPromptEnabled bool
 	HTMLVisualColorMode     string
+	AssistantPublicID       string
 	ParentMessagePublicID   string
 	SourceMessagePublicID   string
 	BranchReason            string
@@ -170,6 +193,15 @@ type MessageFeedbackResult struct {
 	MyFeedback      string
 	ThumbsUpCount   int64
 	ThumbsDownCount int64
+}
+
+// MessageBookmarkResult 返回收藏后的当前状态。
+type MessageBookmarkResult struct {
+	MessageID       uint
+	MessagePublicID string
+	Bookmarked      bool
+	Note            string
+	Tags            []string
 }
 
 // NewService 创建服务。

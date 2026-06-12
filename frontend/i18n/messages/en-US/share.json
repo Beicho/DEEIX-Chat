@@ -6,5 +6,12 @@
   "signInToContinue": "Sign in to DEEIX Chat to continue",
   "notFoundTitle": "Share unavailable",
   "notFoundDescription": "This share does not exist, has been closed, or the original conversation was deleted.",
+  "passwordTitle": "Password required",
+  "passwordDescription": "Enter the password set by the sharer to view this conversation.",
+  "passwordLabel": "Password",
+  "passwordPlaceholder": "Enter password",
+  "unlock": "View share",
+  "unlocking": "Checking...",
+  "passwordInvalid": "The password is incorrect.",
   "cloneFailed": "Failed to continue conversation"
 }

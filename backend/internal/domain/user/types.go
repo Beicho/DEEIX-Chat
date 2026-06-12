@@ -184,9 +184,28 @@ type ContactVerification struct {
 	UpdatedAt    time.Time
 }
 
+// InvitationCode represents an operator-managed registration invite.
+type InvitationCode struct {
+	ID          uint
+	PublicID    string
+	CodeHash    string
+	Label       string
+	MaxUses     int
+	UsedCount   int
+	Enabled     bool
+	ExpiresAt   *time.Time
+	LastUsedAt  *time.Time
+	CreatedBy   uint
+	DisabledAt  *time.Time
+	DisabledBy  *uint
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 const (
 	ContactVerificationChannelEmail              = "email"
 	ContactVerificationPurposeRegister           = "register"
+	ContactVerificationPurposePasswordReset      = "password_reset"
 	ContactVerificationPurposePasswordChange     = "password_change"
 	ContactVerificationPurposeLogin              = "login"
 	ContactVerificationPurposeAccountDelete      = "account_delete"

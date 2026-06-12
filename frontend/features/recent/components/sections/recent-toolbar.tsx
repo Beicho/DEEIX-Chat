@@ -112,12 +112,12 @@ export function RecentToolbar({
       <div className="flex w-full min-w-0 flex-col gap-2 px-1 text-sm md:w-[calc(100%-3.25rem)] md:flex-row md:items-center md:justify-between md:gap-2 md:px-3">
         {isSelectionMode ? (
           <>
-            <div className="flex w-full min-w-0 items-center gap-4 overflow-x-auto whitespace-nowrap text-foreground/70 [scrollbar-width:none] [-ms-overflow-style:none] md:w-auto md:shrink-0 md:overflow-visible [&::-webkit-scrollbar]:hidden">
+            <div className="flex w-full min-w-0 items-center gap-2 overflow-x-auto whitespace-nowrap text-foreground/70 [scrollbar-width:none] [-ms-overflow-style:none] md:w-auto md:shrink-0 md:gap-4 md:overflow-visible [&::-webkit-scrollbar]:hidden">
               <span>{t("selectedCount", { count: selectedCount })}</span>
               <button
                 type="button"
                 className={cn(
-                  "inline-flex size-11 items-center justify-center rounded-md transition-colors md:size-6",
+                  "relative inline-flex size-8 items-center justify-center rounded-md transition-colors after:absolute after:-inset-1.5 after:content-[''] md:size-6 md:after:hidden",
                   selectedCount > 0
                     ? "text-foreground/60 hover:bg-accent hover:text-foreground"
                     : "text-muted-foreground/50",
@@ -131,7 +131,7 @@ export function RecentToolbar({
               <button
                 type="button"
                 className={cn(
-                  "inline-flex size-11 items-center justify-center rounded-md transition-colors md:size-6",
+                  "relative inline-flex size-8 items-center justify-center rounded-md transition-colors after:absolute after:-inset-1.5 after:content-[''] md:size-6 md:after:hidden",
                   selectedSharedCount > 0
                     ? "text-foreground/60 hover:bg-accent hover:text-foreground"
                     : "text-muted-foreground/50",
@@ -145,7 +145,7 @@ export function RecentToolbar({
               <button
                 type="button"
                 className={cn(
-                  "inline-flex size-11 items-center justify-center rounded-md transition-colors md:size-6",
+                  "relative inline-flex size-8 items-center justify-center rounded-md transition-colors after:absolute after:-inset-1.5 after:content-[''] md:size-6 md:after:hidden",
                   selectedCount > 0
                     ? "text-foreground/60 hover:bg-accent hover:text-foreground"
                     : "text-muted-foreground/50",
@@ -158,7 +158,7 @@ export function RecentToolbar({
               </button>
               <button
                 type="button"
-                className="inline-flex size-11 items-center justify-center rounded-md text-foreground/60 transition-colors hover:bg-accent hover:text-foreground md:size-6"
+                className="relative inline-flex size-8 items-center justify-center rounded-md text-foreground/60 transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:bg-accent hover:text-foreground md:size-6 md:after:hidden"
                 onClick={onExitSelectionMode}
                 aria-label={t("exitSelection")}
               >
@@ -170,7 +170,7 @@ export function RecentToolbar({
           </>
         ) : (
           <>
-            <div className="flex w-full min-w-0 items-center justify-start gap-4 text-foreground/60 md:w-auto md:shrink-0">
+            <div className="flex w-full min-w-0 items-center justify-start gap-2 text-foreground/60 md:w-auto md:shrink-0 md:gap-4">
               <span className="min-w-0 truncate md:hidden">{t("allConversations")}</span>
               <span className="hidden md:inline">{t("allConversationsDescription")}</span>
               <button

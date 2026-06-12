@@ -108,6 +108,25 @@ export function NavStarred() {
     format: "markdown",
     action: "copy",
   })
+  const onExportImage = useConversationExportAction({
+    successMessage: t("exportImageSuccess"),
+    failureMessage: t("exportImageFailed"),
+    format: "image",
+    imageLabels: {
+      titleFallback: t("untitled"),
+      exportedAt: t("imageExport.exportedAt"),
+      conversationID: t("imageExport.conversationID"),
+      roleAssistant: t("imageExport.roleAssistant"),
+      roleSystem: t("imageExport.roleSystem"),
+      roleUser: t("imageExport.roleUser"),
+      roleMessage: t("imageExport.roleMessage"),
+      model: t("imageExport.model"),
+      attachments: t("imageExport.attachments"),
+      noTextContent: t("imageExport.noTextContent"),
+      truncated: t("imageExport.truncated"),
+      watermark: t("imageExport.watermark"),
+    },
+  })
 
   const starredConversationItems = React.useMemo(
     () => starredItems.map((item) => toSidebarConversationItem(item, t("untitled"))),
@@ -297,6 +316,7 @@ export function NavStarred() {
                     onShare={onShare}
                     onExport={onExport}
                     onExportMarkdown={onExportMarkdown}
+                    onExportImage={onExportImage}
                     onCopyMarkdown={onCopyMarkdown}
                     onDelete={onDelete}
                     onNavigate={isMobile ? () => setOpenMobile(false) : undefined}
@@ -387,6 +407,7 @@ export function NavStarred() {
           onOpenChange={(open) => !open && setShareTarget(null)}
           conversationPublicID={shareTarget.publicID}
           conversationTitle={shareTarget.title}
+          onExportImage={() => onExportImage(shareTarget.publicID)}
           onShareChange={(share) => {
             touchByPublicID(shareTarget.publicID, sharePatchFromDTO(share))
           }}

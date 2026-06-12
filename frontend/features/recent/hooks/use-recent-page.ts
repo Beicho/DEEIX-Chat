@@ -40,6 +40,7 @@ import {
 import {
   copyConversationMarkdownExport,
   downloadConversationExport,
+  downloadConversationImageExport,
   downloadConversationMarkdownExport,
 } from "@/features/chat/model/conversation-export";
 
@@ -495,6 +496,35 @@ export function useRecentPage() {
     }
   }, [resolveErrorMessage, t]);
 
+  const onExportImage = React.useCallback(async (item: ConversationDTO) => {
+    const token = await resolveAccessToken();
+    if (!token) {
+      return;
+    }
+    try {
+      const data = await exportConversation(token, item.publicID);
+      await downloadConversationImageExport(data, {
+        titleFallback: t("untitled"),
+        exportedAt: t("imageExport.exportedAt"),
+        conversationID: t("imageExport.conversationID"),
+        roleAssistant: t("imageExport.roleAssistant"),
+        roleSystem: t("imageExport.roleSystem"),
+        roleUser: t("imageExport.roleUser"),
+        roleMessage: t("imageExport.roleMessage"),
+        model: t("imageExport.model"),
+        attachments: t("imageExport.attachments"),
+        noTextContent: t("imageExport.noTextContent"),
+        truncated: t("imageExport.truncated"),
+        watermark: t("imageExport.watermark"),
+      });
+      toast.success(t("exportImageSuccess"));
+    } catch (error) {
+      toast.error(t("exportImageFailed"), {
+        description: resolveErrorMessage(error, t("exportImageFailed")),
+      });
+    }
+  }, [resolveErrorMessage, t]);
+
   const onRenameCommit = React.useCallback(async () => {
     if (!renameTarget) {
       return;
@@ -729,6 +759,7 @@ export function useRecentPage() {
     onRevokeShare,
     onExport,
     onExportMarkdown,
+    onExportImage,
     onCopyMarkdown,
     onDelete,
     setRenameValue,

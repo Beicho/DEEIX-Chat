@@ -45,6 +45,54 @@ func TestCreateAnnouncementAcceptsValidWindow(t *testing.T) {
 	}
 }
 
+func TestCreateAnnouncementAcceptsDraftStatus(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	item, err := service.Create(context.Background(), 7, WriteInput{
+		Title:           "New model available",
+		ContentMarkdown: "New model is ready to review.",
+		Status:          domainannouncement.StatusDraft,
+		Type:            domainannouncement.TypeInfo,
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if item.Status != domainannouncement.StatusDraft {
+		t.Fatalf("Create() status = %q, want %q", item.Status, domainannouncement.StatusDraft)
+	}
+}
+
+func TestCreateNewModelDraftCreatesDraftAnnouncement(t *testing.T) {
+	repo := &fakeRepo{}
+	service := NewService(repo)
+
+	if err := service.CreateNewModelDraft(context.Background(), "gpt-5.4-mini"); err != nil {
+		t.Fatalf("CreateNewModelDraft() error = %v", err)
+	}
+	if repo.item.Title != "新模型上线：gpt-5.4-mini" {
+		t.Fatalf("title = %q", repo.item.Title)
+	}
+	if repo.item.Status != domainannouncement.StatusDraft {
+		t.Fatalf("status = %q, want draft", repo.item.Status)
+	}
+	if repo.item.ContentMarkdown != "gpt-5.4-mini 已加入模型列表。发布后，用户可在公告中看到这条说明。" {
+		t.Fatalf("content = %q", repo.item.ContentMarkdown)
+	}
+}
+
+func TestCreateNewModelDraftSkipsExistingTitle(t *testing.T) {
+	repo := &fakeRepo{existingTitle: "新模型上线：gpt-5.4-mini"}
+	service := NewService(repo)
+
+	if err := service.CreateNewModelDraft(context.Background(), "gpt-5.4-mini"); err != nil {
+		t.Fatalf("CreateNewModelDraft() error = %v", err)
+	}
+	if repo.createCount != 0 {
+		t.Fatalf("create count = %d, want 0", repo.createCount)
+	}
+}
+
 func TestUpdateAnnouncementRejectsInvalidStatus(t *testing.T) {
 	service := NewService(&fakeRepo{})
 	status := "archived"
@@ -82,10 +130,12 @@ func TestCloseRejectsInvalidInput(t *testing.T) {
 }
 
 type fakeRepo struct {
-	item domainannouncement.Announcement
+	item          domainannouncement.Announcement
+	existingTitle string
+	createCount   int
 }
 
-func (r *fakeRepo) ListActiveAnnouncements(context.Context, uint, time.Time) ([]domainannouncement.Announcement, error) {
+func (r *fakeRepo) ListActiveAnnouncements(context.Context, uint, time.Time, bool) ([]domainannouncement.Announcement, error) {
 	return []domainannouncement.Announcement{}, nil
 }
 
@@ -94,9 +144,17 @@ func (r *fakeRepo) ListAdminAnnouncements(context.Context, repository.Announceme
 }
 
 func (r *fakeRepo) CreateAnnouncement(_ context.Context, item *domainannouncement.Announcement) (*domainannouncement.Announcement, error) {
+	r.createCount++
 	item.ID = 1
 	r.item = *item
 	return item, nil
+}
+
+func (r *fakeRepo) GetAnnouncementByTitle(_ context.Context, title string) (*domainannouncement.Announcement, error) {
+	if r.existingTitle == title {
+		return &domainannouncement.Announcement{ID: 1, Title: title}, nil
+	}
+	return nil, repository.ErrNotFound
 }
 
 func (r *fakeRepo) PatchAnnouncement(_ context.Context, id uint, patch repository.AnnouncementPatch) (*domainannouncement.Announcement, error) {

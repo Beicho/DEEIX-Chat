@@ -2,11 +2,14 @@ package mcp
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	systemeventapp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/systemevent"
 	domainmcp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/mcp"
@@ -26,10 +29,15 @@ var (
 	ErrInvalidToolName      = errors.New("invalid mcp tool display name")
 	ErrInvalidToolDesc      = errors.New("invalid mcp tool description")
 	ErrInvalidToolSelection = errors.New("invalid mcp tool selection")
+	ErrInvalidServerTimeout = errors.New("invalid mcp server timeout")
+	ErrServerNotFound       = errors.New("mcp server not found")
 	ErrMCPClientUnavailable = errors.New("mcp client unavailable")
 )
 
-const mcpServerToolListTimeoutMS = 10000
+const (
+	defaultMCPServerToolListTimeoutMS = 30000
+	maxServerTimeoutSeconds           = 300
+)
 
 type Service struct {
 	cfg               *config.Runtime
@@ -43,23 +51,70 @@ type systemEventWriter interface {
 }
 
 type ServerInput struct {
-	Name        string
-	BaseURL     string
-	AuthToken   string
-	HeadersJSON string
-	Status      string
+	OwnerUserID       uint
+	Name              string
+	BaseURL           string
+	AuthToken         string
+	HeadersJSON       string
+	Status            string
+	TimeoutSeconds    int
+	OAuthClientID     string
+	OAuthClientSecret string
+	OAuthAuthURL      string
+	OAuthTokenURL     string
+	OAuthScopes       string
+	OAuthAccessToken  string
+	OAuthRefreshToken string
 }
 
 type ToolInput struct {
-	DisplayName *string
-	Description *string
-	Status      *string
+	DisplayName     *string
+	Description     *string
+	Status          *string
+	DefaultEnabled  *bool
+	RequiresConfirm *bool
 }
 
 // SyncServerToolsInput 描述一次 MCP 工具同步请求。
 type SyncServerToolsInput struct {
 	ServerID  uint
 	RequestID string
+}
+
+// ToolPreferenceInput 描述用户工具选择偏好。
+type ToolPreferenceInput struct {
+	ConversationPublicID string
+	SelectedToolIDs      []uint
+	ConfirmedToolIDs     []uint
+	WebSearchEnabled     bool
+	CodeSandboxEnabled   bool
+	ResearchMaxLLMCalls  int
+	ResearchMaxToolCalls int
+}
+
+// ConnectionTestResult 是连接测试的用户友好结果。
+type ConnectionTestResult struct {
+	OK        bool
+	ErrorCode string
+	Message   string
+	ToolCount int
+}
+
+// OAuthStartResult 返回远程连接器授权入口。
+type OAuthStartResult struct {
+	AuthorizationURL string
+	State            string
+}
+
+// VoiceConfigResult 是语音接口的公开配置摘要。
+type VoiceConfigResult struct {
+	ASREnabled  bool
+	ASRProvider string
+	ASRModel    string
+	TTSEnabled  bool
+	TTSProvider string
+	TTSModel    string
+	TTSVoice    string
 }
 
 // NewServiceWithRuntime 创建 MCP 应用服务。
@@ -76,8 +131,16 @@ func (s *Service) ListServers(ctx context.Context) ([]domainmcp.Server, error) {
 	return s.repo.ListServers(ctx)
 }
 
+func (s *Service) ListUserServers(ctx context.Context, userID uint) ([]domainmcp.Server, error) {
+	return s.repo.ListServersForUser(ctx, userID, false)
+}
+
 func (s *Service) GetServer(ctx context.Context, serverID uint) (*domainmcp.Server, error) {
 	return s.repo.GetServer(ctx, serverID)
+}
+
+func (s *Service) GetUserServer(ctx context.Context, userID uint, serverID uint) (*domainmcp.Server, error) {
+	return s.repo.GetServerForUser(ctx, serverID, userID, false)
 }
 
 func (s *Service) CreateServer(ctx context.Context, input ServerInput) (*domainmcp.Server, error) {
@@ -89,13 +152,39 @@ func (s *Service) CreateServer(ctx context.Context, input ServerInput) (*domainm
 	if err != nil {
 		return nil, err
 	}
+	oauthClientSecretEnc, err := s.encryptOptionalToken(normalized.OAuthClientSecret)
+	if err != nil {
+		return nil, err
+	}
+	oauthAccessTokenEnc, err := s.encryptOptionalToken(normalized.OAuthAccessToken)
+	if err != nil {
+		return nil, err
+	}
+	oauthRefreshTokenEnc, err := s.encryptOptionalToken(normalized.OAuthRefreshToken)
+	if err != nil {
+		return nil, err
+	}
 	return s.repo.CreateServer(ctx, repository.CreateMCPServerInput{
-		Name:         normalized.Name,
-		BaseURL:      normalized.BaseURL,
-		AuthTokenEnc: tokenEnc,
-		HeadersJSON:  normalized.HeadersJSON,
-		Status:       normalized.Status,
+		OwnerUserID:          normalized.OwnerUserID,
+		Name:                 normalized.Name,
+		BaseURL:              normalized.BaseURL,
+		AuthTokenEnc:         tokenEnc,
+		HeadersJSON:          normalized.HeadersJSON,
+		Status:               normalized.Status,
+		TimeoutSeconds:       normalized.TimeoutSeconds,
+		OAuthClientID:        normalized.OAuthClientID,
+		OAuthClientSecretEnc: oauthClientSecretEnc,
+		OAuthAuthURL:         normalized.OAuthAuthURL,
+		OAuthTokenURL:        normalized.OAuthTokenURL,
+		OAuthScopes:          normalized.OAuthScopes,
+		OAuthAccessTokenEnc:  oauthAccessTokenEnc,
+		OAuthRefreshTokenEnc: oauthRefreshTokenEnc,
 	})
+}
+
+func (s *Service) CreateUserServer(ctx context.Context, userID uint, input ServerInput) (*domainmcp.Server, error) {
+	input.OwnerUserID = userID
+	return s.CreateServer(ctx, input)
 }
 
 func (s *Service) UpdateServer(ctx context.Context, serverID uint, input ServerInput) (*domainmcp.Server, error) {
@@ -104,10 +193,15 @@ func (s *Service) UpdateServer(ctx context.Context, serverID uint, input ServerI
 		return nil, err
 	}
 	update := repository.UpdateMCPServerInput{
-		Name:        &normalized.Name,
-		BaseURL:     &normalized.BaseURL,
-		HeadersJSON: &normalized.HeadersJSON,
-		Status:      &normalized.Status,
+		Name:           &normalized.Name,
+		BaseURL:        &normalized.BaseURL,
+		HeadersJSON:    &normalized.HeadersJSON,
+		Status:         &normalized.Status,
+		TimeoutSeconds: &normalized.TimeoutSeconds,
+		OAuthClientID:  &normalized.OAuthClientID,
+		OAuthAuthURL:   &normalized.OAuthAuthURL,
+		OAuthTokenURL:  &normalized.OAuthTokenURL,
+		OAuthScopes:    &normalized.OAuthScopes,
 	}
 	if normalized.AuthToken != "" {
 		tokenEnc, encryptErr := s.encryptToken(normalized.AuthToken)
@@ -116,10 +210,45 @@ func (s *Service) UpdateServer(ctx context.Context, serverID uint, input ServerI
 		}
 		update.AuthTokenEnc = &tokenEnc
 	}
+	if normalized.OAuthClientSecret != "" {
+		value, encryptErr := s.encryptOptionalToken(normalized.OAuthClientSecret)
+		if encryptErr != nil {
+			return nil, encryptErr
+		}
+		update.OAuthClientSecretEnc = &value
+	}
+	if normalized.OAuthAccessToken != "" {
+		value, encryptErr := s.encryptOptionalToken(normalized.OAuthAccessToken)
+		if encryptErr != nil {
+			return nil, encryptErr
+		}
+		update.OAuthAccessTokenEnc = &value
+	}
+	if normalized.OAuthRefreshToken != "" {
+		value, encryptErr := s.encryptOptionalToken(normalized.OAuthRefreshToken)
+		if encryptErr != nil {
+			return nil, encryptErr
+		}
+		update.OAuthRefreshTokenEnc = &value
+	}
 	return s.repo.UpdateServer(ctx, serverID, update)
 }
 
+func (s *Service) UpdateUserServer(ctx context.Context, userID uint, serverID uint, input ServerInput) (*domainmcp.Server, error) {
+	if _, err := s.repo.GetServerForUser(ctx, serverID, userID, false); err != nil {
+		return nil, ErrServerNotFound
+	}
+	return s.UpdateServer(ctx, serverID, input)
+}
+
 func (s *Service) DeleteServer(ctx context.Context, serverID uint) error {
+	return s.repo.DeleteServer(ctx, serverID)
+}
+
+func (s *Service) DeleteUserServer(ctx context.Context, userID uint, serverID uint) error {
+	if _, err := s.repo.GetServerForUser(ctx, serverID, userID, false); err != nil {
+		return ErrServerNotFound
+	}
 	return s.repo.DeleteServer(ctx, serverID)
 }
 
@@ -154,7 +283,7 @@ func (s *Service) SyncServerTools(ctx context.Context, input SyncServerToolsInpu
 	tools, err := s.client.ListTools(ctx, inframcp.CallConfig{
 		BaseURL:   server.BaseURL,
 		AuthToken: token,
-		TimeoutMS: mcpServerToolListTimeoutMS,
+		TimeoutMS: resolveServerTimeoutMS(server.TimeoutSeconds, s.cfg.Snapshot().MCPToolTimeoutSeconds, defaultMCPServerToolListTimeoutMS),
 		Headers:   headers,
 	})
 	if err != nil {
@@ -183,6 +312,9 @@ func (s *Service) SyncServerTools(ctx context.Context, input SyncServerToolsInpu
 			Description:     strings.TrimSpace(tool.Description),
 			InputSchemaJSON: schema,
 			Status:          "active",
+			DefaultEnabled:  false,
+			RequiresConfirm: false,
+			ToolKind:        "remote",
 		})
 	}
 	if err = s.repo.ReplaceServerTools(ctx, serverID, items); err != nil {
@@ -197,6 +329,13 @@ func (s *Service) SyncServerTools(ctx context.Context, input SyncServerToolsInpu
 		"tool_count": len(result),
 	})
 	return result, nil
+}
+
+func (s *Service) SyncUserServerTools(ctx context.Context, userID uint, input SyncServerToolsInput) ([]domainmcp.Tool, error) {
+	if _, err := s.repo.GetServerForUser(ctx, input.ServerID, userID, false); err != nil {
+		return nil, ErrServerNotFound
+	}
+	return s.SyncServerTools(ctx, input)
 }
 
 func (s *Service) writeToolSyncEvent(ctx context.Context, requestID string, level string, event string, serverID uint, message string, detail interface{}) {
@@ -219,11 +358,11 @@ func (s *Service) ListTools(ctx context.Context, serverID uint, onlyActive bool)
 	return s.repo.ListTools(ctx, serverID, onlyActive)
 }
 
-func (s *Service) ListAvailableTools(ctx context.Context) ([]domainmcp.Tool, error) {
+func (s *Service) ListAvailableTools(ctx context.Context, userID uint) ([]domainmcp.Tool, error) {
 	if !s.cfg.Snapshot().MCPEnable {
 		return []domainmcp.Tool{}, nil
 	}
-	servers, err := s.repo.ListServers(ctx)
+	servers, err := s.repo.ListServersForUser(ctx, userID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -263,6 +402,151 @@ func (s *Service) UpdateServerToolsStatus(ctx context.Context, serverID uint, to
 	return s.repo.UpdateServerToolsStatus(ctx, serverID, toolIDs, normalized)
 }
 
+func (s *Service) GetToolPreference(ctx context.Context, userID uint, conversationPublicID string) (*domainmcp.ToolPreference, error) {
+	item, err := s.repo.GetToolPreference(ctx, userID, normalizeConversationPublicID(conversationPublicID))
+	if err == nil {
+		return item, nil
+	}
+	return &domainmcp.ToolPreference{
+		UserID:               userID,
+		ConversationPublicID: normalizeConversationPublicID(conversationPublicID),
+		SelectedToolIDs:      []uint{},
+		ConfirmedToolIDs:     []uint{},
+	}, nil
+}
+
+func (s *Service) UpsertToolPreference(ctx context.Context, userID uint, input ToolPreferenceInput) (*domainmcp.ToolPreference, error) {
+	selectedIDs := uniqueToolIDs(input.SelectedToolIDs)
+	confirmedIDs := uniqueToolIDs(input.ConfirmedToolIDs)
+	if len(selectedIDs) > s.resolveMaxSelectedToolsPerMessage() {
+		return nil, ErrInvalidToolSelection
+	}
+	if len(selectedIDs) > 0 {
+		tools, err := s.repo.ListToolsByIDsForUser(ctx, selectedIDs, userID)
+		if err != nil {
+			return nil, err
+		}
+		if len(tools) != len(selectedIDs) {
+			return nil, ErrInvalidToolSelection
+		}
+	}
+	return s.repo.UpsertToolPreference(ctx, repository.UpsertMCPToolPreferenceInput{
+		UserID:               userID,
+		ConversationPublicID: normalizeConversationPublicID(input.ConversationPublicID),
+		SelectedToolIDs:      selectedIDs,
+		ConfirmedToolIDs:     intersectUintList(confirmedIDs, selectedIDs),
+		WebSearchEnabled:     input.WebSearchEnabled,
+		CodeSandboxEnabled:   input.CodeSandboxEnabled,
+		ResearchMaxLLMCalls:  clampResearchLLMCalls(input.ResearchMaxLLMCalls),
+		ResearchMaxToolCalls: clampResearchToolCalls(input.ResearchMaxToolCalls),
+	})
+}
+
+func (s *Service) TestServerConnection(ctx context.Context, serverID uint) ConnectionTestResult {
+	server, err := s.repo.GetServer(ctx, serverID)
+	if err != nil {
+		return friendlyConnectionError(err)
+	}
+	return s.testServerConnection(ctx, server)
+}
+
+func (s *Service) TestUserServerConnection(ctx context.Context, userID uint, serverID uint) ConnectionTestResult {
+	server, err := s.repo.GetServerForUser(ctx, serverID, userID, false)
+	if err != nil {
+		return friendlyConnectionError(ErrServerNotFound)
+	}
+	return s.testServerConnection(ctx, server)
+}
+
+func (s *Service) testServerConnection(ctx context.Context, server *domainmcp.Server) ConnectionTestResult {
+	if server == nil {
+		return friendlyConnectionError(ErrServerNotFound)
+	}
+	if err := s.validateServerBaseURL(server.BaseURL); err != nil {
+		return friendlyConnectionError(ErrInvalidServerBaseURL)
+	}
+	if s.client == nil {
+		return friendlyConnectionError(ErrMCPClientUnavailable)
+	}
+	token, err := s.decryptToken(server.AuthTokenEnc)
+	if err != nil {
+		return friendlyConnectionError(err)
+	}
+	headers, err := parseHeadersJSON(server.HeadersJSON)
+	if err != nil {
+		return friendlyConnectionError(err)
+	}
+	tools, err := s.client.ListTools(ctx, inframcp.CallConfig{
+		BaseURL:   server.BaseURL,
+		AuthToken: token,
+		TimeoutMS: resolveServerTimeoutMS(server.TimeoutSeconds, s.cfg.Snapshot().MCPToolTimeoutSeconds, defaultMCPServerToolListTimeoutMS),
+		Headers:   headers,
+	})
+	if err != nil {
+		return friendlyConnectionError(err)
+	}
+	return ConnectionTestResult{
+		OK:        true,
+		ErrorCode: "",
+		Message:   "connection_ok",
+		ToolCount: len(tools),
+	}
+}
+
+func (s *Service) StartServerOAuth(ctx context.Context, userID uint, serverID uint, redirectURI string) (OAuthStartResult, error) {
+	server, err := s.repo.GetServerForUser(ctx, serverID, userID, false)
+	if err != nil {
+		return OAuthStartResult{}, ErrServerNotFound
+	}
+	authURL := strings.TrimSpace(server.OAuthAuthURL)
+	clientID := strings.TrimSpace(server.OAuthClientID)
+	if authURL == "" || clientID == "" {
+		return OAuthStartResult{}, ErrInvalidServerBaseURL
+	}
+	parsed, err := url.Parse(authURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return OAuthStartResult{}, ErrInvalidServerBaseURL
+	}
+	state := randomOAuthState(userID, serverID)
+	query := parsed.Query()
+	query.Set("response_type", "code")
+	query.Set("client_id", clientID)
+	if redirect := strings.TrimSpace(redirectURI); redirect != "" {
+		query.Set("redirect_uri", redirect)
+	}
+	if scopes := strings.TrimSpace(server.OAuthScopes); scopes != "" {
+		query.Set("scope", scopes)
+	}
+	query.Set("state", state)
+	parsed.RawQuery = query.Encode()
+	return OAuthStartResult{AuthorizationURL: parsed.String(), State: state}, nil
+}
+
+func (s *Service) CompleteOAuthCallback(ctx context.Context, userID uint, serverID uint, code string, state string) error {
+	if strings.TrimSpace(code) == "" || strings.TrimSpace(state) == "" {
+		return ErrInvalidServerBaseURL
+	}
+	if _, err := s.repo.GetServerForUser(ctx, serverID, userID, false); err != nil {
+		return ErrServerNotFound
+	}
+	status := "pending_token_exchange"
+	_, err := s.repo.UpdateServer(ctx, serverID, repository.UpdateMCPServerInput{OAuthStatus: &status})
+	return err
+}
+
+func (s *Service) VoiceConfig() VoiceConfigResult {
+	cfg := s.cfg.Snapshot()
+	return VoiceConfigResult{
+		ASREnabled:  cfg.VoiceASREnabled,
+		ASRProvider: strings.TrimSpace(cfg.VoiceASRProvider),
+		ASRModel:    strings.TrimSpace(cfg.VoiceASRModel),
+		TTSEnabled:  cfg.VoiceTTSEnabled,
+		TTSProvider: strings.TrimSpace(cfg.VoiceTTSProvider),
+		TTSModel:    strings.TrimSpace(cfg.VoiceTTSModel),
+		TTSVoice:    strings.TrimSpace(cfg.VoiceTTSVoice),
+	}
+}
+
 func (s *Service) normalizeServerInput(input ServerInput, requireToken bool) (ServerInput, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" || len([]rune(name)) > 128 {
@@ -292,15 +576,40 @@ func (s *Service) normalizeServerInput(input ServerInput, requireToken bool) (Se
 	if _, err = parseHeadersJSON(headersJSON); err != nil {
 		return ServerInput{}, ErrInvalidServerHeaders
 	}
+	timeoutSeconds := input.TimeoutSeconds
+	if timeoutSeconds < 0 || timeoutSeconds > maxServerTimeoutSeconds {
+		return ServerInput{}, ErrInvalidServerTimeout
+	}
+	oauthAuthURL := strings.TrimSpace(input.OAuthAuthURL)
+	if oauthAuthURL != "" {
+		if parsed, parseErr := url.Parse(oauthAuthURL); parseErr != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return ServerInput{}, ErrInvalidServerBaseURL
+		}
+	}
+	oauthTokenURL := strings.TrimSpace(input.OAuthTokenURL)
+	if oauthTokenURL != "" {
+		if parsed, parseErr := url.Parse(oauthTokenURL); parseErr != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return ServerInput{}, ErrInvalidServerBaseURL
+		}
+	}
 	if requireToken {
 		input.AuthToken = strings.TrimSpace(input.AuthToken)
 	}
 	return ServerInput{
-		Name:        name,
-		BaseURL:     baseURL,
-		AuthToken:   strings.TrimSpace(input.AuthToken),
-		HeadersJSON: headersJSON,
-		Status:      status,
+		OwnerUserID:       input.OwnerUserID,
+		Name:              name,
+		BaseURL:           baseURL,
+		AuthToken:         strings.TrimSpace(input.AuthToken),
+		HeadersJSON:       headersJSON,
+		Status:            status,
+		TimeoutSeconds:    timeoutSeconds,
+		OAuthClientID:     strings.TrimSpace(input.OAuthClientID),
+		OAuthClientSecret: strings.TrimSpace(input.OAuthClientSecret),
+		OAuthAuthURL:      oauthAuthURL,
+		OAuthTokenURL:     oauthTokenURL,
+		OAuthScopes:       strings.TrimSpace(input.OAuthScopes),
+		OAuthAccessToken:  strings.TrimSpace(input.OAuthAccessToken),
+		OAuthRefreshToken: strings.TrimSpace(input.OAuthRefreshToken),
 	}, nil
 }
 
@@ -338,6 +647,12 @@ func normalizeToolInput(input ToolInput) (repository.UpdateMCPToolInput, error) 
 		}
 		update.Status = &status
 	}
+	if input.DefaultEnabled != nil {
+		update.DefaultEnabled = input.DefaultEnabled
+	}
+	if input.RequiresConfirm != nil {
+		update.RequiresConfirm = input.RequiresConfirm
+	}
 	return update, nil
 }
 
@@ -352,10 +667,23 @@ func normalizeToolStatus(status string) (string, error) {
 }
 
 func (s *Service) encryptToken(token string) (string, error) {
+	if strings.TrimSpace(token) == "" {
+		return "", nil
+	}
 	return secretbox.EncryptString(s.cfg.Snapshot().DataEncryptionKey, token)
 }
 
+func (s *Service) encryptOptionalToken(token string) (string, error) {
+	if strings.TrimSpace(token) == "" {
+		return "", nil
+	}
+	return s.encryptToken(token)
+}
+
 func (s *Service) decryptToken(encrypted string) (string, error) {
+	if strings.TrimSpace(encrypted) == "" {
+		return "", nil
+	}
 	return secretbox.DecryptString(s.cfg.Snapshot().DataEncryptionKey, encrypted)
 }
 
@@ -377,4 +705,125 @@ func parseHeadersJSON(raw string) (map[string]string, error) {
 		result[headerKey] = strings.TrimSpace(item)
 	}
 	return result, nil
+}
+
+func resolveServerTimeoutMS(serverSeconds int, fallbackSeconds int, hardDefaultMS int) int {
+	if serverSeconds > 0 {
+		return serverSeconds * 1000
+	}
+	if fallbackSeconds > 0 {
+		return fallbackSeconds * 1000
+	}
+	return hardDefaultMS
+}
+
+func (s *Service) resolveMaxSelectedToolsPerMessage() int {
+	if s == nil || s.cfg == nil {
+		return config.DefaultMCPMaxSelectedToolsPerMessage
+	}
+	maxTools := s.cfg.Snapshot().MCPMaxSelectedToolsPerMessage
+	if maxTools <= 0 {
+		maxTools = config.DefaultMCPMaxSelectedToolsPerMessage
+	}
+	if maxTools > config.MaxMCPSelectedToolsPerMessage {
+		maxTools = config.MaxMCPSelectedToolsPerMessage
+	}
+	return maxTools
+}
+
+func normalizeConversationPublicID(value string) string {
+	return strings.TrimSpace(value)
+}
+
+func uniqueToolIDs(items []uint) []uint {
+	seen := make(map[uint]struct{}, len(items))
+	result := make([]uint, 0, len(items))
+	for _, item := range items {
+		if item == 0 {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	return result
+}
+
+func intersectUintList(items []uint, allowed []uint) []uint {
+	allowedSet := make(map[uint]struct{}, len(allowed))
+	for _, item := range allowed {
+		if item != 0 {
+			allowedSet[item] = struct{}{}
+		}
+	}
+	result := make([]uint, 0, len(items))
+	for _, item := range uniqueToolIDs(items) {
+		if _, ok := allowedSet[item]; ok {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func clampResearchLLMCalls(value int) int {
+	if value <= 0 {
+		return 0
+	}
+	if value < 2 {
+		return 2
+	}
+	if value > 32 {
+		return 32
+	}
+	return value
+}
+
+func clampResearchToolCalls(value int) int {
+	if value <= 0 {
+		return 0
+	}
+	if value > 64 {
+		return 64
+	}
+	return value
+}
+
+func friendlyConnectionError(err error) ConnectionTestResult {
+	message := strings.TrimSpace(err.Error())
+	code := "connection_failed"
+	switch {
+	case errors.Is(err, ErrServerNotFound):
+		code = "not_found"
+		message = "not_found"
+	case errors.Is(err, ErrInvalidServerBaseURL):
+		code = "invalid_url"
+		message = "invalid_url"
+	case errors.Is(err, ErrMCPClientUnavailable):
+		code = "client_unavailable"
+		message = "client_unavailable"
+	case errors.Is(err, context.DeadlineExceeded), strings.Contains(strings.ToLower(message), "timeout"), strings.Contains(strings.ToLower(message), "deadline"):
+		code = "timeout"
+		message = "timeout"
+	case strings.Contains(strings.ToLower(message), "status=401"), strings.Contains(strings.ToLower(message), "status=403"), strings.Contains(strings.ToLower(message), "unauthorized"):
+		code = "unauthorized"
+		message = "unauthorized"
+	case strings.Contains(strings.ToLower(message), "json-rpc"), strings.Contains(strings.ToLower(message), "protocol"), strings.Contains(strings.ToLower(message), "event stream"):
+		code = "protocol_mismatch"
+		message = "protocol_mismatch"
+	}
+	return ConnectionTestResult{
+		OK:        false,
+		ErrorCode: code,
+		Message:   message,
+	}
+}
+
+func randomOAuthState(userID uint, serverID uint) string {
+	var raw [18]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return fmt.Sprintf("u%d-s%d-%d", userID, serverID, time.Now().UnixNano())
+	}
+	return base64.RawURLEncoding.EncodeToString(raw[:])
 }
