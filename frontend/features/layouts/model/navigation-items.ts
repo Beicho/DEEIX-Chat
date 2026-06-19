@@ -1,5 +1,5 @@
 import { createElement } from "react"
-import { Bell, Bookmark } from "lucide-react"
+import { Bell, Bookmark, Gift } from "lucide-react"
 import { Layers } from "@/components/animate-ui/icons/layers"
 import { MessageCircleMore } from "@/components/animate-ui/icons/message-circle-more"
 import { Plus } from "@/components/animate-ui/icons/plus"
@@ -12,6 +12,10 @@ function BellIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; 
 
 function BookmarkIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" }) {
   return createElement(Bookmark, { size, strokeWidth, className })
+}
+
+function GiftIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" }) {
+  return createElement(Gift, { size, strokeWidth, className })
 }
 
 export const NAVIGATION_ITEMS = [
@@ -37,6 +41,13 @@ export const NAVIGATION_ITEMS = [
     title: "Recent",
     url: "/recent",
     icon: MessageCircleMore,
+    group: "secondary",
+  },
+  {
+    id: "checkin",
+    title: "Check-in",
+    url: "/checkin",
+    icon: GiftIcon,
     group: "secondary",
   },
   {
