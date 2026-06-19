@@ -1,0 +1,23 @@
+{
+  "title": "Daily Check-in",
+  "description": "Check in daily to earn rewards and boost your balance",
+  "consecutiveDays": "Consecutive Days",
+  "todayReward": "Today's Reward",
+  "status": "Status",
+  "claimed": "Claimed",
+  "available": "Available",
+  "alreadyClaimed": "You've checked in today!",
+  "comeBackTomorrow": "Come back tomorrow to continue your streak",
+  "nextCheckIn": "Next check-in available",
+  "readyToClaim": "Ready to claim your reward!",
+  "claimReward": "Claim ${amount} USD today",
+  "claimNow": "Claim Now",
+  "claiming": "Claiming...",
+  "currentBalance": "Current Balance",
+  "howItWorks": "How it works",
+  "rule1": "Check in every day to earn $0.01 USD",
+  "rule2": "Build up consecutive days to maintain your streak",
+  "rule3": "Rewards are automatically added to your account balance",
+  "loading": "Loading...",
+  "retry": "Retry"
+}

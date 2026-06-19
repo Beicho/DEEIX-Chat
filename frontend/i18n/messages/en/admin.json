@@ -1,0 +1,24 @@
+{
+  "checkin": {
+    "title": "Check-in Management",
+    "description": "Manage daily check-in feature and view statistics",
+    "activeUsers": "Active Users",
+    "last7Days": "Last 7 days",
+    "totalRewards": "Total Rewards",
+    "allTime": "All time",
+    "avgStreak": "Avg. Streak",
+    "days": "days",
+    "rewardConfig": "Reward Configuration",
+    "baseRewardLabel": "Base Daily Reward",
+    "baseRewardHelp": "The base reward amount each user receives per daily check-in",
+    "note": "Note",
+    "configNotSupportedYet": "Check-in reward amount is currently hardcoded in backend ($0.01 USD). Future versions will support dynamic configuration.",
+    "configNotSupported": "Check-in configuration is not modifiable in this version. Reward is hardcoded at $0.01 USD",
+    "saveChanges": "Save Changes",
+    "saving": "Saving...",
+    "systemInfo": "System Information",
+    "info1": "Check-in records are permanently stored and never expire",
+    "info2": "Consecutive days counter resets after a break",
+    "info3": "Reward amounts are directly added to user account balance"
+  }
+}
