@@ -20,7 +20,9 @@ export interface ArenaVoteRequest {
 export interface ArenaVoteResult {
   messageGroupID: string;
   winnerModel: string;
-  alreadyVoted: boolean;
+  blindMode?: boolean;
+  totalVotes?: number;
+  alreadyVoted?: boolean;
 }
 
 export interface ArenaLeaderboardEntry {

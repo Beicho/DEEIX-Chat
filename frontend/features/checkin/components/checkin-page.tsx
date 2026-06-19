@@ -55,8 +55,8 @@ export function CheckInPage() {
 
   if (loading) {
     return (
-      <div className="container mx-auto max-w-4xl px-4 py-8">
-        <div className="flex items-center justify-center py-12">
+      <div className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-4 py-6">
+        <div className="mx-auto flex max-w-4xl items-center justify-center py-12">
           <div className="text-muted-foreground">{t("loading")}</div>
         </div>
       </div>
@@ -65,10 +65,10 @@ export function CheckInPage() {
 
   if (error && !status) {
     return (
-      <div className="container mx-auto max-w-4xl px-4 py-8">
+      <div className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-4 py-6">
         <Card className="p-6">
           <div className="text-center text-destructive">{error}</div>
-          <Button onClick={loadStatus} className="mt-4 w-full">
+          <Button onClick={loadStatus} className="mt-4 min-h-11 w-full">
             {t("retry")}
           </Button>
         </Card>
@@ -77,18 +77,19 @@ export function CheckInPage() {
   }
 
   return (
-    <div className="container mx-auto max-w-4xl px-4 py-8">
+    <div className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-4 sm:py-6">
+      <div className="mx-auto max-w-4xl pb-[calc(1rem+env(safe-area-inset-bottom))]">
       <div className="mb-6">
-        <h1 className="text-3xl font-semibold tracking-tight">{t("title")}</h1>
-        <p className="mt-2 text-muted-foreground">{t("description")}</p>
+        <h1 className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">{t("title")}</h1>
+        <p className="mt-2 text-sm text-muted-foreground sm:text-base">{t("description")}</p>
       </div>
 
       {/* Stats Cards */}
-      <div className="mb-6 grid gap-4 md:grid-cols-3">
+      <div className="mb-6 grid gap-3 md:grid-cols-3">
         <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-primary/10 p-2.5">
-              <TrendingUp className="h-5 w-5 text-primary" />
+              <TrendingUp className="h-5 w-5 text-primary" aria-hidden="true" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">{t("consecutiveDays")}</p>
@@ -100,7 +101,7 @@ export function CheckInPage() {
         <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-primary/10 p-2.5">
-              <Gift className="h-5 w-5 text-primary" />
+              <Gift className="h-5 w-5 text-primary" aria-hidden="true" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">{t("todayReward")}</p>
@@ -112,7 +113,7 @@ export function CheckInPage() {
         <Card className="p-4">
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-primary/10 p-2.5">
-              <Calendar className="h-5 w-5 text-primary" />
+              <Calendar className="h-5 w-5 text-primary" aria-hidden="true" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">{t("status")}</p>
@@ -125,12 +126,12 @@ export function CheckInPage() {
       </div>
 
       {/* Main Check-in Card */}
-      <Card className="p-6">
+      <Card className="p-5 sm:p-6">
         <div className="text-center">
           {status?.todayClaimed ? (
             <>
               <div className="mb-4 inline-flex rounded-full bg-green-500/10 p-4">
-                <Gift className="h-12 w-12 text-green-600" />
+                <Gift className="h-12 w-12 text-green-600" aria-hidden="true" />
               </div>
               <h2 className="mb-2 text-2xl font-semibold">{t("alreadyClaimed")}</h2>
               <p className="mb-6 text-muted-foreground">{t("comeBackTomorrow")}</p>
@@ -143,18 +144,13 @@ export function CheckInPage() {
           ) : (
             <>
               <div className="mb-4 inline-flex rounded-full bg-primary/10 p-4">
-                <Gift className="h-12 w-12 text-primary" />
+                <Gift className="h-12 w-12 text-primary" aria-hidden="true" />
               </div>
               <h2 className="mb-2 text-2xl font-semibold">{t("readyToClaim")}</h2>
               <p className="mb-6 text-muted-foreground">
                 {t("claimReward", { amount: status?.rewardUSD.toFixed(2) })}
               </p>
-              <Button
-                size="lg"
-                onClick={handleClaim}
-                disabled={claiming}
-                className="min-w-[200px]"
-              >
+              <Button onClick={handleClaim} disabled={claiming} className="min-h-11 w-full sm:w-auto sm:min-w-[200px]">
                 {claiming ? t("claiming") : t("claimNow")}
               </Button>
               {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
@@ -174,7 +170,7 @@ export function CheckInPage() {
       </Card>
 
       {/* Info Section */}
-      <Card className="mt-6 p-6">
+      <Card className="mt-6 p-5 sm:p-6">
         <h3 className="mb-3 font-semibold">{t("howItWorks")}</h3>
         <ul className="space-y-2 text-sm text-muted-foreground">
           <li>• {t("rule1")}</li>
@@ -182,6 +178,7 @@ export function CheckInPage() {
           <li>• {t("rule3")}</li>
         </ul>
       </Card>
+      </div>
     </div>
   );
 }

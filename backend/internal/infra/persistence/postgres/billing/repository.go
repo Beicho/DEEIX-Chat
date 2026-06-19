@@ -1221,6 +1221,67 @@ func (r *Repo) GetLatestCheckIn(ctx context.Context, userID uint) (*domainbillin
 	return &result, nil
 }
 
+const checkInRewardSettingKey = "checkin_reward_nanousd"
+
+// GetCheckInRewardNanousd returns the configured daily check-in reward.
+func (r *Repo) GetCheckInRewardNanousd(ctx context.Context) (int64, error) {
+	var item model.SystemSetting
+	if err := r.db.WithContext(ctx).
+		Where("namespace = ? AND key = ?", "billing", checkInRewardSettingKey).
+		First(&item).Error; err != nil {
+		return 0, translateError(err)
+	}
+	value, err := strconv.ParseInt(strings.TrimSpace(item.Value), 10, 64)
+	if err != nil || value <= 0 {
+		return 0, repository.ErrInvalidInput
+	}
+	return value, nil
+}
+
+// SetCheckInRewardNanousd persists the configured daily check-in reward.
+func (r *Repo) SetCheckInRewardNanousd(ctx context.Context, rewardNanousd int64) error {
+	if rewardNanousd <= 0 {
+		return repository.ErrInvalidInput
+	}
+	item := model.SystemSetting{
+		Namespace:   "billing",
+		Key:         checkInRewardSettingKey,
+		Value:       strconv.FormatInt(rewardNanousd, 10),
+		ValueType:   "int",
+		Description: "每日签到奖励金额(纳美元)",
+	}
+	return translateError(r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "namespace"}, {Name: "key"}},
+			DoUpdates: clause.AssignmentColumns([]string{"value", "value_type", "description", "updated_at"}),
+		}).
+		Create(&item).Error)
+}
+
+// GetAdminCheckInStats returns aggregate check-in metrics for admin pages.
+func (r *Repo) GetAdminCheckInStats(ctx context.Context, activeSince time.Time) (*domainbilling.AdminCheckInStats, error) {
+	stats := &domainbilling.AdminCheckInStats{}
+	activeSQL := `
+		SELECT COALESCE(count(DISTINCT user_id), 0)
+		FROM billing_checkin_records
+		WHERE deleted_at IS NULL
+		  AND check_in_date >= CAST(? AS date)`
+	if err := r.db.WithContext(ctx).Raw(activeSQL, activeSince).Scan(&stats.ActiveUsersLast7Days).Error; err != nil {
+		return nil, translateError(err)
+	}
+	totalSQL := `
+		SELECT
+			COALESCE(count(*), 0) AS total_claims,
+			COALESCE(sum(reward_nanousd), 0) AS total_reward_nanousd,
+			COALESCE(avg(consecutive_days), 0) AS average_consecutive_days
+		FROM billing_checkin_records
+		WHERE deleted_at IS NULL`
+	if err := r.db.WithContext(ctx).Raw(totalSQL).Scan(stats).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return stats, nil
+}
+
 // GetExternalAccountLink 查询当前用户指定外部平台绑定。
 func (r *Repo) GetExternalAccountLink(ctx context.Context, userID uint, platform string) (*domainbilling.ExternalAccountLink, error) {
 	if userID == 0 || strings.TrimSpace(platform) == "" {

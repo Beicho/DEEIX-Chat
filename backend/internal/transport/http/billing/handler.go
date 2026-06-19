@@ -401,6 +401,36 @@ func (h *Handler) ClaimDailyCheckIn(c *gin.Context) {
 	response.Success(c, CheckInClaimDataResponse{CheckIn: toCheckInClaimResponse(result)})
 }
 
+// GetAdminCheckIn 查询后台签到概览与配置。
+func (h *Handler) GetAdminCheckIn(c *gin.Context) {
+	view, err := h.service.GetAdminCheckInView(c.Request.Context(), time.Now())
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "get check-in admin data failed")
+		return
+	}
+	response.Success(c, toAdminCheckInDataResponse(view))
+}
+
+// PatchAdminCheckInConfig 更新后台签到配置。
+func (h *Handler) PatchAdminCheckInConfig(c *gin.Context) {
+	var req UpdateCheckInConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid check-in config")
+		return
+	}
+	if req.RewardUSD == nil {
+		response.Error(c, http.StatusBadRequest, "invalid check-in config")
+		return
+	}
+	rewardNanousd := usdToNanousd(*req.RewardUSD)
+	view, err := h.service.UpdateCheckInRewardNanousd(c.Request.Context(), rewardNanousd)
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	response.Success(c, toAdminCheckInDataResponse(view))
+}
+
 // ListUserBalanceTransactions godoc
 // @Summary 查询当前用户余额流水
 // @Tags billing
