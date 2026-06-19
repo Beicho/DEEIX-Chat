@@ -6,6 +6,7 @@ export const ADMIN_SECTIONS = [
   { id: "models", label: "Models", href: "/models" },
   { id: "tool-settings", label: "Tools", href: "/tools" },
   { id: "billing", label: "Billing", href: "/billing" },
+  { id: "checkin", label: "Check-in", href: "/checkin" },
   { id: "announcements", label: "Announcements", href: "/announcements" },
   { id: "moderation", label: "Content checks", href: "/moderation" },
   { id: "branding", label: "Branding", href: "/branding" },
