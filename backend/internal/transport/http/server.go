@@ -29,6 +29,7 @@ import (
 	notificationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/notification"
 	securityhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/security"
 	settingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/settings"
+	statushttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/status"
 	usersettingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/usersettings"
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -68,6 +69,7 @@ type Modules struct {
 	Collaboration *collaborationhttp.Module
 	Settings      *settingshttp.Module
 	UserSettings  *usersettingshttp.Module
+	Status        *statushttp.Module
 	StartupLog    func(*zap.Logger)
 }
 
@@ -120,6 +122,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		c.Header("Pragma", "no-cache")
 		c.JSON(http.StatusOK, buildinfo.Snapshot())
 	})
+	if modules.Status != nil {
+		modules.Status.RegisterPublicRoutes(api)
+	}
 	if modules.Auth != nil || modules.Settings != nil || modules.Billing != nil || modules.Conversation != nil || modules.Channel != nil {
 		publicAuth := api.Group("")
 		publicAuth.Use(middleware.PublicAuthRateLimit(limiter, cfg))

@@ -68,6 +68,7 @@ import (
 	notificationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/notification"
 	securityhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/security"
 	settingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/settings"
+	statushttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/status"
 	usersettingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/usersettings"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -298,6 +299,10 @@ func NewApp() (*App, error) {
 	collaborationHandler := collaborationhttp.NewHandler(collaborationService)
 	collaborationModule := collaborationhttp.NewModule(collaborationHandler)
 
+	statusService := statushttp.NewService(db)
+	statusHandler := statushttp.NewHandler(statusService)
+	statusModule := statushttp.NewModule(statusHandler)
+
 	hc := newHealthChecker(db, cfg.CacheDriver, redisClient)
 	rateLimiter := buildRateLimiter(cfg, redisClient, memoryCache)
 	conversationService.SetModerationRateLimiter(rateLimiter)
@@ -318,6 +323,7 @@ func NewApp() (*App, error) {
 		Collaboration: collaborationModule,
 		Settings:      settingsModule,
 		UserSettings:  userSettingsModule,
+		Status:        statusModule,
 		StartupLog: func(log *zap.Logger) {
 			if log == nil || bootstrapSuperAdmin == nil {
 				return
