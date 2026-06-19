@@ -183,6 +183,7 @@ func (s *Service) sendMessageInternal(
 	}
 
 	normalizedBranchReason := normalizeBranchReason(input.BranchReason)
+	normalizedMessageGroupID := normalizePublicID(input.MessageGroupID)
 	branchState, err := s.resolveMessageBranch(ctx, input.ConversationID, input.UserID, input.ParentMessagePublicID, input.SourceMessagePublicID, normalizedBranchReason)
 	if err != nil {
 		retErr = err
@@ -290,6 +291,7 @@ func (s *Service) sendMessageInternal(
 		ContentType:      fallbackContentType(input.ContentType),
 		Content:          input.Content,
 		BranchReason:     normalizedBranchReason,
+		MessageGroupID:   normalizedMessageGroupID,
 		SourceMessageID:  branchState.SourceMessageID,
 		TokenUsage:       estimatedInputTokens,
 		InputTokens:      estimatedInputTokens,
@@ -331,6 +333,7 @@ func (s *Service) sendMessageInternal(
 		ContentType:      "text",
 		Content:          "",
 		BranchReason:     normalizedBranchReason,
+		MessageGroupID:   normalizedMessageGroupID,
 		TokenUsage:       0,
 		InputTokens:      0,
 		OutputTokens:     0,

@@ -178,6 +178,7 @@ type SendMessageInput struct {
 	ParentMessagePublicID   string
 	SourceMessagePublicID   string
 	BranchReason            string
+	MessageGroupID          string
 	Cancelable              bool
 	// OnEvent 用于向调用方推送中间事件（如 rag_search），流式场景使用。
 	OnEvent func(eventType string, payload map[string]interface{}) error

@@ -1443,6 +1443,84 @@ func (r *Repo) DeleteMessageFeedback(ctx context.Context, userID uint, messageID
 		Delete(&models.ConversationMessageFeedback{}).Error)
 }
 
+// CreateArenaVote 写入一次竞技场投票，依赖 (message_group_id, voter_user_id) 唯一约束保证幂等。
+func (r *Repo) CreateArenaVote(ctx context.Context, item *domainconversation.ArenaVote) error {
+	if item == nil {
+		return repository.ErrInvalidInput
+	}
+	entity := models.ArenaVote{
+		MessageGroupID: item.MessageGroupID,
+		ConversationID: item.ConversationID,
+		VoterUserID:    item.VoterUserID,
+		WinnerModel:    item.WinnerModel,
+		BlindMode:      item.BlindMode,
+	}
+	if err := r.db.WithContext(ctx).Create(&entity).Error; err != nil {
+		return translateError(err)
+	}
+	item.ID = entity.ID
+	item.CreatedAt = entity.CreatedAt
+	return nil
+}
+
+// CountArenaVotesByGroup 统计某竞技组的总投票数。
+func (r *Repo) CountArenaVotesByGroup(ctx context.Context, messageGroupID string) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).
+		Model(&models.ArenaVote{}).
+		Where("message_group_id = ?", messageGroupID).
+		Count(&count).Error; err != nil {
+		return 0, translateError(err)
+	}
+	return count, nil
+}
+
+type arenaLeaderboardRow struct {
+	WinnerModel string `gorm:"column:winner_model"`
+	WinCount    int64  `gorm:"column:win_count"`
+}
+
+// ListArenaLeaderboard 聚合各模型胜场、总对局数与胜率，按胜率降序返回。
+// 设计取舍：偏好榜以「胜票」为口径——win_count 为该模型被投为优胜的次数；
+// total_battles 为有效对局总票数（所有投票数）；win_rate = win_count / total_battles。
+func (r *Repo) ListArenaLeaderboard(ctx context.Context, limit int) ([]domainconversation.ArenaLeaderboardEntry, error) {
+	rows := make([]arenaLeaderboardRow, 0)
+	if err := r.db.WithContext(ctx).
+		Model(&models.ArenaVote{}).
+		Select("winner_model, COUNT(*) AS win_count").
+		Group("winner_model").
+		Order("win_count DESC").
+		Find(&rows).Error; err != nil {
+		return nil, translateError(err)
+	}
+
+	var totalBattles int64
+	if err := r.db.WithContext(ctx).
+		Model(&models.ArenaVote{}).
+		Count(&totalBattles).Error; err != nil {
+		return nil, translateError(err)
+	}
+
+	entries := make([]domainconversation.ArenaLeaderboardEntry, 0, len(rows))
+	for _, row := range rows {
+		entry := domainconversation.ArenaLeaderboardEntry{
+			Model:        row.WinnerModel,
+			WinCount:     row.WinCount,
+			TotalBattles: totalBattles,
+		}
+		if totalBattles > 0 {
+			entry.WinRate = float64(row.WinCount) / float64(totalBattles)
+		}
+		entries = append(entries, entry)
+	}
+
+	// win_count 已降序；total_battles 为全局常量，故 win_rate 排序与 win_count 一致。
+	if limit > 0 && len(entries) > limit {
+		entries = entries[:limit]
+	}
+	return entries, nil
+}
+
 // GetUserMessageFeedbackMap 查询用户对消息列表的反馈映射。
 func (r *Repo) GetUserMessageFeedbackMap(
 	ctx context.Context,
@@ -3501,6 +3579,7 @@ func toMessageDomain(item models.Message) domainconversation.Message {
 		ContentType:      item.ContentType,
 		Content:          item.Content,
 		BranchReason:     item.BranchReason,
+		MessageGroupID:   item.MessageGroupID,
 		SourceMessageID:  item.SourceMessageID,
 		TokenUsage:       item.TokenUsage,
 		InputTokens:      item.InputTokens,
@@ -3550,6 +3629,7 @@ func toMessageModel(item *domainconversation.Message) models.Message {
 		ContentType:      item.ContentType,
 		Content:          item.Content,
 		BranchReason:     item.BranchReason,
+		MessageGroupID:   item.MessageGroupID,
 		SourceMessageID:  item.SourceMessageID,
 		TokenUsage:       item.TokenUsage,
 		InputTokens:      item.InputTokens,

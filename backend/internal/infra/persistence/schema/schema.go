@@ -37,6 +37,7 @@ func Models() []interface{} {
 		&model.Message{},
 		&model.ConversationMessageFeedback{},
 		&model.MessageBookmark{},
+		&model.ArenaVote{},
 		&model.ConversationDraft{},
 		&model.Attachment{},
 		&model.FileObject{},

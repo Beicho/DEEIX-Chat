@@ -196,6 +196,7 @@ type Message struct {
 	ContentType      string
 	Content          string
 	BranchReason     string
+	MessageGroupID   string
 	SourceMessageID  *uint
 	TokenUsage       int64
 	InputTokens      int64
@@ -577,4 +578,23 @@ type MessageChunk struct {
 	TokenCount     int
 	Similarity     float64 // 检索时附加的相似度分数（写入时为 0）
 	CreatedAt      time.Time
+}
+
+// ArenaVote 表示用户对一组竞技场分支的偏好投票。
+type ArenaVote struct {
+	ID             uint
+	MessageGroupID string
+	ConversationID uint
+	VoterUserID    uint
+	WinnerModel    string
+	BlindMode      bool
+	CreatedAt      time.Time
+}
+
+// ArenaLeaderboardEntry 表示偏好榜中单个模型的聚合统计。
+type ArenaLeaderboardEntry struct {
+	Model        string
+	WinCount     int64
+	TotalBattles int64
+	WinRate      float64
 }
