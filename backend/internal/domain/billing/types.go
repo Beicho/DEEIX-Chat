@@ -506,3 +506,11 @@ type AdminDashboardModelStats struct {
 	DurationSeconds   int64
 	BilledNanousd     int64
 }
+
+// AdminCheckInStats summarizes daily check-in activity for admin pages.
+type AdminCheckInStats struct {
+	ActiveUsersLast7Days   int64
+	TotalClaims            int64
+	TotalRewardNanousd     int64
+	AverageConsecutiveDays float64
+}

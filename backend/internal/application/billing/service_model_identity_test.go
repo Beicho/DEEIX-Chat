@@ -37,6 +37,8 @@ type billingRepositoryStub struct {
 	addedUsage                 *domainbilling.UsageLedger
 	settledUsage               *domainbilling.UsageLedger
 	settlementReservation      *domainbilling.UsageBalanceReservation
+	checkInRewardNanousd       int64
+	checkInRewardErr           error
 }
 
 func (r *billingRepositoryStub) UpdatePaymentOrderStatus(context.Context, string, string) (*domainbilling.PaymentOrder, error) {
@@ -243,6 +245,21 @@ func (r *billingRepositoryStub) ClaimDailyCheckIn(context.Context, repository.Ch
 func (r *billingRepositoryStub) GetLatestCheckIn(context.Context, uint) (*domainbilling.CheckInRecord, error) {
 	panic("not used")
 }
+func (r *billingRepositoryStub) GetCheckInRewardNanousd(context.Context) (int64, error) {
+	if r.checkInRewardErr != nil {
+		return 0, r.checkInRewardErr
+	}
+	if r.checkInRewardNanousd != 0 {
+		return r.checkInRewardNanousd, nil
+	}
+	return defaultCheckInRewardNanousd, nil
+}
+func (r *billingRepositoryStub) SetCheckInRewardNanousd(context.Context, int64) error {
+	panic("not used")
+}
+func (r *billingRepositoryStub) GetAdminCheckInStats(context.Context, time.Time) (*domainbilling.AdminCheckInStats, error) {
+	panic("not used")
+}
 func (r *billingRepositoryStub) GetExternalAccountLink(context.Context, uint, string) (*domainbilling.ExternalAccountLink, error) {
 	panic("not used")
 }
@@ -315,6 +332,41 @@ func (r *billingRepositoryStub) GetAdminDashboardStats(context.Context, time.Tim
 
 func ptrTime(value time.Time) *time.Time {
 	return &value
+}
+
+func TestCheckInRewardNanousdFallsBackForMissingOrInvalidConfig(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		repo *billingRepositoryStub
+	}{
+		{
+			name: "missing config",
+			repo: &billingRepositoryStub{checkInRewardErr: repository.ErrNotFound},
+		},
+		{
+			name: "invalid config",
+			repo: &billingRepositoryStub{checkInRewardErr: repository.ErrInvalidInput},
+		},
+		{
+			name: "non-positive config",
+			repo: &billingRepositoryStub{checkInRewardNanousd: -1},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			service := NewService(tc.repo)
+			reward, err := service.checkInRewardNanousd(context.Background())
+			if err != nil {
+				t.Fatalf("checkInRewardNanousd() error = %v", err)
+			}
+			if reward != defaultCheckInRewardNanousd {
+				t.Fatalf("reward = %d, want %d", reward, defaultCheckInRewardNanousd)
+			}
+		})
+	}
 }
 
 func TestBuildUsageLedgerSnapshotsModelIdentity(t *testing.T) {

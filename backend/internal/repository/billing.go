@@ -39,6 +39,9 @@ type BillingRepository interface {
 	ListBalanceTransactions(ctx context.Context, filter BalanceTransactionListFilter, offset int, limit int) ([]domainbilling.BalanceTransaction, int64, error)
 	ClaimDailyCheckIn(ctx context.Context, input CheckInClaimInput) (*CheckInClaimResult, error)
 	GetLatestCheckIn(ctx context.Context, userID uint) (*domainbilling.CheckInRecord, error)
+	GetCheckInRewardNanousd(ctx context.Context) (int64, error)
+	SetCheckInRewardNanousd(ctx context.Context, rewardNanousd int64) error
+	GetAdminCheckInStats(ctx context.Context, activeSince time.Time) (*domainbilling.AdminCheckInStats, error)
 	GetExternalAccountLink(ctx context.Context, userID uint, platform string) (*domainbilling.ExternalAccountLink, error)
 	FindUserLinuxDOSub(ctx context.Context, userID uint) (string, error)
 	UpsertExternalAccountLink(ctx context.Context, link *domainbilling.ExternalAccountLink) (*domainbilling.ExternalAccountLink, error)

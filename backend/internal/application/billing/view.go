@@ -68,13 +68,13 @@ type BalanceDeltaView struct {
 
 // CheckInStatusView 表示用户每日签到状态。
 type CheckInStatusView struct {
-	TodayClaimed        bool
-	RewardNanousd       int64
-	ConsecutiveDays     int
-	LastCheckInDate      *time.Time
-	NextCheckInDate      time.Time
-	Account              *domainbilling.BillingAccount
-	LatestTransaction    *domainbilling.BalanceTransaction
+	TodayClaimed      bool
+	RewardNanousd     int64
+	ConsecutiveDays   int
+	LastCheckInDate   *time.Time
+	NextCheckInDate   time.Time
+	Account           *domainbilling.BillingAccount
+	LatestTransaction *domainbilling.BalanceTransaction
 }
 
 // CheckInClaimView 表示用户每日签到领取结果。
@@ -84,6 +84,12 @@ type CheckInClaimView struct {
 	Transaction    *domainbilling.BalanceTransaction
 	AlreadyClaimed bool
 	RewardNanousd  int64
+}
+
+// AdminCheckInView 表示后台签到概览和配置。
+type AdminCheckInView struct {
+	Stats         domainbilling.AdminCheckInStats
+	RewardNanousd int64
 }
 
 // RiskSummaryView 表示管理员计费页风控摘要。

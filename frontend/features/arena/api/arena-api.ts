@@ -13,10 +13,11 @@ export async function submitArenaVote(
   const accessToken = readAccessToken();
   if (!accessToken) throw new Error("Not authenticated");
 
-  return authedRequest<ArenaVoteResult>(
+  const response = await authedRequest<ArenaVoteResult | { vote: ArenaVoteResult }>(
     `/api/v1/conversations/${conversationID}/arena-vote`,
     { method: "POST", accessToken, body: payload }
   );
+  return "vote" in response ? response.vote : response;
 }
 
 export async function getArenaLeaderboard(): Promise<ArenaLeaderboardEntry[]> {

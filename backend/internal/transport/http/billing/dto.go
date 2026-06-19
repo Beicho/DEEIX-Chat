@@ -60,6 +60,11 @@ type UpdateBillingAccountBalanceRequest struct {
 	Description string  `json:"description" binding:"omitempty,max=255"`
 }
 
+// UpdateCheckInConfigRequest updates daily check-in settings.
+type UpdateCheckInConfigRequest struct {
+	RewardUSD *float64 `json:"rewardUSD" binding:"omitempty,min=0"`
+}
+
 // AdjustBillingAccountBalanceRequest 管理员原子增减用户余额。
 type AdjustBillingAccountBalanceRequest struct {
 	DeltaUSD    float64 `json:"deltaUSD" binding:"required"`
@@ -441,14 +446,14 @@ type BalanceDeltaDataResponse struct {
 
 // CheckInStatusResponse 每日签到状态响应。
 type CheckInStatusResponse struct {
-	TodayClaimed      bool                    `json:"todayClaimed"`
-	RewardUSD         float64                 `json:"rewardUSD"`
-	RewardNanousd     int64                   `json:"rewardNanousd"`
-	ConsecutiveDays   int                     `json:"consecutiveDays"`
-	LastCheckInDate    *time.Time              `json:"lastCheckInDate"`
-	NextCheckInDate    time.Time               `json:"nextCheckInDate"`
-	Account            *BillingAccountResponse `json:"account"`
-	LatestTransaction  *BalanceTransactionResponse `json:"latestTransaction,omitempty"`
+	TodayClaimed      bool                        `json:"todayClaimed"`
+	RewardUSD         float64                     `json:"rewardUSD"`
+	RewardNanousd     int64                       `json:"rewardNanousd"`
+	ConsecutiveDays   int                         `json:"consecutiveDays"`
+	LastCheckInDate   *time.Time                  `json:"lastCheckInDate"`
+	NextCheckInDate   time.Time                   `json:"nextCheckInDate"`
+	Account           *BillingAccountResponse     `json:"account"`
+	LatestTransaction *BalanceTransactionResponse `json:"latestTransaction,omitempty"`
 }
 
 // CheckInStatusDataResponse 每日签到状态操作响应。
@@ -472,6 +477,27 @@ type CheckInClaimResponse struct {
 // CheckInClaimDataResponse 每日签到领取操作响应。
 type CheckInClaimDataResponse struct {
 	CheckIn CheckInClaimResponse `json:"checkIn"`
+}
+
+// AdminCheckInStatsResponse summarizes check-in activity for admins.
+type AdminCheckInStatsResponse struct {
+	ActiveUsersLast7Days   int64   `json:"activeUsersLast7Days"`
+	TotalClaims            int64   `json:"totalClaims"`
+	TotalRewardUSD         float64 `json:"totalRewardUSD"`
+	TotalRewardNanousd     int64   `json:"totalRewardNanousd"`
+	AverageConsecutiveDays float64 `json:"averageConsecutiveDays"`
+}
+
+// AdminCheckInConfigResponse exposes current check-in settings for admins.
+type AdminCheckInConfigResponse struct {
+	RewardUSD     float64 `json:"rewardUSD"`
+	RewardNanousd int64   `json:"rewardNanousd"`
+}
+
+// AdminCheckInDataResponse wraps admin check-in stats and config.
+type AdminCheckInDataResponse struct {
+	Stats  AdminCheckInStatsResponse  `json:"stats"`
+	Config AdminCheckInConfigResponse `json:"config"`
 }
 
 // ExternalAccountLinkResponse 外部账号绑定响应。
@@ -1122,10 +1148,10 @@ func toCheckInStatusResponse(item *appbilling.CheckInStatusView) CheckInStatusRe
 		transaction = &value
 	}
 	return CheckInStatusResponse{
-		TodayClaimed:     item.TodayClaimed,
-		RewardUSD:        nanousdToUSD(item.RewardNanousd),
-		RewardNanousd:    item.RewardNanousd,
-		ConsecutiveDays:  item.ConsecutiveDays,
+		TodayClaimed:      item.TodayClaimed,
+		RewardUSD:         nanousdToUSD(item.RewardNanousd),
+		RewardNanousd:     item.RewardNanousd,
+		ConsecutiveDays:   item.ConsecutiveDays,
 		LastCheckInDate:   item.LastCheckInDate,
 		NextCheckInDate:   item.NextCheckInDate,
 		Account:           account,
@@ -1157,6 +1183,25 @@ func toCheckInClaimResponse(item *appbilling.CheckInClaimView) CheckInClaimRespo
 		BalanceTransactionID: item.Record.BalanceTransactionID,
 		Account:              account,
 		Transaction:          transaction,
+	}
+}
+
+func toAdminCheckInDataResponse(item *appbilling.AdminCheckInView) AdminCheckInDataResponse {
+	if item == nil {
+		return AdminCheckInDataResponse{}
+	}
+	return AdminCheckInDataResponse{
+		Stats: AdminCheckInStatsResponse{
+			ActiveUsersLast7Days:   item.Stats.ActiveUsersLast7Days,
+			TotalClaims:            item.Stats.TotalClaims,
+			TotalRewardUSD:         nanousdToUSD(item.Stats.TotalRewardNanousd),
+			TotalRewardNanousd:     item.Stats.TotalRewardNanousd,
+			AverageConsecutiveDays: item.Stats.AverageConsecutiveDays,
+		},
+		Config: AdminCheckInConfigResponse{
+			RewardUSD:     nanousdToUSD(item.RewardNanousd),
+			RewardNanousd: item.RewardNanousd,
+		},
 	}
 }
 

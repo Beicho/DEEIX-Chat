@@ -2627,8 +2627,12 @@ func (s *Service) GetCheckInStatus(ctx context.Context, userID uint, now time.Ti
 		return nil, repository.ErrInvalidInput
 	}
 	today := utcDateOnly(now)
+	rewardNanousd, err := s.checkInRewardNanousd(ctx)
+	if err != nil {
+		return nil, err
+	}
 	status := &CheckInStatusView{
-		RewardNanousd:   defaultCheckInRewardNanousd,
+		RewardNanousd:   rewardNanousd,
 		ConsecutiveDays: 0,
 		NextCheckInDate: today.AddDate(0, 0, 1),
 	}
@@ -2661,6 +2665,10 @@ func (s *Service) ClaimDailyCheckIn(ctx context.Context, userID uint, now time.T
 		return nil, repository.ErrInvalidInput
 	}
 	today := utcDateOnly(now)
+	rewardNanousd, err := s.checkInRewardNanousd(ctx)
+	if err != nil {
+		return nil, err
+	}
 	consecutiveDays := 1
 	latest, err := s.repo.GetLatestCheckIn(ctx, userID)
 	if err != nil && !errors.Is(err, repository.ErrNotFound) {
@@ -2677,7 +2685,7 @@ func (s *Service) ClaimDailyCheckIn(ctx context.Context, userID uint, now time.T
 	result, err := s.repo.ClaimDailyCheckIn(ctx, repository.CheckInClaimInput{
 		UserID:         userID,
 		CheckInDate:    today,
-		RewardNanousd:  defaultCheckInRewardNanousd,
+		RewardNanousd:  rewardNanousd,
 		RefNo:          fmt.Sprintf("checkin-%d-%s", userID, today.Format("20060102")),
 		Description:    "Daily check-in reward",
 		ConsecutiveDay: consecutiveDays,
@@ -2690,8 +2698,53 @@ func (s *Service) ClaimDailyCheckIn(ctx context.Context, userID uint, now time.T
 		Account:        result.Account,
 		Transaction:    result.Transaction,
 		AlreadyClaimed: result.AlreadyClaimed,
-		RewardNanousd:  defaultCheckInRewardNanousd,
+		RewardNanousd:  rewardNanousd,
 	}, nil
+}
+
+func (s *Service) checkInRewardNanousd(ctx context.Context) (int64, error) {
+	reward, err := s.repo.GetCheckInRewardNanousd(ctx)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) || errors.Is(err, repository.ErrInvalidInput) {
+			return defaultCheckInRewardNanousd, nil
+		}
+		return 0, err
+	}
+	if reward <= 0 {
+		return defaultCheckInRewardNanousd, nil
+	}
+	return reward, nil
+}
+
+// GetAdminCheckInView 查询后台签到统计与奖励配置。
+func (s *Service) GetAdminCheckInView(ctx context.Context, now time.Time) (*AdminCheckInView, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	activeSince := utcDateOnly(now.UTC()).AddDate(0, 0, -6)
+	rewardNanousd, err := s.checkInRewardNanousd(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stats, err := s.repo.GetAdminCheckInStats(ctx, activeSince)
+	if err != nil {
+		return nil, err
+	}
+	if stats == nil {
+		stats = &domainbilling.AdminCheckInStats{}
+	}
+	return &AdminCheckInView{Stats: *stats, RewardNanousd: rewardNanousd}, nil
+}
+
+// UpdateCheckInRewardNanousd updates the daily check-in reward.
+func (s *Service) UpdateCheckInRewardNanousd(ctx context.Context, rewardNanousd int64) (*AdminCheckInView, error) {
+	if rewardNanousd <= 0 {
+		return nil, repository.ErrInvalidInput
+	}
+	if err := s.repo.SetCheckInRewardNanousd(ctx, rewardNanousd); err != nil {
+		return nil, err
+	}
+	return s.GetAdminCheckInView(ctx, time.Now())
 }
 
 // SetBillingAccountBalance 管理员设置用户按量余额。
