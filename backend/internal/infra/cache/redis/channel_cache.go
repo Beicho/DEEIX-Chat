@@ -192,15 +192,15 @@ func (c *channelCache) checkCircuitState(ctx context.Context, openKey, untilKey,
 // ---------------------------------------------------------------------------
 
 // RecordCircuitFailure 使用 Lua 脚本原子记录失败并按阈值触发熔断。
-func (c *channelCache) RecordCircuitFailure(ctx context.Context, input repository.CircuitFailureInput) error {
+func (c *channelCache) RecordCircuitFailure(ctx context.Context, input repository.CircuitFailureInput) (repository.CircuitFailureResult, error) {
 	if c.client == nil || input.UpstreamID == 0 || strings.TrimSpace(input.ModelKey) == "" {
-		return nil
+		return repository.CircuitFailureResult{}, nil
 	}
 	activeModelKeysJSON, err := json.Marshal(input.ActiveModelKeys)
 	if err != nil {
-		return err
+		return repository.CircuitFailureResult{}, err
 	}
-	_, err = circuitBreakerRecordFailureScript.Run(ctx, c.client, []string{
+	raw, err := circuitBreakerRecordFailureScript.Run(ctx, c.client, []string{
 		cbModelFailsKey(input.UpstreamID, input.ModelKey),
 		cbModelOpenKey(input.UpstreamID, input.ModelKey),
 		cbModelUntilKey(input.UpstreamID, input.ModelKey),
@@ -223,7 +223,29 @@ func (c *channelCache) RecordCircuitFailure(ctx context.Context, input repositor
 		string(activeModelKeysJSON),
 		circuitProbeTTLSec,
 	).Result()
-	return err
+	if err != nil {
+		return repository.CircuitFailureResult{}, err
+	}
+	return parseCircuitFailureResult(raw), nil
+}
+
+// parseCircuitFailureResult 解析 Lua 脚本返回的 {model_tripped, upstream_tripped} JSON。
+func parseCircuitFailureResult(raw interface{}) repository.CircuitFailureResult {
+	encoded, ok := raw.(string)
+	if !ok || strings.TrimSpace(encoded) == "" {
+		return repository.CircuitFailureResult{}
+	}
+	var decoded struct {
+		ModelTripped    int `json:"model_tripped"`
+		UpstreamTripped int `json:"upstream_tripped"`
+	}
+	if err := json.Unmarshal([]byte(encoded), &decoded); err != nil {
+		return repository.CircuitFailureResult{}
+	}
+	return repository.CircuitFailureResult{
+		ModelTripped:    decoded.ModelTripped == 1,
+		UpstreamTripped: decoded.UpstreamTripped == 1,
+	}
 }
 
 // RecordFailureMetadata 记录上游最近失败时间与错误信息（非关键路径）。

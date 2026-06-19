@@ -197,6 +197,10 @@ func (r *modelUpdateRepo) ListActiveRouteBindingCodesForUpstream(context.Context
 	return nil, nil
 }
 
+func (r *modelUpdateRepo) ListActivePlatformModelNamesForUpstream(context.Context, uint) ([]string, error) {
+	return nil, nil
+}
+
 func (r *modelUpdateRepo) GetLLMSetting(context.Context, string) (*domainchannel.LLMSetting, error) {
 	return nil, repository.ErrNotFound
 }

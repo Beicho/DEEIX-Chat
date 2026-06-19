@@ -30,6 +30,14 @@ type RateLimitBackoffParams struct {
 	BackoffMultiplier int
 }
 
+// CircuitFailureResult 描述一次失败记录后熔断器是否发生跳闸（CLOSED→OPEN）。
+type CircuitFailureResult struct {
+	// ModelTripped 表示模型级熔断在本次记录中触发打开。
+	ModelTripped bool
+	// UpstreamTripped 表示上游（渠道）级熔断在本次记录中触发打开。
+	UpstreamTripped bool
+}
+
 // ChannelCacheRepository 封装 channel 模块的缓存能力，屏蔽 Redis 细节。
 type ChannelCacheRepository interface {
 	// CheckUpstreamCircuitState 检查上游级熔断状态。
@@ -41,7 +49,8 @@ type ChannelCacheRepository interface {
 	CheckModelCircuitState(ctx context.Context, upstreamID uint, modelKey string) (string, error)
 
 	// RecordCircuitFailure 使用 Lua 脚本原子记录失败并按阈值触发熔断。
-	RecordCircuitFailure(ctx context.Context, input CircuitFailureInput) error
+	// 返回值标识本次记录是否使模型级/上游级熔断发生 CLOSED→OPEN 跳闸，供告警 hook 使用。
+	RecordCircuitFailure(ctx context.Context, input CircuitFailureInput) (CircuitFailureResult, error)
 
 	// RecordFailureMetadata 记录上游最近失败时间与错误信息；写入失败不阻塞主请求。
 	RecordFailureMetadata(ctx context.Context, upstreamID uint, lastError string)
@@ -354,6 +363,8 @@ type ChannelRepository interface {
 	ListModelUpstreamSources(ctx context.Context, platformModelName string, offset int, limit int) ([]ChannelModelSourceRow, int64, error)
 	ListActiveRoutesByModel(ctx context.Context, platformModelName string) ([]ChannelUpstreamRouteRow, error)
 	ListActiveRouteBindingCodesForUpstream(ctx context.Context, upstreamID uint) ([]string, error)
+	// ListActivePlatformModelNamesForUpstream 返回某上游下所有活跃路由对应的平台模型名（用户可见名，去重）。
+	ListActivePlatformModelNamesForUpstream(ctx context.Context, upstreamID uint) ([]string, error)
 	GetLLMSetting(ctx context.Context, key string) (*domainchannel.LLMSetting, error)
 	ListLLMSettings(ctx context.Context) ([]domainchannel.LLMSetting, error)
 	UpsertLLMSetting(ctx context.Context, item *domainchannel.LLMSetting) error
