@@ -12,12 +12,12 @@
   "readyToClaim": "今日奖励已就绪！",
   "claimReward": "领取 ${amount} 美元奖励",
   "claimNow": "立即签到",
-  "claiming": "签到中...",
+  "claiming": "签到中…",
   "currentBalance": "当前余额",
   "howItWorks": "签到规则",
   "rule1": "每日签到可获得 $0.01 美元奖励",
   "rule2": "连续签到可累计天数，保持你的连续记录",
   "rule3": "奖励将自动添加到你的账户余额",
-  "loading": "加载中...",
+  "loading": "加载中…",
   "retry": "重试"
 }

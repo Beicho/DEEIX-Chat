@@ -9,9 +9,12 @@ import enAdminModels from "@/i18n/messages/en-US/admin-models.json";
 import enAdminModeration from "@/i18n/messages/en-US/admin-moderation.json";
 import enAdminTools from "@/i18n/messages/en-US/admin-tools.json";
 import enAdminUsers from "@/i18n/messages/en-US/admin-users.json";
+import enAdmin from "@/i18n/messages/en-US/admin.json";
 import enChat from "@/i18n/messages/en-US/chat.json";
 import enAnnouncements from "@/i18n/messages/en-US/announcements.json";
+import enArena from "@/i18n/messages/en-US/arena.json";
 import enBookmarks from "@/i18n/messages/en-US/bookmarks.json";
+import enCheckin from "@/i18n/messages/en-US/checkin.json";
 import enCommon from "@/i18n/messages/en-US/common.json";
 import enCollaboration from "@/i18n/messages/en-US/collaboration.json";
 import enErrors from "@/i18n/messages/en-US/errors.json";
@@ -37,13 +40,16 @@ export const DEFAULT_MESSAGES = {
   landing: enLanding,
   chat: enChat,
   announcements: enAnnouncements,
+  arena: enArena,
   bookmarks: enBookmarks,
+  checkin: enCheckin,
   notifications: enNotifications,
   recent: enRecent,
   share: enShare,
   files: enFiles,
   settings: enSettings,
   status: enStatus,
+  admin: enAdmin,
   adminUsers: enAdminUsers,
   adminChannels: enAdminChannels,
   adminConversation: enAdminConversation,
@@ -71,13 +77,16 @@ export async function loadLocaleMessages(locale: AppLocale): Promise<AppMessages
     landing,
     chat,
     announcements,
+    arena,
     bookmarks,
+    checkin,
     notifications,
     recent,
     share,
     files,
     settings,
     status,
+    admin,
     adminUsers,
     adminChannels,
     adminConversation,
@@ -98,13 +107,16 @@ export async function loadLocaleMessages(locale: AppLocale): Promise<AppMessages
     import("@/i18n/messages/zh-CN/landing.json"),
     import("@/i18n/messages/zh-CN/chat.json"),
     import("@/i18n/messages/zh-CN/announcements.json"),
+    import("@/i18n/messages/zh-CN/arena.json"),
     import("@/i18n/messages/zh-CN/bookmarks.json"),
+    import("@/i18n/messages/zh-CN/checkin.json"),
     import("@/i18n/messages/zh-CN/notifications.json"),
     import("@/i18n/messages/zh-CN/recent.json"),
     import("@/i18n/messages/zh-CN/share.json"),
     import("@/i18n/messages/zh-CN/files.json"),
     import("@/i18n/messages/zh-CN/settings.json"),
     import("@/i18n/messages/zh-CN/status.json"),
+    import("@/i18n/messages/zh-CN/admin.json"),
     import("@/i18n/messages/zh-CN/admin-users.json"),
     import("@/i18n/messages/zh-CN/admin-channels.json"),
     import("@/i18n/messages/zh-CN/admin-conversation.json"),
@@ -127,13 +139,16 @@ export async function loadLocaleMessages(locale: AppLocale): Promise<AppMessages
     landing: landing.default,
     chat: chat.default,
     announcements: announcements.default,
+    arena: arena.default,
     bookmarks: bookmarks.default,
+    checkin: checkin.default,
     notifications: notifications.default,
     recent: recent.default,
     share: share.default,
     files: files.default,
     settings: settings.default,
     status: status.default,
+    admin: admin.default,
     adminUsers: adminUsers.default,
     adminChannels: adminChannels.default,
     adminConversation: adminConversation.default,
