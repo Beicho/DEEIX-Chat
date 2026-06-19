@@ -860,7 +860,7 @@ func (s *Service) CreateTopUpPaymentOrder(ctx context.Context, input TopUpPaymen
 	if err != nil {
 		return nil, err
 	}
-	if mode != "usage" {
+	if mode != "usage" && mode != "period" {
 		return nil, ErrPaymentRequired
 	}
 	provider := strings.TrimSpace(input.Provider)

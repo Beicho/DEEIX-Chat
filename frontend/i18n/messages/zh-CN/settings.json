@@ -494,6 +494,10 @@
       "topUp": "充值",
       "lowBalanceHint": "余额较低，充值后可避免调用中断。"
     },
+    "periodBalance": {
+      "title": "账户余额",
+      "hint": "套餐额度用尽后，超出部分将自动从余额扣除；可提前充值预存。"
+    },
     "selfMode": {
       "title": "计费模式",
       "value": "自用模式"

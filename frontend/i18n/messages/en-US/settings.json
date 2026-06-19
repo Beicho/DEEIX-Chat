@@ -494,6 +494,10 @@
       "topUp": "Top up",
       "lowBalanceHint": "Your balance is low. Top up to avoid interrupted calls."
     },
+    "periodBalance": {
+      "title": "Account balance",
+      "hint": "When your plan allowance runs out, overage is charged from your balance. Top up to prepay."
+    },
     "selfMode": {
       "title": "Billing mode",
       "value": "Self-use mode"
