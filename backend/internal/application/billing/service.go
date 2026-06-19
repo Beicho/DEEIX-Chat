@@ -2853,8 +2853,10 @@ func (s *Service) TransferFromNewAPI(ctx context.Context, input NewAPITransferIn
 	}
 	if transaction != nil {
 		if err := s.newAPIClient.TransferConfirm(ctx, transferOut.TransferID, idempotencyKey); err != nil {
-			_ = s.repo.UpdateExternalTransferStatus(ctx, idempotencyKey, domainbilling.ExternalTransferStatusCancelFailed, err.Error())
-			return nil, err
+			// 本地已入账成功；confirm 仅为外部侧最终化扣减。confirm 失败绝不能标记为待取消，
+			// 否则对账会误退回 NewAPI 额度，与已入账的本站余额叠加造成双花。改标 confirm_pending
+			// 留待重试/对账确认，并按已入账返回成功（用户余额已实际到账）。
+			_ = s.repo.UpdateExternalTransferStatus(ctx, idempotencyKey, domainbilling.ExternalTransferStatusConfirmPending, err.Error())
 		}
 	}
 	account, err := s.repo.GetOrCreateBillingAccount(ctx, input.UserID)

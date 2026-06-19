@@ -213,6 +213,9 @@ const (
 	ExternalTransferStatusRolledBack = "rolled_back"
 	// ExternalTransferStatusCancelFailed 表示回滚失败，需要人工处理。
 	ExternalTransferStatusCancelFailed = "cancel_failed"
+	// ExternalTransferStatusConfirmPending 表示本站已入账但外部侧确认未完成，需重试确认；
+	// 严禁对该状态执行取消/退回（本站余额已到账，退回外部额度会造成双花）。
+	ExternalTransferStatusConfirmPending = "confirm_pending"
 )
 
 // ExternalAccountLink 表示本站用户与外部平台账号的绑定关系。
