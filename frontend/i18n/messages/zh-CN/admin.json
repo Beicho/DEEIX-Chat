@@ -1,7 +1,18 @@
 {
   "sections": {
     "checkin": "签到",
-    "alerting": "告警"
+    "alerting": "告警",
+    "arena": "竞技场"
+  },
+  "arena": {
+    "title": "竞技场偏好榜",
+    "description": "各模型在竞技场对战中的获胜统计",
+    "model": "模型",
+    "wins": "获胜",
+    "battles": "总票数",
+    "winRate": "胜率",
+    "empty": "暂无投票数据",
+    "loadFailed": "加载偏好榜失败"
   },
   "alerting": {
     "title": "渠道告警",

@@ -1,7 +1,18 @@
 {
   "sections": {
     "checkin": "Check-in",
-    "alerting": "Alerts"
+    "alerting": "Alerts",
+    "arena": "Arena"
+  },
+  "arena": {
+    "title": "Arena Leaderboard",
+    "description": "Win statistics for each model in arena battles",
+    "model": "Model",
+    "wins": "Wins",
+    "battles": "Votes",
+    "winRate": "Win rate",
+    "empty": "No vote data yet",
+    "loadFailed": "Failed to load leaderboard"
   },
   "alerting": {
     "title": "Channel Alerts",
