@@ -104,6 +104,7 @@ func (h *Handler) parseSendMessageInput(c *gin.Context) (appconversation.SendMes
 		ParentMessagePublicID:   req.ParentMessagePublicID,
 		SourceMessagePublicID:   req.SourceMessagePublicID,
 		BranchReason:            req.BranchReason,
+		MessageGroupID:          req.MessageGroupID,
 	}
 
 	return input, conversation, &req, nil

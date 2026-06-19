@@ -65,25 +65,37 @@ func (c *Cache) checkCircuitStateLocked(state *circuitState) string {
 	return "closed"
 }
 
-func (c *Cache) RecordCircuitFailure(ctx context.Context, input repository.CircuitFailureInput) error {
+func (c *Cache) RecordCircuitFailure(ctx context.Context, input repository.CircuitFailureInput) (repository.CircuitFailureResult, error) {
 	if input.UpstreamID == 0 || strings.TrimSpace(input.ModelKey) == "" {
-		return nil
+		return repository.CircuitFailureResult{}, nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := time.Now()
+	result := repository.CircuitFailureResult{}
+
 	modelState := c.ensureModelCircuitLocked(input.UpstreamID, input.ModelKey)
+	modelWasOpen := now.Before(modelState.openUntil)
 	recordFailure(modelState, now, time.Duration(input.ModelWindowSec)*time.Second)
 	if shouldTrip(modelState, input.ModelFailureThreshold) && input.ModelDurationSec > 0 {
 		modelState.openUntil = now.Add(time.Duration(input.ModelDurationSec) * time.Second)
+		if !modelWasOpen {
+			result.ModelTripped = true
+		}
 	}
+
 	upstreamState := c.ensureUpstreamCircuitLocked(input.UpstreamID)
+	upstreamWasOpen := now.Before(upstreamState.openUntil)
 	recordFailure(upstreamState, now, time.Duration(input.UpstreamWindowSec)*time.Second)
 	if shouldTrip(upstreamState, input.UpstreamFailureThreshold) && input.UpstreamDurationSec > 0 {
 		upstreamState.openUntil = now.Add(time.Duration(input.UpstreamDurationSec) * time.Second)
+		if !upstreamWasOpen {
+			result.UpstreamTripped = true
+		}
 	}
+
 	c.maybeSweepLocked(now)
-	return nil
+	return result, nil
 }
 
 func (c *Cache) RecordFailureMetadata(ctx context.Context, upstreamID uint, lastError string) {

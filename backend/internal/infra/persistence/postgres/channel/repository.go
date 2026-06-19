@@ -1244,6 +1244,21 @@ func (r *Repo) ListActiveRouteBindingCodesForUpstream(ctx context.Context, upstr
 	return codes, nil
 }
 
+// ListActivePlatformModelNamesForUpstream 返回某上游下所有活跃路由对应的平台模型名（去重）。
+func (r *Repo) ListActivePlatformModelNamesForUpstream(ctx context.Context, upstreamID uint) ([]string, error) {
+	var names []string
+	if err := r.db.WithContext(ctx).
+		Table("llm_model_routes AS r").
+		Distinct("pm.name").
+		Joins("JOIN llm_upstream_models um ON um.id = r.upstream_model_id").
+		Joins("JOIN llm_platform_models pm ON pm.id = r.platform_model_id").
+		Where("um.upstream_id = ? AND r.status = ? AND um.status = ? AND pm.status = ?", upstreamID, "active", "active", "active").
+		Pluck("pm.name", &names).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return names, nil
+}
+
 // ---------------------------------------------------------------------------
 // 全局设置
 // ---------------------------------------------------------------------------

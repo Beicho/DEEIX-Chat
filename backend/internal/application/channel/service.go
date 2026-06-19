@@ -17,6 +17,24 @@ type billingModelPricingFilter interface {
 	ListPublicModelPricing(ctx context.Context) (map[string]appbilling.PublicModelPricing, error)
 }
 
+// CircuitAlert 描述一次渠道熔断/恢复事件，供告警 sink 消费。
+// 该结构与具体告警实现解耦，channel 模块只负责产生事件。
+type CircuitAlert struct {
+	// Open 为 true 表示熔断打开（CLOSED→OPEN）；false 表示恢复（OPEN→CLOSED）。
+	Open bool
+	// UpstreamID 上游（渠道）ID。
+	UpstreamID uint
+	// UpstreamName 上游（渠道）展示名。
+	UpstreamName string
+	// ModelNames 受影响的平台模型名（用户可见名）。
+	ModelNames []string
+}
+
+// CircuitAlertSink 接收 channel 模块产生的熔断/恢复事件。
+type CircuitAlertSink interface {
+	EmitCircuitAlert(alert CircuitAlert)
+}
+
 // Service 封装上游、平台模型与路由绑定业务能力。
 type Service struct {
 	cfg                      *config.Runtime
@@ -25,6 +43,7 @@ type Service struct {
 	llmClient                *llm.Client
 	modelPricingFilter       billingModelPricingFilter
 	modelAnnouncementService modelAnnouncementService
+	alertSink                CircuitAlertSink
 	logger                   *zap.Logger
 
 	modelCatalogMu         sync.RWMutex
@@ -133,6 +152,11 @@ func (s *Service) SetBillingModelPricingFilter(filter billingModelPricingFilter)
 // SetLogger 注入结构化日志记录器。
 func (s *Service) SetLogger(logger *zap.Logger) {
 	s.logger = logger
+}
+
+// SetCircuitAlertSink 注入熔断告警接收器，用于在熔断/恢复时发送告警。
+func (s *Service) SetCircuitAlertSink(sink CircuitAlertSink) {
+	s.alertSink = sink
 }
 
 func (s *Service) warn(message string, fields ...zap.Field) {

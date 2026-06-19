@@ -91,4 +91,8 @@ var (
 	ErrDuplicateMessageGenerationRun = errors.New("duplicate message generation run")
 	// ErrModerationBlocked 表示内容检查拦截了本轮消息。
 	ErrModerationBlocked = errors.New("content blocked by moderation")
+	// ErrArenaInvalidVote 竞技场投票参数不合法。
+	ErrArenaInvalidVote = errors.New("invalid arena vote")
+	// ErrArenaVoteDuplicate 同组同用户重复投票。
+	ErrArenaVoteDuplicate = errors.New("arena vote already exists")
 )

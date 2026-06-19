@@ -13,6 +13,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/announcement"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/audit"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/auth"
+	appalerting "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/alerting"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/billing"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/collaboration"
@@ -57,6 +58,7 @@ import (
 	platformruntime "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/runtime"
 	platformhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http"
 	adminhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/admin"
+	alertinghttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/alerting"
 	announcementhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/announcement"
 	authhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/auth"
 	billinghttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/billing"
@@ -303,6 +305,14 @@ func NewApp() (*App, error) {
 	statusHandler := statushttp.NewHandler(statusService)
 	statusModule := statushttp.NewModule(statusHandler)
 
+	// 渠道熔断告警（Telegram + Webhook，含去抖）。
+	alertingStore := appalerting.NewSettingsConfigStore(settingsRepo, cfg.DataEncryptionKey)
+	alertingDebouncer := appalerting.NewRedisDebouncer(redisClient)
+	alertingService := appalerting.NewService(alertingStore, alertingDebouncer, runtimeCfg, log)
+	channelService.SetCircuitAlertSink(appalerting.NewChannelAlertSink(alertingService))
+	alertingHandler := alertinghttp.NewHandler(alertingService)
+	alertingModule := alertinghttp.NewModule(alertingHandler)
+
 	hc := newHealthChecker(db, cfg.CacheDriver, redisClient)
 	rateLimiter := buildRateLimiter(cfg, redisClient, memoryCache)
 	conversationService.SetModerationRateLimiter(rateLimiter)
@@ -324,6 +334,7 @@ func NewApp() (*App, error) {
 		Settings:      settingsModule,
 		UserSettings:  userSettingsModule,
 		Status:        statusModule,
+		Alerting:      alertingModule,
 		StartupLog: func(log *zap.Logger) {
 			if log == nil || bootstrapSuperAdmin == nil {
 				return

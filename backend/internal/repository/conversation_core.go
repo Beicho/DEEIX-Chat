@@ -109,6 +109,16 @@ type MessageFeedbackRepository interface {
 	ListMessageBookmarks(ctx context.Context, userID uint, query string, offset int, limit int) ([]domainconversation.MessageBookmarkListItem, int64, error)
 }
 
+// ArenaRepository 封装模型竞技场投票与偏好榜聚合能力。
+type ArenaRepository interface {
+	// CreateArenaVote 写入一次竞技场投票；同组同用户重复投票返回 ErrDuplicate。
+	CreateArenaVote(ctx context.Context, item *domainconversation.ArenaVote) error
+	// CountArenaVotesByGroup 统计某竞技组的总投票数。
+	CountArenaVotesByGroup(ctx context.Context, messageGroupID string) (int64, error)
+	// ListArenaLeaderboard 聚合各模型的胜场、总对局数与胜率，按胜率降序返回。
+	ListArenaLeaderboard(ctx context.Context, limit int) ([]domainconversation.ArenaLeaderboardEntry, error)
+}
+
 // ConversationTraceRepository 封装附件、运行轨迹与工具调用能力。
 type ConversationTraceRepository interface {
 	CreateAttachments(ctx context.Context, items []domainconversation.Attachment) error

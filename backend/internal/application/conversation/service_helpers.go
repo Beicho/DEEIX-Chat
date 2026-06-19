@@ -503,7 +503,7 @@ func inferAttachmentKind(mimeType string) string {
 func normalizeBranchReason(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	switch value {
-	case "retry", "edit":
+	case "retry", "edit", "arena":
 		return value
 	default:
 		return "default"

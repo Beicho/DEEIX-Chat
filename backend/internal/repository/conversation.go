@@ -5,6 +5,7 @@ type ConversationRepository interface {
 	ConversationMetadataRepository
 	MessageRepository
 	MessageFeedbackRepository
+	ArenaRepository
 	ConversationTraceRepository
 	ContextArtifactRepository
 	CompactRepository

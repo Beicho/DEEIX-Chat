@@ -817,6 +817,7 @@ type MessageResponse struct {
 	ContentType       string                       `json:"contentType"`
 	Content           string                       `json:"content"`
 	BranchReason      string                       `json:"branchReason"`
+	MessageGroupID    string                       `json:"messageGroupID"`
 	SourceMessageID   *uint                        `json:"sourceMessageID"`
 	TokenUsage        int64                        `json:"tokenUsage"`
 	InputTokens       int64                        `json:"inputTokens"`
@@ -1044,6 +1045,7 @@ func toMessageResponseWithRunAndFallback(m model.Message, run model.Run, fallbac
 		ContentType:       m.ContentType,
 		Content:           m.Content,
 		BranchReason:      m.BranchReason,
+		MessageGroupID:    m.MessageGroupID,
 		SourceMessageID:   m.SourceMessageID,
 		TokenUsage:        m.TokenUsage,
 		InputTokens:       m.InputTokens,

@@ -17,6 +17,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/buildinfo"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
 	adminhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/admin"
+	alertinghttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/alerting"
 	announcementhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/announcement"
 	authhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/auth"
 	billinghttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/billing"
@@ -70,6 +71,7 @@ type Modules struct {
 	Settings      *settingshttp.Module
 	UserSettings  *usersettingshttp.Module
 	Status        *statushttp.Module
+	Alerting      *alertinghttp.Module
 	StartupLog    func(*zap.Logger)
 }
 
@@ -221,6 +223,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		}
 		if modules.Announcement != nil {
 			modules.Announcement.RegisterAdminRoutes(adminGroup)
+		}
+		if modules.Alerting != nil {
+			modules.Alerting.RegisterAdminRoutes(adminGroup)
 		}
 	}
 

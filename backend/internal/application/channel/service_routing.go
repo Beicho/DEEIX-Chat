@@ -154,6 +154,9 @@ func (s *Service) MarkRouteSuccess(ctx context.Context, route *ResolvedRoute) {
 	if route.UpstreamProbeGranted {
 		if err := s.cache.ClearUpstreamCircuitKeys(metaCtx, route.UpstreamID); err != nil {
 			s.warn("clear_upstream_circuit_keys_failed", zap.Uint("upstream_id", route.UpstreamID), zap.Error(err))
+		} else {
+			// 半开探测成功并成功清除熔断键，视为上游恢复（OPEN→CLOSED）。
+			s.emitCircuitClosedAlert(metaCtx, route)
 		}
 	}
 	modelCircuitKey := routeModelCircuitKey(route)
@@ -262,7 +265,7 @@ func (s *Service) recordCircuitFailure(ctx context.Context, route *ResolvedRoute
 		activeModelKeys = []string{modelCircuitKey}
 	}
 
-	if err := s.cache.RecordCircuitFailure(ctx, repository.CircuitFailureInput{
+	result, err := s.cache.RecordCircuitFailure(ctx, repository.CircuitFailureInput{
 		UpstreamID:               route.UpstreamID,
 		ModelKey:                 modelCircuitKey,
 		ModelWindowSec:           modelWindowMin * 60,
@@ -274,13 +277,59 @@ func (s *Service) recordCircuitFailure(ctx context.Context, route *ResolvedRoute
 		UpstreamThresholdLogic:   upstreamLogic,
 		UpstreamDurationSec:      upstreamDurationMin * 60,
 		ActiveModelKeys:          activeModelKeys,
-	}); err != nil {
+	})
+	if err != nil {
 		s.warn("record_circuit_failure_failed",
 			zap.Uint("upstream_id", route.UpstreamID),
 			zap.Uint("upstream_model_id", route.UpstreamModelID),
 			zap.Error(err),
 		)
+		return
 	}
+	if result.UpstreamTripped || result.ModelTripped {
+		// 上游级或模型级首次跳闸（CLOSED→OPEN）时投递熔断告警。
+		s.emitCircuitOpenAlert(ctx, route)
+	}
+}
+
+// emitCircuitOpenAlert 在熔断打开时构造并投递告警事件（受影响模型按上游聚合）。
+func (s *Service) emitCircuitOpenAlert(ctx context.Context, route *ResolvedRoute) {
+	if s.alertSink == nil || route == nil || route.UpstreamID == 0 {
+		return
+	}
+	modelNames := s.affectedModelNames(ctx, route)
+	s.alertSink.EmitCircuitAlert(CircuitAlert{
+		Open:         true,
+		UpstreamID:   route.UpstreamID,
+		UpstreamName: route.UpstreamName,
+		ModelNames:   modelNames,
+	})
+}
+
+// affectedModelNames 解析某上游下受影响的平台模型名；查询失败时退化为当前路由模型名。
+func (s *Service) affectedModelNames(ctx context.Context, route *ResolvedRoute) []string {
+	names, err := s.repo.ListActivePlatformModelNamesForUpstream(ctx, route.UpstreamID)
+	if err != nil || len(names) == 0 {
+		if strings.TrimSpace(route.PlatformModelName) != "" {
+			return []string{route.PlatformModelName}
+		}
+		return nil
+	}
+	return names
+}
+
+// emitCircuitClosedAlert 在上游半开探测成功（恢复）时投递恢复告警事件。
+func (s *Service) emitCircuitClosedAlert(ctx context.Context, route *ResolvedRoute) {
+	if s.alertSink == nil || route == nil || route.UpstreamID == 0 {
+		return
+	}
+	modelNames := s.affectedModelNames(ctx, route)
+	s.alertSink.EmitCircuitAlert(CircuitAlert{
+		Open:         false,
+		UpstreamID:   route.UpstreamID,
+		UpstreamName: route.UpstreamName,
+		ModelNames:   modelNames,
+	})
 }
 
 func (s *Service) isUpstreamRateLimited(ctx context.Context, upstreamID uint) bool {

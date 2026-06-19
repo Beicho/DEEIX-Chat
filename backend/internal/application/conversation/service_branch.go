@@ -68,7 +68,7 @@ func (s *Service) resolveMessageBranch(
 		case expectedParentID != nil && parentMessage != nil && parentMessage.ID != *expectedParentID:
 			return nil, ErrInvalidMessageBranch
 		}
-	} else if branchReason != "default" {
+	} else if branchReason != "default" && branchReason != "arena" {
 		return nil, ErrInvalidMessageBranch
 	}
 

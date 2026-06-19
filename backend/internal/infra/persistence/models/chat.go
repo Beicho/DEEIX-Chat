@@ -191,7 +191,8 @@ type Message struct {
 	Role             string     `gorm:"size:32;not null;default:'';index:idx_chat_messages_role;comment:消息角色(user/assistant/system/tool)"`
 	ContentType      string     `gorm:"size:32;not null;default:'';comment:消息内容类型"`
 	Content          string     `gorm:"type:text;not null;default:'';comment:消息内容"`
-	BranchReason     string     `gorm:"size:32;not null;default:'default';index:idx_chat_messages_branch_reason;comment:分支来源(default/retry/edit)"`
+	BranchReason     string     `gorm:"size:32;not null;default:'default';index:idx_chat_messages_branch_reason;comment:分支来源(default/retry/edit/arena)"`
+	MessageGroupID   string     `gorm:"size:64;not null;default:'';index:idx_chat_messages_message_group_id;comment:竞技场同组分支标识"`
 	SourceMessageID  *uint      `gorm:"index:idx_chat_messages_source_message_id;comment:来源消息ID(重试/编辑源)"`
 	TokenUsage       int64      `gorm:"not null;default:0;comment:token总消耗"`
 	InputTokens      int64      `gorm:"not null;default:0;comment:输入Token"`
@@ -234,6 +235,21 @@ type ConversationMessageFeedback struct {
 // TableName 指定表名。
 func (ConversationMessageFeedback) TableName() string {
 	return "chat_feedback"
+}
+
+// ArenaVote 存储用户对一组竞技场分支的偏好投票。
+type ArenaVote struct {
+	BaseModel
+	MessageGroupID string `gorm:"size:64;not null;default:'';uniqueIndex:idx_arena_votes_group_voter,priority:1;index:idx_arena_votes_group;comment:竞技场同组分支标识"`
+	ConversationID uint   `gorm:"not null;default:0;index:idx_arena_votes_conversation_id;comment:会话ID"`
+	VoterUserID    uint   `gorm:"not null;default:0;uniqueIndex:idx_arena_votes_group_voter,priority:2;comment:投票用户ID"`
+	WinnerModel    string `gorm:"size:128;not null;default:'';index:idx_arena_votes_winner;comment:投票选中的平台模型名"`
+	BlindMode      bool   `gorm:"not null;default:false;comment:是否盲投"`
+}
+
+// TableName 指定表名。
+func (ArenaVote) TableName() string {
+	return "arena_votes"
 }
 
 // MessageBookmark 存储用户收藏的消息。
