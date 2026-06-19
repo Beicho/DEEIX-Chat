@@ -541,7 +541,8 @@ export type SendMessageRequest = {
   assistantID?: string;
   parentMessagePublicID?: string;
   sourceMessagePublicID?: string;
-  branchReason?: "default" | "retry" | "edit";
+  branchReason?: "default" | "retry" | "edit" | "arena";
+  messageGroupID?: string;
 };
 
 export type MediaImageRequest = {
