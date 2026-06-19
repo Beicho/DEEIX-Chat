@@ -20,13 +20,32 @@ import {
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-2 border-b py-3 last:border-0 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 border-b py-3 last:border-0 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <p className="text-sm font-medium">{label}</p>
         {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className="min-w-0 shrink-0 sm:max-w-[min(100%,20rem)]">{children}</div>
     </div>
+  );
+}
+
+function CheckboxControl({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex min-h-11 items-center justify-start sm:justify-end">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="size-5 rounded border-border"
+      />
+    </label>
   );
 }
 
@@ -123,19 +142,14 @@ export function AdminAlertingPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{t("title")}</h1>
+        <h1 className="text-balance text-2xl font-semibold tracking-tight">{t("title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{t("description")}</p>
       </div>
 
       <Card className="p-4">
         <h2 className="mb-2 text-sm font-semibold">{t("generalSection")}</h2>
         <Row label={t("enabledLabel")} hint={t("enabledHelp")}>
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => setEnabled(e.target.checked)}
-            className="size-4 rounded border-border"
-          />
+          <CheckboxControl checked={enabled} onChange={setEnabled} />
         </Row>
         <Row label={t("debounceLabel")} hint={t("debounceHelp")}>
           <Input
@@ -144,7 +158,7 @@ export function AdminAlertingPage() {
             max="3600"
             value={debounce}
             onChange={(e) => setDebounce(e.target.value)}
-            className="w-[160px]"
+            className="min-h-11 w-full sm:min-h-10 sm:w-[160px]"
           />
         </Row>
       </Card>
@@ -155,12 +169,7 @@ export function AdminAlertingPage() {
           label={t("telegramEnabledLabel")}
           hint={config?.telegramConfigured ? t("configured") : t("notConfigured")}
         >
-          <input
-            type="checkbox"
-            checked={telegramEnabled}
-            onChange={(e) => setTelegramEnabled(e.target.checked)}
-            className="size-4 rounded border-border"
-          />
+          <CheckboxControl checked={telegramEnabled} onChange={setTelegramEnabled} />
         </Row>
         <Row label={t("botTokenLabel")} hint={t("botTokenHelp")}>
           <Input
@@ -168,14 +177,18 @@ export function AdminAlertingPage() {
             value={botToken}
             onChange={(e) => setBotToken(e.target.value)}
             placeholder={config?.telegramConfigured ? "••••••••" : ""}
-            className="w-[260px] max-w-full"
+            className="min-h-11 w-full sm:min-h-10 sm:w-[260px]"
           />
         </Row>
         <Row label={t("chatIdLabel")}>
-          <Input value={chatID} onChange={(e) => setChatID(e.target.value)} className="w-[260px] max-w-full" />
+          <Input
+            value={chatID}
+            onChange={(e) => setChatID(e.target.value)}
+            className="min-h-11 w-full sm:min-h-10 sm:w-[260px]"
+          />
         </Row>
         <div className="pt-3">
-          <Button type="button" variant="outline" size="sm" onClick={handleTestTelegram} className="gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={handleTestTelegram} className="min-h-11 gap-2 sm:min-h-9">
             <Send className="size-3.5" />
             {t("testTelegram")}
           </Button>
@@ -188,23 +201,18 @@ export function AdminAlertingPage() {
           label={t("webhookEnabledLabel")}
           hint={config?.webhookConfigured ? t("configured") : t("notConfigured")}
         >
-          <input
-            type="checkbox"
-            checked={webhookEnabled}
-            onChange={(e) => setWebhookEnabled(e.target.checked)}
-            className="size-4 rounded border-border"
-          />
+          <CheckboxControl checked={webhookEnabled} onChange={setWebhookEnabled} />
         </Row>
         <Row label={t("webhookUrlLabel")} hint={t("webhookUrlHelp")}>
           <Input
             value={webhookURL}
             onChange={(e) => setWebhookURL(e.target.value)}
-            placeholder={config?.webhookConfigured ? "••••••••" : "https://..."}
-            className="w-[260px] max-w-full"
+            placeholder={config?.webhookConfigured ? "••••••••" : "https://…"}
+            className="min-h-11 w-full sm:min-h-10 sm:w-[260px]"
           />
         </Row>
         <div className="pt-3">
-          <Button type="button" variant="outline" size="sm" onClick={handleTestWebhook} className="gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={handleTestWebhook} className="min-h-11 gap-2 sm:min-h-9">
             <Send className="size-3.5" />
             {t("testWebhook")}
           </Button>
@@ -212,7 +220,7 @@ export function AdminAlertingPage() {
       </Card>
 
       <div className="flex items-center gap-2">
-        <Button onClick={handleSave} disabled={saving} className="gap-2">
+        <Button onClick={handleSave} disabled={saving} className="min-h-11 gap-2 sm:min-h-10">
           {saving ? <Spinner className="size-4" /> : <Bell className="size-4" />}
           {saving ? t("saving") : t("save")}
         </Button>

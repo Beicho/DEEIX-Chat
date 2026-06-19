@@ -12,12 +12,12 @@
   "readyToClaim": "Ready to claim your reward!",
   "claimReward": "Claim ${amount} USD today",
   "claimNow": "Claim Now",
-  "claiming": "Claiming...",
+  "claiming": "Claiming…",
   "currentBalance": "Current Balance",
   "howItWorks": "How it works",
   "rule1": "Check in every day to earn $0.01 USD",
   "rule2": "Build up consecutive days to maintain your streak",
   "rule3": "Rewards are automatically added to your account balance",
-  "loading": "Loading...",
+  "loading": "Loading…",
   "retry": "Retry"
 }
