@@ -39,6 +39,10 @@ type billingRepositoryStub struct {
 	settlementReservation      *domainbilling.UsageBalanceReservation
 }
 
+func (r *billingRepositoryStub) UpdatePaymentOrderStatus(context.Context, string, string) (*domainbilling.PaymentOrder, error) {
+	return nil, nil
+}
+
 func (r *billingRepositoryStub) GetBillingMode(context.Context) (string, error) {
 	return r.mode, nil
 }

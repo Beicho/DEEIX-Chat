@@ -16,6 +16,7 @@ import (
 	domainnotification "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/notification"
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
 )
 
 const (
@@ -281,7 +282,12 @@ func (s *Service) checkOpenAIModeration(ctx context.Context, cfg moderationRunti
 	if cfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	snap := s.cfg.Snapshot()
+	resp, err := security.NewOutboundHTTPClient(snap.Env, snap.SSRFProtectionEnabled, timeout).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -326,7 +332,12 @@ func (s *Service) checkChatClassifierModeration(ctx context.Context, cfg moderat
 	if cfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	snap := s.cfg.Snapshot()
+	resp, err := security.NewOutboundHTTPClient(snap.Env, snap.SSRFProtectionEnabled, timeout).Do(req)
 	if err != nil {
 		return nil, err
 	}
