@@ -35,9 +35,9 @@ func (s *Service) GetModelsStatus(ctx context.Context) (*ModelsStatusResponse, e
 	// 我们认为有 call_count 记录的即为成功调用（因为失败的调用通常不会写入 usage_ledger）
 	// 如果需要更精确的成功率，需要区分成功/失败状态字段
 	err := s.db.WithContext(ctx).
-		Table("usage_ledgers").
+		Table("billing_usage_ledgers").
 		Select("platform_model_name, COUNT(*) as total_calls, COUNT(*) as success_calls").
-		Where("created_at >= ?", since).
+		Where("created_at >= ? AND platform_model_name <> ''", since).
 		Group("platform_model_name").
 		Find(&stats).Error
 
@@ -96,9 +96,9 @@ func (s *Service) getDefaultStatus(ctx context.Context, now time.Time) *ModelsSt
 
 	var activeModels []ActiveModel
 	err := s.db.WithContext(ctx).
-		Table("channel_models").
-		Select("DISTINCT platform_model_name").
-		Where("status = ?", "active").
+		Table("llm_platform_models").
+		Select("DISTINCT name AS platform_model_name").
+		Where("status = ? AND access_scope = ?", "active", "public").
 		Find(&activeModels).Error
 
 	models := make([]ModelStatusDetail, 0)
