@@ -1,0 +1,17 @@
+{
+  "title": "Model Arena",
+  "description": "Compare multiple models side by side on the same question, vote for the best answer",
+  "selectModels": "Select {min}-{max} models to compare",
+  "blindMode": "Blind mode",
+  "promptPlaceholder": "Enter the question you want the models to answer...",
+  "billingNote": "Will be billed separately for {count} models",
+  "compare": "Compare",
+  "running": "Generating...",
+  "waiting": "Waiting for response...",
+  "modelPlaceholder": "Model {index}",
+  "voteThis": "Vote best",
+  "voted": "Voted",
+  "voteResult": "You chose {model}",
+  "notAuthenticated": "Please sign in first",
+  "loadModelsFailed": "Failed to load models"
+}
