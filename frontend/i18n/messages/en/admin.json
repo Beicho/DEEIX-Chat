@@ -1,6 +1,36 @@
 {
   "sections": {
-    "checkin": "Check-in"
+    "checkin": "Check-in",
+    "alerting": "Alerts"
+  },
+  "alerting": {
+    "title": "Channel Alerts",
+    "description": "Notify admins when channels trip or recover (Telegram / Webhook)",
+    "generalSection": "General",
+    "enabledLabel": "Enable alerts",
+    "enabledHelp": "Master switch; no alerts are sent when off",
+    "debounceLabel": "Debounce interval (seconds)",
+    "debounceHelp": "Only one alert per channel within this window, 300s recommended",
+    "telegramSection": "Telegram",
+    "telegramEnabledLabel": "Enable Telegram",
+    "botTokenLabel": "Bot Token",
+    "botTokenHelp": "Leave blank to keep the saved token",
+    "chatIdLabel": "Chat ID",
+    "testTelegram": "Send test message",
+    "webhookSection": "Webhook",
+    "webhookEnabledLabel": "Enable Webhook",
+    "webhookUrlLabel": "Webhook URL",
+    "webhookUrlHelp": "Leave blank to keep the saved URL",
+    "testWebhook": "Send test request",
+    "configured": "Configured",
+    "notConfigured": "Not configured",
+    "save": "Save config",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "loadFailed": "Failed to load config",
+    "testSent": "Test sent",
+    "testFailed": "Test failed"
   },
   "checkin": {
     "title": "Check-in Management",

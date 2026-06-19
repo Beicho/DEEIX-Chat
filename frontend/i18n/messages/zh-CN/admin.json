@@ -1,6 +1,36 @@
 {
   "sections": {
-    "checkin": "签到"
+    "checkin": "签到",
+    "alerting": "告警"
+  },
+  "alerting": {
+    "title": "渠道告警",
+    "description": "渠道熔断/恢复时通知站长（Telegram / Webhook）",
+    "generalSection": "通用",
+    "enabledLabel": "启用告警",
+    "enabledHelp": "总开关，关闭后不发送任何告警",
+    "debounceLabel": "去抖间隔（秒）",
+    "debounceHelp": "同一渠道在此时间内只发一条告警，建议 300 秒",
+    "telegramSection": "Telegram 通知",
+    "telegramEnabledLabel": "启用 Telegram",
+    "botTokenLabel": "Bot Token",
+    "botTokenHelp": "留空表示沿用已保存的 Token",
+    "chatIdLabel": "Chat ID",
+    "testTelegram": "发送测试消息",
+    "webhookSection": "Webhook 通知",
+    "webhookEnabledLabel": "启用 Webhook",
+    "webhookUrlLabel": "Webhook 地址",
+    "webhookUrlHelp": "留空表示沿用已保存的地址",
+    "testWebhook": "发送测试请求",
+    "configured": "已配置",
+    "notConfigured": "未配置",
+    "save": "保存配置",
+    "saving": "保存中...",
+    "saved": "已保存",
+    "saveFailed": "保存失败",
+    "loadFailed": "加载配置失败",
+    "testSent": "测试已发送",
+    "testFailed": "测试发送失败"
   },
   "checkin": {
     "title": "签到管理",
