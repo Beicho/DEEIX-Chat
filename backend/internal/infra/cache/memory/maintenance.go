@@ -41,6 +41,11 @@ func (c *Cache) sweepExpiredLocked(now time.Time) {
 			delete(c.fixedHTTP, key)
 		}
 	}
+	for userID, item := range c.rateLimitOverrides {
+		if now.After(item.expiresAt) {
+			delete(c.rateLimitOverrides, userID)
+		}
+	}
 	cutoff := now.Add(-slidingWindowRetention)
 	for key, events := range c.slidingHTTP {
 		kept := events[:0]

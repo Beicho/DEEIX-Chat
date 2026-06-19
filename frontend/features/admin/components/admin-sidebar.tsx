@@ -96,7 +96,7 @@ export function AdminSidebar({
                 {item.id === "about" && updateRelease ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <span className="ml-auto inline-flex size-4 shrink-0 items-center justify-center text-rose-500">
+                      <span className="ml-auto inline-flex size-4 shrink-0 items-center justify-center text-primary">
                         <CircleArrowUp className="size-3.5" aria-label={tAbout("updateAvailableIndicator")} />
                       </span>
                     </TooltipTrigger>

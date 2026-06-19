@@ -8,10 +8,8 @@ import (
 	"net/smtp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
 )
 
 // StatusNotifier is the extension point for future status alerts.
@@ -26,10 +24,7 @@ type CompositeStatusNotifier struct {
 func NewStatusNotifier(cfg config.Config) StatusNotifier {
 	items := make([]StatusNotifier, 0, 2)
 	if strings.TrimSpace(cfg.StatusNotifierWebhookURL) != "" {
-		items = append(items, WebhookStatusNotifier{
-			URL:        strings.TrimSpace(cfg.StatusNotifierWebhookURL),
-			HTTPClient: security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 10*time.Second),
-		})
+		items = append(items, WebhookStatusNotifier{URL: strings.TrimSpace(cfg.StatusNotifierWebhookURL)})
 	}
 	if strings.TrimSpace(cfg.StatusNotifierEmail) != "" {
 		items = append(items, EmailStatusNotifier{
@@ -54,8 +49,7 @@ func (n CompositeStatusNotifier) Notify(ctx context.Context, title string, messa
 }
 
 type WebhookStatusNotifier struct {
-	URL        string
-	HTTPClient *http.Client
+	URL string
 }
 
 func (n WebhookStatusNotifier) Notify(ctx context.Context, title string, message string) error {
@@ -68,11 +62,7 @@ func (n WebhookStatusNotifier) Notify(ctx context.Context, title string, message
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := n.HTTPClient
-	if client == nil {
-		client = security.NewOutboundHTTPClient("", false, 10*time.Second)
-	}
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}

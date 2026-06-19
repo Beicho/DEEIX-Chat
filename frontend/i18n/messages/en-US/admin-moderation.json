@@ -3,6 +3,111 @@
   "description": "Recent messages stopped by content checks.",
   "empty": "No records.",
   "loadFailed": "Records could not be loaded.",
+  "none": "None",
+  "settings": {
+    "title": "Check settings",
+    "description": "Configure the content check service, review limits, and automatic disposition.",
+    "sectionTitle": "Runtime settings",
+    "actions": {
+      "save": "Save settings"
+    },
+    "mode": {
+      "moderations": "Standard check",
+      "chatClassifier": "Chat classifier"
+    },
+    "failStrategy": {
+      "failOpen": "Allow on failure",
+      "failClose": "Block on failure"
+    },
+    "action": {
+      "block": "Block"
+    },
+    "fields": {
+      "enabled": {
+        "label": "Enable checks",
+        "description": "When enabled, input, output, public shares, and public assistant publishing are checked first."
+      },
+      "mode": {
+        "label": "Check mode",
+        "description": "Use the standard check endpoint or a chat classifier that returns structured decisions."
+      },
+      "failStrategy": {
+        "label": "Failure strategy",
+        "description": "Choose whether requests are allowed or blocked when the check service is unavailable."
+      },
+      "baseURL": {
+        "label": "Service URL",
+        "description": "Root URL for the compatible service, without the trailing endpoint path.",
+        "placeholder": "https://example.com/v1"
+      },
+      "apiKey": {
+        "label": "Access key",
+        "description": "Saved keys are not shown again; saving an empty value keeps the existing key."
+      },
+      "model": {
+        "label": "Check model",
+        "description": "Model name used for content checks or chat classification."
+      },
+      "threshold": {
+        "label": "Hit threshold",
+        "description": "Scores at or above this value count as a hit. Use a value from 0 to 1."
+      },
+      "action": {
+        "label": "Hit action",
+        "description": "The current action is to block matched content."
+      },
+      "timeoutSeconds": {
+        "label": "Timeout",
+        "description": "Seconds to wait for each check request."
+      },
+      "classifierTemplate": {
+        "label": "Classifier prompt",
+        "description": "System prompt used by chat classifier mode. Supports {{DIRECTION}} and {{CONTENT}} placeholders.",
+        "placeholder": "Leave empty to use the default prompt."
+      },
+      "autoWindowHours": {
+        "label": "Review window",
+        "description": "How many recent hours are counted for automatic disposition."
+      },
+      "autoLimitThreshold": {
+        "label": "Rate-limit threshold",
+        "description": "When hits in the window reach this value, the account gets a temporary lower request rate. Use 0 to disable."
+      },
+      "autoSuspendThreshold": {
+        "label": "Suspend threshold",
+        "description": "When hits in the window reach this value, the account is suspended and active sessions are ended. Use 0 to disable."
+      },
+      "autoLimitRPM": {
+        "label": "Rate-limit RPM",
+        "description": "Requests per minute allowed after automatic rate limiting."
+      },
+      "autoLimitDurationMinutes": {
+        "label": "Rate-limit duration",
+        "description": "Minutes that automatic rate limiting lasts. Review release clears it earlier."
+      },
+      "outputWindowChars": {
+        "label": "Output check window",
+        "description": "How many streamed reply characters trigger each output check."
+      }
+    },
+    "toast": {
+      "loadFailed": "Check settings could not be loaded.",
+      "saved": "Check settings saved.",
+      "saveFailed": "Check settings could not be saved."
+    }
+  },
+  "filters": {
+    "all": "All",
+    "userID": "User ID",
+    "userIDPlaceholder": "Enter user ID",
+    "direction": "Direction",
+    "reviewStatus": "Review status",
+    "disposition": "Disposition",
+    "eventType": "Event type",
+    "flagged": "Flagged",
+    "createdFrom": "Start date",
+    "createdTo": "End date"
+  },
   "fields": {
     "time": "Time",
     "direction": "Direction",
@@ -11,7 +116,23 @@
     "threshold": "Limit",
     "reason": "Reason",
     "user": "User",
-    "conversation": "Conversation"
+    "conversation": "Conversation",
+    "status": "Review",
+    "disposition": "Disposition",
+    "eventType": "Event type",
+    "contentSnapshot": "Content snapshot",
+    "contentHash": "Content hash",
+    "snapshotTruncated": "Snapshot truncated",
+    "categories": "Category details",
+    "reviewedAt": "Reviewed at",
+    "reviewNote": "Review note",
+    "dispositionAppliedAt": "Disposition time",
+    "dispositionReleasedAt": "Release time",
+    "dispositionReleasedBy": "Released by",
+    "message": "Message",
+    "run": "Run",
+    "model": "Model",
+    "flagged": "Flagged"
   },
   "direction": {
     "input": "Input",
@@ -23,5 +144,61 @@
   "reason": {
     "blocked": "Stopped",
     "check_failed": "Check failed"
+  },
+  "eventType": {
+    "policy_hit": "Policy hit",
+    "engine_error": "Check error"
+  },
+  "flagged": {
+    "true": "Yes",
+    "false": "No"
+  },
+  "status": {
+    "pending": "Pending",
+    "false_positive": "False positive",
+    "confirmed": "Confirmed",
+    "resolved": "Resolved"
+  },
+  "disposition": {
+    "none": "None",
+    "rate_limited": "Rate limited",
+    "suspended": "Suspended"
+  },
+  "actions": {
+    "refresh": "Refresh",
+    "openMenu": "Open actions",
+    "viewDetails": "View details",
+    "markConfirmed": "Confirm hit",
+    "markFalsePositive": "Mark false positive",
+    "markResolved": "Mark resolved",
+    "release": "Release disposition",
+    "cancel": "Cancel",
+    "submit": "Save",
+    "close": "Close",
+    "resetFilters": "Reset filters"
+  },
+  "detail": {
+    "title": "Record #{id}",
+    "description": "Review the content snapshot, category result, and disposition history.",
+    "emptySnapshot": "No content snapshot."
+  },
+  "dialog": {
+    "reviewTitle": {
+      "confirmed": "Confirm hit",
+      "false_positive": "Mark false positive",
+      "resolved": "Mark resolved",
+      "pending": "Move to pending"
+    },
+    "releaseTitle": "Release automatic disposition",
+    "reviewDescription": "Save the review result for record #{id}.",
+    "releaseDescription": "Restore the account affected by record #{id} and mark the record as resolved.",
+    "noteLabel": "Note",
+    "notePlaceholder": "Record the reason for later review."
+  },
+  "toast": {
+    "reviewSaved": "Review saved.",
+    "reviewFailed": "Review could not be saved.",
+    "releaseSaved": "Automatic disposition released.",
+    "releaseFailed": "Automatic disposition could not be released."
   }
 }

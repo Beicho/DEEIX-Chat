@@ -19,7 +19,6 @@ func (s modelIdentityResolverStub) ResolvePlatformModelIdentity(context.Context,
 }
 
 type billingRepositoryStub struct {
-	repository.BillingRepository
 	mode                       string
 	pricing                    *domainbilling.ModelPricing
 	listPricing                []domainbilling.ModelPricing

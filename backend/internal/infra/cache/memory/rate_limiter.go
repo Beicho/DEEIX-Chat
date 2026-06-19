@@ -66,3 +66,48 @@ func (c *Cache) AllowFixedWindow(ctx context.Context, keys []string, limit int, 
 	c.maybeSweepLocked(now)
 	return allowed, nil
 }
+
+func (c *Cache) SetUserRateLimitOverride(ctx context.Context, userID uint, rpm int, ttl time.Duration) error {
+	if c == nil || userID == 0 || rpm <= 0 {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = time.Hour
+	}
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rateLimitOverrides[userID] = rateLimitOverride{rpm: rpm, expiresAt: now.Add(ttl)}
+	c.maybeSweepLocked(now)
+	return nil
+}
+
+func (c *Cache) GetUserRateLimitOverride(ctx context.Context, userID uint) (int, bool, error) {
+	if c == nil || userID == 0 {
+		return 0, false, nil
+	}
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	item, ok := c.rateLimitOverrides[userID]
+	if !ok {
+		return 0, false, nil
+	}
+	if now.After(item.expiresAt) {
+		delete(c.rateLimitOverrides, userID)
+		return 0, false, nil
+	}
+	c.maybeSweepLocked(now)
+	return item.rpm, item.rpm > 0, nil
+}
+
+func (c *Cache) ClearUserRateLimitOverride(ctx context.Context, userID uint) error {
+	if c == nil || userID == 0 {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.rateLimitOverrides, userID)
+	c.maybeSweepLocked(time.Now())
+	return nil
+}

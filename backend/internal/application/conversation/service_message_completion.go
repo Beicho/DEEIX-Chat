@@ -59,6 +59,8 @@ type interruptedMessageGenerationMetrics struct {
 	ReasoningTokens  int64
 }
 
+const moderationBlockedAssistantContent = "内容包含不适宜信息，已被拦截。"
+
 type persistMessageToolCallsInput struct {
 	SendInput          SendMessageInput
 	UserMessageID      uint
@@ -195,6 +197,8 @@ func (s *Service) persistInterruptedMessageGeneration(ctx context.Context, input
 	}
 
 	metrics := resolveInterruptedMessageGenerationMetrics(input)
+	assistantContent := interruptedAssistantContent(input)
+	assistantStatus := interruptedAssistantStatus(input)
 
 	if err := s.repo.UpdateMessageUsage(
 		persistCtx,
@@ -221,11 +225,11 @@ func (s *Service) persistInterruptedMessageGeneration(ctx context.Context, input
 	if err := s.repo.UpdateAssistantMessageCompletion(
 		persistCtx,
 		input.AssistantMessage.ID,
-		input.AssistantText,
+		assistantContent,
 		metrics.OutputTokens,
 		metrics.ReasoningTokens,
 		metrics.LatencyMS,
-		"interrupted",
+		assistantStatus,
 		metrics.ErrorCode,
 		metrics.ErrorMessage,
 	); err != nil {
@@ -267,6 +271,9 @@ func shouldPersistInterruptedMessageGeneration(input persistInterruptedMessageGe
 	if errors.Is(input.Error, ErrMessageGenerationCanceled) {
 		return false
 	}
+	if errors.Is(input.Error, ErrModerationBlocked) {
+		return true
+	}
 	hasRetainedToolTrace := len(input.ToolCallRows) > 0 || len(input.ServerSideToolUsage) > 0
 	return strings.TrimSpace(input.AssistantText) != "" || hasRetainedToolTrace
 }
@@ -300,6 +307,20 @@ func resolveInterruptedMessageGenerationMetrics(input persistInterruptedMessageG
 	}
 }
 
+func interruptedAssistantContent(input persistInterruptedMessageGenerationInput) string {
+	if errors.Is(input.Error, ErrModerationBlocked) {
+		return moderationBlockedAssistantContent
+	}
+	return input.AssistantText
+}
+
+func interruptedAssistantStatus(input persistInterruptedMessageGenerationInput) string {
+	if errors.Is(input.Error, ErrModerationBlocked) {
+		return "moderation_blocked"
+	}
+	return "interrupted"
+}
+
 // applyInterruptedMessageGenerationState 同步内存消息对象，保证后续响应、run 记录和持久化状态一致。
 func applyInterruptedMessageGenerationState(input persistInterruptedMessageGenerationInput, metrics interruptedMessageGenerationMetrics) {
 	input.UserMessage.Status = "success"
@@ -310,12 +331,12 @@ func applyInterruptedMessageGenerationState(input persistInterruptedMessageGener
 	input.UserMessage.CacheWriteTokens = metrics.CacheWriteTokens
 	input.UserMessage.TokenUsage = metrics.InputTokens + metrics.CacheReadTokens + metrics.CacheWriteTokens
 
-	input.AssistantMessage.Content = input.AssistantText
+	input.AssistantMessage.Content = interruptedAssistantContent(input)
 	input.AssistantMessage.TokenUsage = metrics.OutputTokens + metrics.ReasoningTokens
 	input.AssistantMessage.OutputTokens = metrics.OutputTokens
 	input.AssistantMessage.ReasoningTokens = metrics.ReasoningTokens
 	input.AssistantMessage.LatencyMS = metrics.LatencyMS
-	input.AssistantMessage.Status = "interrupted"
+	input.AssistantMessage.Status = interruptedAssistantStatus(input)
 	input.AssistantMessage.ErrorCode = metrics.ErrorCode
 	input.AssistantMessage.ErrorMessage = metrics.ErrorMessage
 }

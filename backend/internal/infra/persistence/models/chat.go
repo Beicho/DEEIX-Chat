@@ -424,11 +424,18 @@ type ModerationEvent struct {
 	Flagged        bool       `gorm:"not null;default:false;index:idx_moderation_events_flagged;comment:是否命中"`
 	CategoriesJSON string     `gorm:"type:text;not null;default:'{}';comment:分类结果JSON"`
 	Reason         string     `gorm:"size:255;not null;default:'';comment:原因"`
+	EventType      string     `gorm:"size:32;not null;default:'policy_hit';index:idx_moderation_events_event_type;comment:事件类型"`
+	ContentSnapshot string    `gorm:"type:text;not null;default:'';comment:内容快照"`
+	ContentHash    string     `gorm:"size:64;not null;default:'';index:idx_moderation_events_content_hash;comment:内容哈希"`
+	SnapshotTruncated bool    `gorm:"not null;default:false;comment:内容快照是否截断"`
 	ReviewStatus   string     `gorm:"size:32;not null;default:'pending';index:idx_moderation_events_review_status;comment:复核状态"`
 	ReviewedBy     uint       `gorm:"not null;default:0;index:idx_moderation_events_reviewed_by;comment:复核人"`
 	ReviewedAt     *time.Time `gorm:"comment:复核时间"`
 	ReviewNote     string     `gorm:"size:255;not null;default:'';comment:复核备注"`
 	Disposition    string     `gorm:"size:32;not null;default:'';index:idx_moderation_events_disposition;comment:自动处置"`
+	DispositionAppliedAt  *time.Time `gorm:"comment:自动处置时间"`
+	DispositionReleasedAt *time.Time `gorm:"comment:自动处置解除时间"`
+	DispositionReleasedBy uint       `gorm:"not null;default:0;index:idx_moderation_events_disposition_released_by;comment:自动处置解除人"`
 }
 
 func (ModerationEvent) TableName() string {

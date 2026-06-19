@@ -245,6 +245,7 @@
     "copyFailed": "复制失败",
     "copyFailedDescription": "请稍后重试。",
     "generationInterrupted": "生成中断",
+    "moderationBlocked": "内容包含不适宜信息，已被拦截。",
     "streamInterrupted": "生成连接已中断，请重试本条消息。",
     "imageRunning": "正在生成图片",
     "contextCompressed": "上下文已自动压缩",

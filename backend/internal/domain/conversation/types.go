@@ -431,26 +431,45 @@ type ModelAvailability struct {
 
 // ModerationEvent 记录一次内容检查命中或检查失败。
 type ModerationEvent struct {
-	ID             uint
-	UserID         uint
-	ConversationID uint
-	MessageID      uint
-	RunID          string
-	Direction      string
-	Action         string
-	Model          string
-	Score          float64
-	Threshold      float64
-	Flagged        bool
-	CategoriesJSON string
-	Reason         string
-	ReviewStatus   string
-	ReviewedBy     uint
-	ReviewedAt     *time.Time
-	ReviewNote     string
-	Disposition    string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                    uint
+	UserID                uint
+	ConversationID        uint
+	MessageID             uint
+	RunID                 string
+	Direction             string
+	Action                string
+	Model                 string
+	Score                 float64
+	Threshold             float64
+	Flagged               bool
+	CategoriesJSON        string
+	Reason                string
+	EventType             string
+	ContentSnapshot       string
+	ContentHash           string
+	SnapshotTruncated     bool
+	ReviewStatus          string
+	ReviewedBy            uint
+	ReviewedAt            *time.Time
+	ReviewNote            string
+	Disposition           string
+	DispositionAppliedAt  *time.Time
+	DispositionReleasedAt *time.Time
+	DispositionReleasedBy uint
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+// ModerationEventFilter scopes the admin moderation event list.
+type ModerationEventFilter struct {
+	UserID       uint
+	Direction    string
+	ReviewStatus string
+	Disposition  string
+	EventType    string
+	Flagged      *bool
+	CreatedFrom  *time.Time
+	CreatedTo    *time.Time
 }
 
 // MessageTrace 表示消息处理轨迹。

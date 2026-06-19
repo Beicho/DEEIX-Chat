@@ -8,4 +8,5 @@ func (m *Module) RegisterRoutes(authRequired *gin.RouterGroup) {
 	authRequired.GET("/notifications/unread-count", m.Handler.UnreadCount)
 	authRequired.POST("/notifications/read-all", m.Handler.MarkAllRead)
 	authRequired.POST("/notifications/:id/read", m.Handler.MarkRead)
+	authRequired.PATCH("/notifications/:id/read", m.Handler.MarkRead)
 }

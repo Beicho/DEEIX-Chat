@@ -245,6 +245,7 @@
     "copyFailed": "Copy failed",
     "copyFailedDescription": "Please try again later.",
     "generationInterrupted": "Generation interrupted",
+    "moderationBlocked": "The content was stopped by content checks.",
     "streamInterrupted": "The generation connection was interrupted. Retry this message.",
     "imageRunning": "Generating image",
     "contextCompressed": "Context was automatically compressed",

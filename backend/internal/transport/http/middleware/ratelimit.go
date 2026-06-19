@@ -18,6 +18,9 @@ import (
 type RateLimiter interface {
 	AllowSlidingWindow(ctx context.Context, key string, limit int, window time.Duration, ttl time.Duration) (bool, error)
 	AllowFixedWindow(ctx context.Context, keys []string, limit int, ttl time.Duration) (bool, error)
+	SetUserRateLimitOverride(ctx context.Context, userID uint, rpm int, ttl time.Duration) error
+	GetUserRateLimitOverride(ctx context.Context, userID uint) (int, bool, error)
+	ClearUserRateLimitOverride(ctx context.Context, userID uint) error
 }
 
 type rateLimitPolicy struct {
@@ -37,12 +40,11 @@ const (
 // RateLimit 基于用户维度的滑动窗口限流中间件。
 func RateLimit(limiter RateLimiter, runtime *config.Runtime) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if limiter == nil || !rateLimitEnabled(runtime) {
+		if limiter == nil {
 			c.Next()
 			return
 		}
-
-		userID, exists := c.Get(ContextKeyUserID)
+		userIDValue, exists := c.Get(ContextKeyUserID)
 		if !exists {
 			c.Next()
 			return
@@ -53,8 +55,25 @@ func RateLimit(limiter RateLimiter, runtime *config.Runtime) gin.HandlerFunc {
 			return
 		}
 
-		policy := authenticatedRateLimitPolicy(c, authenticatedRateLimitRPM(runtime))
-		key := fmt.Sprintf("ratelimit:user:%v:%s", userID, policy.Name)
+		userID, ok := rateLimitUserID(userIDValue)
+		if !ok {
+			c.Next()
+			return
+		}
+		baseRPM := authenticatedRateLimitRPM(runtime)
+		overrideRPM, hasOverride, err := limiter.GetUserRateLimitOverride(c.Request.Context(), userID)
+		if err == nil && hasOverride && overrideRPM > 0 {
+			baseRPM = overrideRPM
+		} else {
+			hasOverride = false
+		}
+		if !rateLimitEnabled(runtime) && !hasOverride {
+			c.Next()
+			return
+		}
+
+		policy := authenticatedRateLimitPolicy(c, baseRPM, hasOverride)
+		key := fmt.Sprintf("ratelimit:user:%d:%s", userID, policy.Name)
 		allowed, err := limiter.AllowSlidingWindow(c.Request.Context(), key, policy.Limit, policy.Window, policy.TTL)
 		if err != nil || allowed {
 			c.Next()
@@ -116,25 +135,25 @@ func publicAuthRateLimitRPM(runtime *config.Runtime) int {
 	return defaultPublicAuthRateLimitRPM
 }
 
-func authenticatedRateLimitPolicy(c *gin.Context, baseRPM int) rateLimitPolicy {
+func authenticatedRateLimitPolicy(c *gin.Context, baseRPM int, allowBelowDefault bool) rateLimitPolicy {
 	route := normalizedRoutePath(c)
 	method := c.Request.Method
 
 	switch {
 	case isMediaGenerationRoute(method, route):
-		return newRateLimitPolicy("media_generation", atLeast(baseRPM/2, 30), "rate limit exceeded")
+		return newRateLimitPolicy("media_generation", rateLimitFloor(baseRPM/2, 30, allowBelowDefault), "rate limit exceeded")
 	case isMessageGenerationRoute(method, route):
-		return newRateLimitPolicy("message_generation", atLeast(baseRPM, defaultAuthenticatedRateLimitRPM), "rate limit exceeded")
+		return newRateLimitPolicy("message_generation", rateLimitFloor(baseRPM, defaultAuthenticatedRateLimitRPM, allowBelowDefault), "rate limit exceeded")
 	case isFileUploadRoute(method, route):
-		return newRateLimitPolicy("file_upload", atLeast(baseRPM*2, 120), "rate limit exceeded")
+		return newRateLimitPolicy("file_upload", rateLimitFloor(baseRPM*2, 120, allowBelowDefault), "rate limit exceeded")
 	case isPollingRoute(method, route):
-		return newRateLimitPolicy("polling", atLeast(baseRPM*10, 600), "rate limit exceeded")
+		return newRateLimitPolicy("polling", rateLimitFloor(baseRPM*10, 600, allowBelowDefault), "rate limit exceeded")
 	case method == http.MethodGet:
-		return newRateLimitPolicy("read", atLeast(baseRPM*10, 600), "rate limit exceeded")
+		return newRateLimitPolicy("read", rateLimitFloor(baseRPM*10, 600, allowBelowDefault), "rate limit exceeded")
 	case method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete:
-		return newRateLimitPolicy("write", atLeast(baseRPM*4, 240), "rate limit exceeded")
+		return newRateLimitPolicy("write", rateLimitFloor(baseRPM*4, 240, allowBelowDefault), "rate limit exceeded")
 	default:
-		return newRateLimitPolicy("general", atLeast(baseRPM*6, 360), "rate limit exceeded")
+		return newRateLimitPolicy("general", rateLimitFloor(baseRPM*6, 360, allowBelowDefault), "rate limit exceeded")
 	}
 }
 
@@ -234,4 +253,35 @@ func atLeast(value int, minimum int) int {
 		return minimum
 	}
 	return value
+}
+
+func rateLimitFloor(value int, minimum int, allowBelowDefault bool) int {
+	if allowBelowDefault {
+		return atLeast(value, 1)
+	}
+	return atLeast(value, minimum)
+}
+
+func rateLimitUserID(value interface{}) (uint, bool) {
+	switch v := value.(type) {
+	case uint:
+		return v, v > 0
+	case uint64:
+		if v == 0 {
+			return 0, false
+		}
+		return uint(v), true
+	case int:
+		if v <= 0 {
+			return 0, false
+		}
+		return uint(v), true
+	case int64:
+		if v <= 0 {
+			return 0, false
+		}
+		return uint(v), true
+	default:
+		return 0, false
+	}
 }

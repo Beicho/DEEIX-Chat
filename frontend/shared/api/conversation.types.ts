@@ -593,6 +593,12 @@ export type StreamMessageEvent =
       delta: string;
     }
   | {
+      type: "moderation_retract";
+      seq?: number;
+      action: "retract" | string;
+      reason: string;
+    }
+  | {
       type: "usage";
       seq?: number;
       input_tokens: number;

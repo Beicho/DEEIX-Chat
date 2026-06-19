@@ -59,19 +59,33 @@ func TestNotificationRepositoryCreatesNotification(t *testing.T) {
 	repo := NewRepo(db)
 
 	item, err := repo.CreateNotification(context.Background(), &domainnotification.Notification{
-		UserID:   7,
-		Type:     "system",
-		Title:    "Created",
-		Body:     "Body",
-		Link:     "/settings",
-		Source:   "test",
-		SourceID: "created",
+		UserID:    7,
+		Type:      "system",
+		Title:     "Created",
+		Body:      "Body",
+		ActionURL: "/settings",
+		Source:    "test",
+		SourceID:  "created",
+		Metadata: map[string]any{
+			"scope": "focused",
+		},
 	})
 	if err != nil {
 		t.Fatalf("CreateNotification() error = %v", err)
 	}
 	if item.ID == 0 || item.UserID != 7 || item.Title != "Created" {
 		t.Fatalf("CreateNotification() item = %#v", item)
+	}
+	if item.ActionURL != "/settings" || item.Metadata["scope"] != "focused" {
+		t.Fatalf("CreateNotification() action/metadata = %#v", item)
+	}
+
+	items, _, err := repo.ListNotifications(context.Background(), 7, repository.NotificationListFilter{}, 0, 20)
+	if err != nil {
+		t.Fatalf("ListNotifications() after create error = %v", err)
+	}
+	if len(items) != 1 || items[0].ActionURL != "/settings" || items[0].Metadata["scope"] != "focused" {
+		t.Fatalf("listed notification = %#v", items)
 	}
 }
 

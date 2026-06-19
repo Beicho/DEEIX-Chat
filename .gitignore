@@ -166,3 +166,11 @@ docker-compose.local.yml
 
 .DS_Store
 .idea
+
+# Local planning / ops artifacts (never commit)
+/task_plan.md
+/progress.md
+/findings.md
+/docs/
+/ops/
+/.codex/

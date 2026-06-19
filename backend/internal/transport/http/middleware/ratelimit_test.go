@@ -21,9 +21,12 @@ type rateLimitCall struct {
 }
 
 type recordingRateLimiter struct {
-	allow   bool
-	sliding []rateLimitCall
-	fixed   []rateLimitCall
+	allow           bool
+	overrideRPM     int
+	overrideExists  bool
+	overrideLookups []uint
+	sliding         []rateLimitCall
+	fixed           []rateLimitCall
 }
 
 func (r *recordingRateLimiter) AllowSlidingWindow(_ context.Context, key string, limit int, window time.Duration, ttl time.Duration) (bool, error) {
@@ -34,6 +37,19 @@ func (r *recordingRateLimiter) AllowSlidingWindow(_ context.Context, key string,
 func (r *recordingRateLimiter) AllowFixedWindow(_ context.Context, keys []string, limit int, ttl time.Duration) (bool, error) {
 	r.fixed = append(r.fixed, rateLimitCall{Keys: keys, Limit: limit, TTL: ttl})
 	return r.allow, nil
+}
+
+func (r *recordingRateLimiter) GetUserRateLimitOverride(_ context.Context, userID uint) (int, bool, error) {
+	r.overrideLookups = append(r.overrideLookups, userID)
+	return r.overrideRPM, r.overrideExists, nil
+}
+
+func (r *recordingRateLimiter) SetUserRateLimitOverride(_ context.Context, _ uint, _ int, _ time.Duration) error {
+	return nil
+}
+
+func (r *recordingRateLimiter) ClearUserRateLimitOverride(_ context.Context, _ uint) error {
+	return nil
 }
 
 func TestRateLimitUsesSeparateAuthenticatedBuckets(t *testing.T) {
@@ -57,6 +73,50 @@ func TestRateLimitUsesSeparateAuthenticatedBuckets(t *testing.T) {
 	}
 	if limiter.sliding[1].Key != "ratelimit:user:42:message_generation" || limiter.sliding[1].Limit != 60 {
 		t.Fatalf("unexpected generation bucket: %+v", limiter.sliding[1])
+	}
+}
+
+func TestRateLimitUsesUserOverrideBelowDefaultForMessageGeneration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	limiter := &recordingRateLimiter{allow: true, overrideRPM: 5, overrideExists: true}
+	router := gin.New()
+	group := router.Group("/api/v1")
+	group.Use(testUserContext("user"))
+	group.Use(RateLimit(limiter, config.NewRuntime(config.Config{RateLimitEnabled: true, RateLimitRPM: 60})))
+	group.POST("/conversations/:id/messages/stream", okHandler)
+
+	response := performRequest(router, http.MethodPost, "/api/v1/conversations/1/messages/stream")
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected request to pass, got %d", response.Code)
+	}
+	if len(limiter.overrideLookups) != 1 || limiter.overrideLookups[0] != 42 {
+		t.Fatalf("expected one override lookup for user 42, got %+v", limiter.overrideLookups)
+	}
+	if len(limiter.sliding) != 1 {
+		t.Fatalf("expected one sliding-window call, got %d", len(limiter.sliding))
+	}
+	if limiter.sliding[0].Limit != 5 {
+		t.Fatalf("expected override limit 5, got %+v", limiter.sliding[0])
+	}
+}
+
+func TestRateLimitOverrideAppliesWhenGlobalRateLimitDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	limiter := &recordingRateLimiter{allow: false, overrideRPM: 5, overrideExists: true}
+	router := gin.New()
+	group := router.Group("/api/v1")
+	group.Use(testUserContext("user"))
+	group.Use(RateLimit(limiter, config.NewRuntime(config.Config{RateLimitEnabled: false, RateLimitRPM: 60})))
+	group.POST("/conversations/:id/messages/stream", okHandler)
+
+	response := performRequest(router, http.MethodPost, "/api/v1/conversations/1/messages/stream")
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected override to enforce 429 when global limiter is disabled, got %d", response.Code)
+	}
+	if response.Header().Get("X-RateLimit-Limit") != "5" {
+		t.Fatalf("expected X-RateLimit-Limit=5, got %q", response.Header().Get("X-RateLimit-Limit"))
 	}
 }
 

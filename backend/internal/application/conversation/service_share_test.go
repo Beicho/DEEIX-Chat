@@ -1,11 +1,16 @@
 package conversation
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
 
 func TestBuildShareMetadataDescriptionUsesFirstUserMessage(t *testing.T) {
@@ -120,4 +125,94 @@ func TestNormalizeMessagePublicIDsDeduplicatesAndKeepsOrder(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalized ids mismatch: got %v, want %v", got, want)
 	}
+}
+
+func TestCreateConversationShareRunsModerationBeforePersist(t *testing.T) {
+	moderationServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/moderations" {
+			t.Fatalf("unexpected moderation path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[{"flagged":true,"categories":{"self-harm":true},"category_scores":{"self-harm":0.91}}]}`))
+	}))
+	defer moderationServer.Close()
+
+	repo := &shareModerationRepo{
+		conversation: model.Conversation{ID: 11, UserID: 7, PublicID: "conv_1", Title: "Share me", Model: "model-a"},
+		messages: []model.Message{
+			{ID: 1, ConversationID: 11, UserID: 7, PublicID: "msg_user", Role: "user", Content: "unsafe content"},
+			{ID: 2, ConversationID: 11, UserID: 7, PublicID: "msg_assistant", ParentPublicID: "msg_user", Role: "assistant", Content: "assistant reply"},
+		},
+	}
+	service := &Service{
+		cfg: config.NewRuntime(config.Config{
+			ModerationEnabled:   true,
+			ModerationBaseURL:   moderationServer.URL,
+			ModerationModel:     "guard-model",
+			ModerationThreshold: 0.5,
+		}),
+		repo: repo,
+	}
+
+	_, err := service.CreateConversationShare(context.Background(), 7, "conv_1", ConversationShareOptions{})
+
+	if err != ErrModerationBlocked {
+		t.Fatalf("CreateConversationShare() error = %v, want ErrModerationBlocked", err)
+	}
+	if repo.replaced {
+		t.Fatal("share was persisted before moderation passed")
+	}
+	if repo.moderationEvent == nil {
+		t.Fatal("expected moderation event to be recorded")
+	}
+	if repo.moderationEvent.Direction != "share" || !repo.moderationEvent.Flagged {
+		t.Fatalf("moderation event = %#v", repo.moderationEvent)
+	}
+}
+
+type shareModerationRepo struct {
+	repository.ConversationRepository
+	conversation    model.Conversation
+	messages        []model.Message
+	moderationEvent *model.ModerationEvent
+	replaced        bool
+}
+
+func (r *shareModerationRepo) GetConversationByPublicID(_ context.Context, publicID string, userID uint) (*model.Conversation, error) {
+	if r.conversation.PublicID != publicID || r.conversation.UserID != userID {
+		return nil, repository.ErrNotFound
+	}
+	item := r.conversation
+	return &item, nil
+}
+
+func (r *shareModerationRepo) ListMessagesForShare(_ context.Context, conversationID uint, publicIDs []string) ([]model.Message, error) {
+	if conversationID != r.conversation.ID {
+		return nil, repository.ErrNotFound
+	}
+	if len(publicIDs) == 0 {
+		return append([]model.Message(nil), r.messages...), nil
+	}
+	wanted := make(map[string]struct{}, len(publicIDs))
+	for _, id := range publicIDs {
+		wanted[strings.TrimSpace(id)] = struct{}{}
+	}
+	result := make([]model.Message, 0, len(r.messages))
+	for _, message := range r.messages {
+		if _, ok := wanted[message.PublicID]; ok {
+			result = append(result, message)
+		}
+	}
+	return result, nil
+}
+
+func (r *shareModerationRepo) CreateModerationEvent(_ context.Context, event *model.ModerationEvent) error {
+	copied := *event
+	r.moderationEvent = &copied
+	return nil
+}
+
+func (r *shareModerationRepo) ReplaceActiveConversationShare(_ context.Context, _ *model.ConversationShare) error {
+	r.replaced = true
+	return nil
 }

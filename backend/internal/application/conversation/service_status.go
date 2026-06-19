@@ -20,7 +20,7 @@ func (s *Service) ListModelAvailability(ctx context.Context, window time.Duratio
 }
 
 // ListModerationEvents returns recent moderation events for admin review.
-func (s *Service) ListModerationEvents(ctx context.Context, page int, pageSize int) ([]model.ModerationEvent, int64, error) {
+func (s *Service) ListModerationEvents(ctx context.Context, page int, pageSize int, filter model.ModerationEventFilter) ([]model.ModerationEvent, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -30,7 +30,24 @@ func (s *Service) ListModerationEvents(ctx context.Context, page int, pageSize i
 	if pageSize > 100 {
 		pageSize = 100
 	}
-	return s.repo.ListModerationEvents(ctx, (page-1)*pageSize, pageSize)
+	filter.Direction = normalizeModerationListOption(filter.Direction, "input", "output")
+	filter.ReviewStatus = normalizeModerationListOption(filter.ReviewStatus, "pending", "false_positive", "confirmed", "resolved")
+	filter.Disposition = normalizeModerationListOption(filter.Disposition, "none", moderationDispositionLimit, moderationDispositionSuspend)
+	filter.EventType = normalizeModerationListOption(filter.EventType, moderationEventPolicyHit, moderationEventEngineError)
+	return s.repo.ListModerationEvents(ctx, filter, (page-1)*pageSize, pageSize)
+}
+
+func normalizeModerationListOption(value string, allowed ...string) string {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" {
+		return ""
+	}
+	for _, option := range allowed {
+		if normalized == option {
+			return normalized
+		}
+	}
+	return ""
 }
 
 // UpdateModerationReview marks one moderation event review state.
@@ -61,12 +78,27 @@ func (s *Service) ReleaseModerationDisposition(ctx context.Context, id uint, rev
 		}
 		return nil, err
 	}
+	if strings.TrimSpace(item.Disposition) == "" || item.DispositionReleasedAt != nil {
+		return nil, ErrInvalidMessageContent
+	}
+	if item.Disposition != moderationDispositionLimit && item.Disposition != moderationDispositionSuspend {
+		return nil, ErrInvalidMessageContent
+	}
+	now := time.Now().UTC()
+	if item.Disposition == moderationDispositionLimit && s.rateLimiter != nil && item.UserID != 0 {
+		if err = s.rateLimiter.ClearUserRateLimitOverride(ctx, item.UserID); err != nil {
+			return nil, err
+		}
+	}
 	if s.userEnforcer != nil && item.UserID != 0 {
 		user, userErr := s.userEnforcer.GetByID(ctx, item.UserID)
 		if userErr != nil {
 			return nil, userErr
 		}
 		if user != nil && !domainuser.IsAdminRole(user.Role) && (user.Status == domainuser.StatusLocked || user.Status == domainuser.StatusSuspended) {
+			if !isModerationOwnedAccountDisposition(user) {
+				return nil, ErrInvalidMessageContent
+			}
 			if err = s.userEnforcer.UpdateUserStatus(ctx, item.UserID, domainuser.StatusActive); err != nil {
 				return nil, err
 			}
@@ -75,5 +107,32 @@ func (s *Service) ReleaseModerationDisposition(ctx context.Context, id uint, rev
 			}
 		}
 	}
-	return s.UpdateModerationReview(ctx, id, reviewerID, "resolved", note)
+	if _, err = s.repo.ReleaseModerationEventDisposition(ctx, id, reviewerID, &now); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrMessageNotFound
+		}
+		return nil, err
+	}
+	updated, err := s.UpdateModerationReview(ctx, id, reviewerID, "resolved", note)
+	if err != nil {
+		return nil, err
+	}
+	s.notifyModerationDispositionRelease(ctx, item.UserID, item.ID, item.Disposition, now)
+	return updated, nil
+}
+
+func isModerationOwnedAccountDisposition(user *domainuser.User) bool {
+	if user == nil {
+		return false
+	}
+	reason := strings.TrimSpace(user.SuspensionReason)
+	detail := strings.TrimSpace(user.SuspensionDetail)
+	if reason == moderationVisibleSuspensionReason {
+		return detail == moderationAutoLimitDetail || detail == moderationAutoSuspendDetail
+	}
+	if reason == "content_policy" {
+		return detail == moderationAutoLimitRevokeReason || detail == moderationAutoSuspendRevokeReason ||
+			detail == "content_policy_auto_limit" || detail == "content_policy_auto_suspension"
+	}
+	return false
 }

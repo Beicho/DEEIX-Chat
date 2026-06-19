@@ -284,6 +284,11 @@ function handleStreamEvent(event: StreamMessageEvent, options: ConversationStrea
     return null;
   }
 
+  if (event.type === "moderation_retract") {
+    options.onModerationRetract?.(event);
+    return null;
+  }
+
   if (event.type === "usage") {
     options.onUsage?.(event);
     return null;
@@ -1064,6 +1069,7 @@ export type ConversationStreamOptions = {
   onProcessUpdate?: (event: Extract<StreamMessageEvent, { type: "process_update" }>) => void;
   onUpstreamThinkDelta?: (event: Extract<StreamMessageEvent, { type: "upstream_think_delta" }>) => void;
   onUsage?: (event: Extract<StreamMessageEvent, { type: "usage" }>) => void;
+  onModerationRetract?: (event: Extract<StreamMessageEvent, { type: "moderation_retract" }>) => void;
   onInterrupted?: (event: Extract<StreamMessageEvent, { type: "error" }>) => void;
 };
 
