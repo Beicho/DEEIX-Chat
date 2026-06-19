@@ -1,4 +1,7 @@
 {
+  "sections": {
+    "checkin": "签到"
+  },
   "checkin": {
     "title": "签到管理",
     "description": "管理每日签到功能和查看统计数据",

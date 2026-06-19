@@ -1,4 +1,7 @@
 {
+  "sections": {
+    "checkin": "Check-in"
+  },
   "checkin": {
     "title": "Check-in Management",
     "description": "Manage daily check-in feature and view statistics",

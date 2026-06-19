@@ -43,6 +43,7 @@ export function AdminSidebar({
         models: "sections.models",
         "tool-settings": "sections.toolSettings",
         billing: "sections.billing",
+        checkin: "sections.checkin",
         announcements: "sections.announcements",
         moderation: "sections.moderation",
         branding: "sections.branding",
