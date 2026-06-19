@@ -45,6 +45,7 @@ export function AdminSidebar({
         billing: "sections.billing",
         checkin: "sections.checkin",
         alerting: "sections.alerting",
+        arena: "sections.arena",
         announcements: "sections.announcements",
         moderation: "sections.moderation",
         branding: "sections.branding",

@@ -24,7 +24,7 @@ export interface ArenaVoteResult {
 }
 
 export interface ArenaLeaderboardEntry {
-  modelName: string;
+  model: string;
   winCount: number;
   totalBattles: number;
   winRate: number;
