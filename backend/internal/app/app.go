@@ -257,6 +257,7 @@ func NewApp() (*App, error) {
 	conversationService.SetAuditWriter(auditService)
 	conversationService.SetObjectStoreProvider(objectStoreProvider)
 	conversationService.SetMCPRepository(mcpRepo)
+	conversationService.SetModerationUserEnforcer(userService)
 	memoryService.SetCacheInvalidator(conversationService.InvalidateMemoryCache)
 	conversationHandler := conversationhttp.NewHandler(conversationService, runtimeCfg)
 	conversationModule := conversationhttp.NewModule(conversationHandler)
@@ -282,18 +283,24 @@ func NewApp() (*App, error) {
 	announcementModule := announcementhttp.NewModule(announcementHandler)
 	notificationRepo := notificationrepo.NewRepo(db)
 	notificationService := notification.NewService(notificationRepo, announcementService)
+	notificationService.SetLogger(log)
+	notificationService.SetUserNotificationProviders(userService, billingService)
 	notificationHandler := notificationhttp.NewHandler(notificationService)
 	notificationModule := notificationhttp.NewModule(notificationHandler)
+	authService.SetNotificationNotifier(notificationService)
+	conversationService.SetModerationNotifier(notificationService)
 	collaborationRepo := collaborationrepo.NewRepo(db)
 	collaborationService := collaboration.NewService(collaborationRepo, log)
 	collaborationService.SetNotificationService(notificationService)
 	collaborationService.SetConversationService(scheduledPromptConversationAdapter{service: conversationService})
+	collaborationService.SetContentPolicyChecker(conversationService)
 	conversationService.SetAssistantResolver(collaborationService)
 	collaborationHandler := collaborationhttp.NewHandler(collaborationService)
 	collaborationModule := collaborationhttp.NewModule(collaborationHandler)
 
 	hc := newHealthChecker(db, cfg.CacheDriver, redisClient)
 	rateLimiter := buildRateLimiter(cfg, redisClient, memoryCache)
+	conversationService.SetModerationRateLimiter(rateLimiter)
 	engine, err := platformhttp.NewEngine(runtimeCfg, log, platformhttp.Modules{
 		Auth:          authModule,
 		AuthService:   authService,
@@ -328,6 +335,7 @@ func NewApp() (*App, error) {
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	conversationService.StartBackgroundWorkers(backgroundCtx)
 	collaborationService.StartScheduledPromptWorker(backgroundCtx)
+	notificationService.StartLifecycleNotificationWorker(backgroundCtx)
 
 	return &App{
 		cfg:              runtimeCfg.Snapshot(),

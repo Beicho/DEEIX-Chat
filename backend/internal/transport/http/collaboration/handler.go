@@ -215,6 +215,8 @@ func writeError(c *gin.Context, err error) {
 		response.ErrorFrom(c, http.StatusNotFound, err)
 	case errors.Is(err, appcollab.ErrInvalidInput):
 		response.ErrorFrom(c, http.StatusBadRequest, err)
+	case errors.Is(err, appcollab.ErrContentBlocked):
+		response.ErrorWithCode(c, http.StatusBadRequest, "moderation_blocked", "message was blocked")
 	default:
 		response.Error(c, http.StatusInternalServerError, "collaboration operation failed")
 	}

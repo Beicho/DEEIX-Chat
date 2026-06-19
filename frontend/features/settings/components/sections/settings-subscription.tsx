@@ -2158,6 +2158,19 @@ export function SettingsSubscription() {
               </div>
             </div>
           </div>
+
+          <Separator />
+
+          <ActionRow
+            title={t("periodBalance.title")}
+            value={t("usageBilling.balance", { value: formatAccountBalance(billingAccount?.balanceUSD ?? 0, locale) })}
+            action={
+              <Button type="button" variant="outline" disabled={billingLoading || topUpLoading || paymentDisabled} onClick={() => setTopUpDialogOpen(true)}>
+                {t("usageBilling.topUp")}
+              </Button>
+            }
+          />
+          <p className="px-0.5 text-xs text-muted-foreground">{t("periodBalance.hint")}</p>
         </section>
       ) : null}
 

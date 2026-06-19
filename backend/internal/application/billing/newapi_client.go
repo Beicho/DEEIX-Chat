@@ -19,7 +19,10 @@ import (
 )
 
 const (
-	newAPIQuotaPerUSD = 500000.0
+	newAPIQuotaPerUSD         = 500000.0
+	newAPITransferRate        = 10.0
+	newAPIMinTransferUSD      = 1.0
+	newAPIMaxDailyTransferUSD = 500.0
 )
 
 // NewAPIClientConfig configures the NewAPI bridge client.

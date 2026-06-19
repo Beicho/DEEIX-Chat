@@ -9,16 +9,35 @@ export function OfflineStatusBanner() {
   const [offline, setOffline] = React.useState(false);
 
   React.useEffect(() => {
-    const updateStatus = () => {
-      setOffline(typeof navigator !== "undefined" ? !navigator.onLine : false);
+    let cancelled = false;
+
+    // 仅凭 navigator.onLine 会误报：部分环境初始即返回 false 且此后不再触发 online 事件，
+    // 横幅会一直卡在顶部。这里在显示前用一次同源探测确认确实断网，网络恢复后清除。
+    const probe = async () => {
+      try {
+        await fetch(`/manifest.webmanifest?_=${Date.now()}`, { method: "HEAD", cache: "no-store" });
+        if (!cancelled) setOffline(false);
+      } catch {
+        if (!cancelled) setOffline(typeof navigator !== "undefined" ? !navigator.onLine : false);
+      }
     };
 
-    updateStatus();
-    window.addEventListener("online", updateStatus);
-    window.addEventListener("offline", updateStatus);
+    const handleOffline = () => {
+      void probe();
+    };
+    const handleOnline = () => {
+      if (!cancelled) setOffline(false);
+    };
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      void probe();
+    }
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
     return () => {
-      window.removeEventListener("online", updateStatus);
-      window.removeEventListener("offline", updateStatus);
+      cancelled = true;
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, []);
 

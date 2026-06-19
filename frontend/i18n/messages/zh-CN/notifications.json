@@ -4,6 +4,9 @@
   "open": "打开通知",
   "refresh": "刷新",
   "markAllRead": "全部已读",
+  "viewAll": "查看全部",
+  "loadMore": "加载更多",
+  "loadingMore": "加载中",
   "read": "已读",
   "unread": "未读",
   "unreadCount": "{count} 条未读",
@@ -14,7 +17,21 @@
   "partialList": "已显示 {count} / {total} 条。",
   "sources": {
     "announcement": "公告",
+    "auth": "账号安全",
+    "billing": "计费",
+    "billing_expiry": "订阅提醒",
+    "moderation": "内容安全",
+    "mcp": "连接器",
+    "scheduled_prompt": "定时任务",
+    "weekly_summary": "使用周报",
     "system": "通知"
+  },
+  "center": {
+    "title": "通知",
+    "description": "查看并管理近期通知。",
+    "allLoaded": "已显示全部",
+    "markRead": "标为已读",
+    "openLink": "打开"
   },
   "toast": {
     "loadFailed": "通知加载失败",

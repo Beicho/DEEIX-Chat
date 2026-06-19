@@ -10,6 +10,7 @@ import (
 	appnotification "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/notification"
 	domaincollab "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/collaboration"
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
+	domainnotification "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/notification"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -25,7 +26,12 @@ type Service struct {
 	repo          repository.CollaborationRepository
 	notifications *appnotification.Service
 	conversations scheduledPromptConversationService
+	contentPolicy contentPolicyChecker
 	logger        *zap.Logger
+}
+
+type contentPolicyChecker interface {
+	CheckContentForPolicy(ctx context.Context, userID uint, content string, direction string) error
 }
 
 type scheduledPromptConversationService interface {
@@ -59,6 +65,11 @@ func (s *Service) SetNotificationService(notifications *appnotification.Service)
 // SetConversationService enables due scheduled prompts to write results into conversations.
 func (s *Service) SetConversationService(conversations scheduledPromptConversationService) {
 	s.conversations = conversations
+}
+
+// SetContentPolicyChecker enables public assistant publishing to reuse content checks.
+func (s *Service) SetContentPolicyChecker(checker contentPolicyChecker) {
+	s.contentPolicy = checker
 }
 
 type AssistantInput struct {
@@ -107,6 +118,9 @@ func (s *Service) CreateAssistant(ctx context.Context, userID uint, input Assist
 		return nil, ErrInvalidInput
 	}
 	if item.Visibility == domaincollab.AssistantVisibilityPublic {
+		if err := s.checkAssistantPublishPolicy(ctx, userID, *item); err != nil {
+			return nil, err
+		}
 		now := time.Now()
 		item.PublishedAt = &now
 	}
@@ -138,6 +152,15 @@ func (s *Service) UpdateAssistant(ctx context.Context, userID uint, publicID str
 		Visibility:     &visibility,
 	}
 	if visibility == domaincollab.AssistantVisibilityPublic {
+		if err := s.checkAssistantPublishPolicy(ctx, userID, domaincollab.Assistant{
+			Name:           assistantStringValue(patch.Name),
+			Description:    assistantStringValue(patch.Description),
+			SystemPrompt:   assistantStringValue(patch.SystemPrompt),
+			OpeningMessage: assistantStringValue(patch.OpeningMessage),
+			Visibility:     visibility,
+		}); err != nil {
+			return nil, err
+		}
 		now := time.Now()
 		patch.PublishedAt = &now
 	}
@@ -412,11 +435,11 @@ func (s *Service) runScheduledPrompt(ctx context.Context, item domaincollab.Sche
 			body = result.AssistantContent
 		}
 		_, _ = s.notifications.Create(ctx, item.UserID, appnotification.CreateInput{
-			Type:     "scheduled_prompt",
+			Type:     domainnotification.TypeScheduledPrompt,
 			Title:    item.Title,
 			Body:     body,
 			Link:     link,
-			Source:   "scheduled_prompt",
+			Source:   domainnotification.SourceScheduledPrompt,
 			SourceID: item.PublicID,
 		})
 	}
@@ -447,11 +470,11 @@ func (s *Service) handleScheduledPromptFailure(ctx context.Context, item domainc
 	}
 	if disable && s.notifications != nil {
 		_, _ = s.notifications.Create(ctx, item.UserID, appnotification.CreateInput{
-			Type:     "scheduled_prompt",
+			Type:     domainnotification.TypeScheduledPrompt,
 			Title:    item.Title,
 			Body:     message,
 			Link:     "/assistants",
-			Source:   "scheduled_prompt",
+			Source:   domainnotification.SourceScheduledPrompt,
 			SourceID: item.PublicID,
 		})
 	}
@@ -476,6 +499,34 @@ func normalizeVisibility(value string) string {
 		return domaincollab.AssistantVisibilityPublic
 	}
 	return domaincollab.AssistantVisibilityPrivate
+}
+
+func (s *Service) checkAssistantPublishPolicy(ctx context.Context, userID uint, item domaincollab.Assistant) error {
+	if s.contentPolicy == nil {
+		return nil
+	}
+	if err := s.contentPolicy.CheckContentForPolicy(ctx, userID, buildAssistantPublishPolicyText(item), "assistant_publish"); err != nil {
+		return ErrContentBlocked
+	}
+	return nil
+}
+
+func buildAssistantPublishPolicyText(item domaincollab.Assistant) string {
+	parts := []string{
+		"name: " + strings.TrimSpace(item.Name),
+		"description: " + strings.TrimSpace(item.Description),
+		"system_prompt: " + strings.TrimSpace(item.SystemPrompt),
+		"opening_message: " + strings.TrimSpace(item.OpeningMessage),
+		"visibility: " + strings.TrimSpace(item.Visibility),
+	}
+	return strings.Join(parts, "\n")
+}
+
+func assistantStringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func normalizeTeamRole(value string) string {

@@ -3,6 +3,111 @@
   "description": "近期被内容检查拦截的消息。",
   "empty": "暂无记录。",
   "loadFailed": "记录加载失败。",
+  "none": "无",
+  "settings": {
+    "title": "检查设置",
+    "description": "配置内容检查服务、复核阈值和自动处置。",
+    "sectionTitle": "运行配置",
+    "actions": {
+      "save": "保存设置"
+    },
+    "mode": {
+      "moderations": "标准检查",
+      "chatClassifier": "聊天分类"
+    },
+    "failStrategy": {
+      "failOpen": "失败时放行",
+      "failClose": "失败时拦截"
+    },
+    "action": {
+      "block": "拦截"
+    },
+    "fields": {
+      "enabled": {
+        "label": "启用检查",
+        "description": "开启后，输入、输出、公开分享和公开助手发布都会先经过内容检查。"
+      },
+      "mode": {
+        "label": "检查模式",
+        "description": "选择标准检查接口，或使用聊天分类接口返回结构化判断。"
+      },
+      "failStrategy": {
+        "label": "失败策略",
+        "description": "检查服务不可用时，是临时放行请求，还是按风险处理为拦截。"
+      },
+      "baseURL": {
+        "label": "服务地址",
+        "description": "填写兼容接口的根地址，不包含末尾路径。",
+        "placeholder": "https://example.com/v1"
+      },
+      "apiKey": {
+        "label": "访问密钥",
+        "description": "保存后不会回显；留空保存会保持原值。"
+      },
+      "model": {
+        "label": "检查模型",
+        "description": "用于内容检查或聊天分类的模型名称。"
+      },
+      "threshold": {
+        "label": "命中阈值",
+        "description": "分值达到该阈值时视为命中，范围 0 到 1。"
+      },
+      "action": {
+        "label": "命中处理",
+        "description": "当前支持拦截命中的内容。"
+      },
+      "timeoutSeconds": {
+        "label": "超时时间",
+        "description": "单次检查请求等待秒数。"
+      },
+      "classifierTemplate": {
+        "label": "分类提示词",
+        "description": "聊天分类模式使用的系统提示词，支持 {{DIRECTION}} 和 {{CONTENT}} 占位符。",
+        "placeholder": "留空使用默认提示词。"
+      },
+      "autoWindowHours": {
+        "label": "统计窗口",
+        "description": "自动处置统计最近多少小时内的命中次数。"
+      },
+      "autoLimitThreshold": {
+        "label": "限速阈值",
+        "description": "窗口内命中次数达到该值后，对账号临时降低请求频率；0 表示关闭。"
+      },
+      "autoSuspendThreshold": {
+        "label": "暂停阈值",
+        "description": "窗口内命中次数达到该值后，暂停账号并退出当前会话；0 表示关闭。"
+      },
+      "autoLimitRPM": {
+        "label": "限速频率",
+        "description": "自动限速后，每分钟允许的请求数。"
+      },
+      "autoLimitDurationMinutes": {
+        "label": "限速时长",
+        "description": "自动限速持续的分钟数，复核解除会提前清除。"
+      },
+      "outputWindowChars": {
+        "label": "输出检查窗口",
+        "description": "流式回复每累计多少字符触发一次输出检查。"
+      }
+    },
+    "toast": {
+      "loadFailed": "检查设置加载失败。",
+      "saved": "检查设置已保存。",
+      "saveFailed": "检查设置保存失败。"
+    }
+  },
+  "filters": {
+    "all": "全部",
+    "userID": "用户 ID",
+    "userIDPlaceholder": "输入用户 ID",
+    "direction": "方向",
+    "reviewStatus": "复核状态",
+    "disposition": "处置",
+    "eventType": "事件类型",
+    "flagged": "命中",
+    "createdFrom": "开始日期",
+    "createdTo": "结束日期"
+  },
   "fields": {
     "time": "时间",
     "direction": "方向",
@@ -11,7 +116,23 @@
     "threshold": "限制",
     "reason": "原因",
     "user": "用户",
-    "conversation": "会话"
+    "conversation": "会话",
+    "status": "复核",
+    "disposition": "处置",
+    "eventType": "事件类型",
+    "contentSnapshot": "内容快照",
+    "contentHash": "内容哈希",
+    "snapshotTruncated": "快照截断",
+    "categories": "分类详情",
+    "reviewedAt": "复核时间",
+    "reviewNote": "复核备注",
+    "dispositionAppliedAt": "处置时间",
+    "dispositionReleasedAt": "解除时间",
+    "dispositionReleasedBy": "解除人",
+    "message": "消息",
+    "run": "运行",
+    "model": "模型",
+    "flagged": "命中"
   },
   "direction": {
     "input": "输入",
@@ -23,5 +144,61 @@
   "reason": {
     "blocked": "已停止",
     "check_failed": "检查失败"
+  },
+  "eventType": {
+    "policy_hit": "规则命中",
+    "engine_error": "检查异常"
+  },
+  "flagged": {
+    "true": "是",
+    "false": "否"
+  },
+  "status": {
+    "pending": "待复核",
+    "false_positive": "误报",
+    "confirmed": "已确认",
+    "resolved": "已处理"
+  },
+  "disposition": {
+    "none": "无",
+    "rate_limited": "已限速",
+    "suspended": "已暂停"
+  },
+  "actions": {
+    "refresh": "刷新",
+    "openMenu": "打开操作",
+    "viewDetails": "查看详情",
+    "markConfirmed": "确认命中",
+    "markFalsePositive": "标记误报",
+    "markResolved": "标记已处理",
+    "release": "解除处置",
+    "cancel": "取消",
+    "submit": "保存",
+    "close": "关闭",
+    "resetFilters": "重置筛选"
+  },
+  "detail": {
+    "title": "记录 #{id}",
+    "description": "查看内容快照、分类结果和处置记录。",
+    "emptySnapshot": "无内容快照。"
+  },
+  "dialog": {
+    "reviewTitle": {
+      "confirmed": "确认命中",
+      "false_positive": "标记误报",
+      "resolved": "标记已处理",
+      "pending": "改为待复核"
+    },
+    "releaseTitle": "解除自动处置",
+    "reviewDescription": "将记录 #{id} 写入复核结果。",
+    "releaseDescription": "将记录 #{id} 对应账号恢复为可用，并标记为已处理。",
+    "noteLabel": "备注",
+    "notePlaceholder": "记录处理依据，便于之后追溯。"
+  },
+  "toast": {
+    "reviewSaved": "复核结果已保存。",
+    "reviewFailed": "复核结果保存失败。",
+    "releaseSaved": "自动处置已解除。",
+    "releaseFailed": "自动处置解除失败。"
   }
 }

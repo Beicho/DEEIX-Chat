@@ -318,8 +318,13 @@ func validatePatchItem(item PatchItem) error {
 			return fmt.Errorf("%s must start with http:// or https://", key)
 		}
 		return nil
-	case "moderation:api_key", "moderation:model", "moderation:action":
+	case "moderation:api_key", "moderation:model":
 		return validateStringMax(value, 512, key)
+	case "moderation:action":
+		if value == "block" {
+			return nil
+		}
+		return fmt.Errorf("%s must be one of: block", key)
 	case "moderation:threshold":
 		return validateFloatMinMax(value, 0.000001, 1, key)
 	case "moderation:timeout_seconds":
@@ -330,6 +335,12 @@ func validatePatchItem(item PatchItem) error {
 		return validateIntMinMax(value, 1, 168, key)
 	case "moderation:auto_limit_threshold", "moderation:auto_suspend_threshold":
 		return validateIntMinMax(value, 0, 100000, key)
+	case "moderation:auto_limit_rpm":
+		return validateIntMinMax(value, 1, 60, key)
+	case "moderation:auto_limit_duration_minutes":
+		return validateIntMinMax(value, 1, 1440, key)
+	case "moderation:output_window_chars":
+		return validateIntMinMax(value, 128, 20000, key)
 	case "chat:default_system_prompt":
 		return validateStringMax(value, 20000, key)
 	case "auth:smtp_port":

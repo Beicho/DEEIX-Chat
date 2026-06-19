@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -20,6 +21,10 @@ func NewRateLimiter(client *redis.Client) *rateLimiter {
 		return nil
 	}
 	return &rateLimiter{client: client}
+}
+
+func userRateLimitOverrideKey(userID uint) string {
+	return fmt.Sprintf("ratelimit:override:user:%d", userID)
 }
 
 // AllowSlidingWindow 使用有序集合实现滑动窗口限流。
@@ -81,4 +86,42 @@ func (r *rateLimiter) AllowFixedWindow(ctx context.Context, keys []string, limit
 		}
 	}
 	return true, nil
+}
+
+// SetUserRateLimitOverride stores a temporary per-user RPM override.
+func (r *rateLimiter) SetUserRateLimitOverride(ctx context.Context, userID uint, rpm int, ttl time.Duration) error {
+	if r == nil || r.client == nil || userID == 0 || rpm <= 0 {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = time.Hour
+	}
+	return r.client.Set(ctx, userRateLimitOverrideKey(userID), strconv.Itoa(rpm), ttl).Err()
+}
+
+// GetUserRateLimitOverride returns a temporary per-user RPM override when one exists.
+func (r *rateLimiter) GetUserRateLimitOverride(ctx context.Context, userID uint) (int, bool, error) {
+	if r == nil || r.client == nil || userID == 0 {
+		return 0, false, nil
+	}
+	raw, err := r.client.Get(ctx, userRateLimitOverrideKey(userID)).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	rpm, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || rpm <= 0 {
+		return 0, false, nil
+	}
+	return rpm, true, nil
+}
+
+// ClearUserRateLimitOverride removes a temporary per-user RPM override.
+func (r *rateLimiter) ClearUserRateLimitOverride(ctx context.Context, userID uint) error {
+	if r == nil || r.client == nil || userID == 0 {
+		return nil
+	}
+	return r.client.Del(ctx, userRateLimitOverrideKey(userID)).Err()
 }

@@ -10,6 +10,7 @@ import (
 // NotificationRepository 定义站内通知持久化能力。
 type NotificationRepository interface {
 	CreateNotification(ctx context.Context, item *domainnotification.Notification) (*domainnotification.Notification, error)
+	GetNotificationBySource(ctx context.Context, userID uint, source string, sourceID string) (*domainnotification.Notification, error)
 	ListNotifications(ctx context.Context, userID uint, filter NotificationListFilter, offset int, limit int) ([]domainnotification.Notification, int64, error)
 	CountUnreadNotifications(ctx context.Context, userID uint) (int64, error)
 	MarkNotificationRead(ctx context.Context, userID uint, notificationID uint, now time.Time) error

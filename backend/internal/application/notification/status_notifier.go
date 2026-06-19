@@ -27,8 +27,9 @@ func NewStatusNotifier(cfg config.Config) StatusNotifier {
 	items := make([]StatusNotifier, 0, 2)
 	if strings.TrimSpace(cfg.StatusNotifierWebhookURL) != "" {
 		items = append(items, WebhookStatusNotifier{
-			URL:        strings.TrimSpace(cfg.StatusNotifierWebhookURL),
-			HTTPClient: security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 10*time.Second),
+			URL:         strings.TrimSpace(cfg.StatusNotifierWebhookURL),
+			Env:         cfg.Env,
+			SSRFEnabled: cfg.SSRFProtectionEnabled,
 		})
 	}
 	if strings.TrimSpace(cfg.StatusNotifierEmail) != "" {
@@ -54,8 +55,9 @@ func (n CompositeStatusNotifier) Notify(ctx context.Context, title string, messa
 }
 
 type WebhookStatusNotifier struct {
-	URL        string
-	HTTPClient *http.Client
+	URL         string
+	Env         string
+	SSRFEnabled bool
 }
 
 func (n WebhookStatusNotifier) Notify(ctx context.Context, title string, message string) error {
@@ -68,10 +70,7 @@ func (n WebhookStatusNotifier) Notify(ctx context.Context, title string, message
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := n.HTTPClient
-	if client == nil {
-		client = security.NewOutboundHTTPClient("", false, 10*time.Second)
-	}
+	client := security.NewOutboundHTTPClient(n.Env, n.SSRFEnabled, 10*time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

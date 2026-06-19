@@ -860,7 +860,7 @@ func (s *Service) CreateTopUpPaymentOrder(ctx context.Context, input TopUpPaymen
 	if err != nil {
 		return nil, err
 	}
-	if mode != "usage" {
+	if mode != "usage" && mode != "period" {
 		return nil, ErrPaymentRequired
 	}
 	provider := strings.TrimSpace(input.Provider)
@@ -2784,9 +2784,9 @@ func (s *Service) GetNewAPIBalance(ctx context.Context, userID uint) (*NewAPIBal
 		return nil, repository.ErrInvalidInput
 	}
 	result := &NewAPIBalanceResult{
-		Rate:                10,
-		MinTransferUSD:      1,
-		MaxDailyTransferUSD: 500,
+		Rate:                newAPITransferRate,
+		MinTransferUSD:      newAPIMinTransferUSD,
+		MaxDailyTransferUSD: newAPIMaxDailyTransferUSD,
 	}
 	link, err := s.repo.GetExternalAccountLink(ctx, userID, domainbilling.ExternalPlatformNewAPI)
 	if err != nil {
@@ -2814,7 +2814,7 @@ func (s *Service) TransferFromNewAPI(ctx context.Context, input NewAPITransferIn
 	if input.UserID == 0 || !isPositiveFinite(input.AmountUSD) || strings.TrimSpace(input.IdempotencyKey) == "" {
 		return nil, repository.ErrInvalidInput
 	}
-	if input.AmountUSD < 1 || input.AmountUSD > 500 {
+	if input.AmountUSD < newAPIMinTransferUSD || input.AmountUSD > newAPIMaxDailyTransferUSD {
 		return nil, repository.ErrInvalidInput
 	}
 	if s.newAPIClient == nil || !s.newAPIClient.Configured() {
@@ -2828,11 +2828,19 @@ func (s *Service) TransferFromNewAPI(ctx context.Context, input NewAPITransferIn
 		return nil, repository.ErrInvalidInput
 	}
 	idempotencyKey := strings.TrimSpace(input.IdempotencyKey)
+	// 单日累计上限：默认 NewAPI $500/日。幂等重试不重复计入。
+	todayUSD, err := s.newAPITransferredTodayUSD(ctx, input.UserID, idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	if todayUSD+input.AmountUSD > newAPIMaxDailyTransferUSD {
+		return nil, ErrNewAPIDailyLimitExceeded
+	}
 	transferOut, err := s.newAPIClient.TransferOut(ctx, link.ExternalUserID, input.AmountUSD, idempotencyKey)
 	if err != nil {
 		return nil, err
 	}
-	creditedNanousd := usdToNanousd(input.AmountUSD / 10)
+	creditedNanousd := usdToNanousd(input.AmountUSD / newAPITransferRate)
 	transfer, transaction, err := s.repo.CreditExternalTransfer(ctx, repository.ExternalTransferCreditInput{
 		UserID:                input.UserID,
 		LinkID:                link.ID,
@@ -2853,8 +2861,10 @@ func (s *Service) TransferFromNewAPI(ctx context.Context, input NewAPITransferIn
 	}
 	if transaction != nil {
 		if err := s.newAPIClient.TransferConfirm(ctx, transferOut.TransferID, idempotencyKey); err != nil {
-			_ = s.repo.UpdateExternalTransferStatus(ctx, idempotencyKey, domainbilling.ExternalTransferStatusCancelFailed, err.Error())
-			return nil, err
+			// 本地已入账成功；confirm 仅为外部侧最终化扣减。confirm 失败绝不能标记为待取消，
+			// 否则对账会误退回 NewAPI 额度，与已入账的本站余额叠加造成双花。改标 confirm_pending
+			// 留待重试/对账确认，并按已入账返回成功（用户余额已实际到账）。
+			_ = s.repo.UpdateExternalTransferStatus(ctx, idempotencyKey, domainbilling.ExternalTransferStatusConfirmPending, err.Error())
 		}
 	}
 	account, err := s.repo.GetOrCreateBillingAccount(ctx, input.UserID)
@@ -2874,6 +2884,30 @@ func (s *Service) ListExternalTransfers(ctx context.Context, userID uint, page i
 		UserID:   userID,
 		Platform: domainbilling.ExternalPlatformNewAPI,
 	}, offset, limit)
+}
+
+// newAPITransferredTodayUSD 统计用户当日(UTC)已划转的 NewAPI 侧美元额度（排除已回滚与指定幂等键）。
+func (s *Service) newAPITransferredTodayUSD(ctx context.Context, userID uint, excludeIdempotencyKey string) (float64, error) {
+	startOfDay := utcDateOnly(time.Now())
+	transfers, _, err := s.repo.ListExternalTransfers(ctx, repository.ExternalTransferListFilter{
+		UserID:      userID,
+		Platform:    domainbilling.ExternalPlatformNewAPI,
+		CreatedFrom: &startOfDay,
+	}, 0, 200)
+	if err != nil {
+		return 0, err
+	}
+	var total float64
+	for _, t := range transfers {
+		if t.Status == domainbilling.ExternalTransferStatusRolledBack {
+			continue
+		}
+		if excludeIdempotencyKey != "" && t.IdempotencyKey == excludeIdempotencyKey {
+			continue
+		}
+		total += t.ExternalAmountUSD
+	}
+	return total, nil
 }
 
 // ListRedemptions 查询用户兑换历史。

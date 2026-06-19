@@ -5,8 +5,6 @@ export type NotificationDTO = {
   body: string;
   link: string;
   readAt: string | null;
-  source: string;
-  sourceId: string;
   createdAt: string;
   updatedAt: string;
 };

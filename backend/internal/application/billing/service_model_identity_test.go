@@ -19,7 +19,6 @@ func (s modelIdentityResolverStub) ResolvePlatformModelIdentity(context.Context,
 }
 
 type billingRepositoryStub struct {
-	repository.BillingRepository
 	mode                       string
 	pricing                    *domainbilling.ModelPricing
 	listPricing                []domainbilling.ModelPricing
@@ -38,6 +37,10 @@ type billingRepositoryStub struct {
 	addedUsage                 *domainbilling.UsageLedger
 	settledUsage               *domainbilling.UsageLedger
 	settlementReservation      *domainbilling.UsageBalanceReservation
+}
+
+func (r *billingRepositoryStub) UpdatePaymentOrderStatus(context.Context, string, string) (*domainbilling.PaymentOrder, error) {
+	return nil, nil
 }
 
 func (r *billingRepositoryStub) GetBillingMode(context.Context) (string, error) {

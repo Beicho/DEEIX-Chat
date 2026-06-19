@@ -107,6 +107,10 @@ func (r *messageSendRunState) finalizeRun(retErr error) {
 	switch {
 	case retErr == nil:
 		r.run.Status = "success"
+	case errors.Is(retErr, ErrModerationBlocked):
+		r.run.Status = "moderation_blocked"
+		r.run.ErrorCode = classifyRunErrorCode(retErr)
+		r.run.ErrorMessage = truncateError(retErr.Error(), 255)
 	case errors.Is(retErr, ErrMessageGenerationCanceled):
 		r.run.Status = "canceled"
 		r.run.ErrorCode = classifyRunErrorCode(retErr)
@@ -132,9 +136,13 @@ func (r *messageSendRunState) finalizeUserMessage(ctx context.Context, retErr er
 	messageErrorMessage := ""
 	if retErr != nil && !errors.Is(retErr, ErrMessageGenerationCanceled) {
 		if assistantMessage := r.currentAssistantMessage(); assistantMessage == nil || assistantMessage.Status != "interrupted" {
-			messageStatus = "error"
-			messageErrorCode = classifyRunErrorCode(retErr)
-			messageErrorMessage = truncateError(messageErrorSummary(retErr), 255)
+			if errors.Is(retErr, ErrModerationBlocked) && assistantMessage != nil {
+				messageStatus = "success"
+			} else {
+				messageStatus = "error"
+				messageErrorCode = classifyRunErrorCode(retErr)
+				messageErrorMessage = truncateError(messageErrorSummary(retErr), 255)
+			}
 		}
 	}
 	if err := r.service.repo.UpdateMessageState(ctx, userMessage.ID, messageStatus, messageErrorCode, messageErrorMessage); err != nil {
@@ -165,6 +173,8 @@ func (r *messageSendRunState) finalizeAssistantMessage(ctx context.Context, retE
 	messageStatus := "error"
 	if errors.Is(retErr, ErrMessageGenerationCanceled) {
 		messageStatus = "canceled"
+	} else if errors.Is(retErr, ErrModerationBlocked) {
+		messageStatus = "moderation_blocked"
 	} else if assistantMessage.Status == "interrupted" {
 		messageStatus = "interrupted"
 	}

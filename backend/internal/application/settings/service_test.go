@@ -244,6 +244,26 @@ func TestValidateModelOptionPolicySettings(t *testing.T) {
 	}
 }
 
+func TestValidateModerationActionRejectsUnsupportedDisposition(t *testing.T) {
+	if err := validatePatchItem(PatchItem{Namespace: "moderation", Key: "action", Value: "block"}); err != nil {
+		t.Fatalf("expected moderation block action to pass, got %v", err)
+	}
+	if err := validatePatchItem(PatchItem{Namespace: "moderation", Key: "action", Value: "warn"}); err == nil {
+		t.Fatal("expected unsupported moderation action to fail")
+	}
+}
+
+func TestRuntimeSettingsNormalizeConfigResetsInvalidModerationAction(t *testing.T) {
+	runtimeSettings := NewRuntimeSettings(nil, nil, "test-data-encryption-key")
+	cfg := config.Config{ModerationAction: "warn"}
+
+	runtimeSettings.normalizeConfig(&cfg)
+
+	if cfg.ModerationAction != "block" {
+		t.Fatalf("ModerationAction = %q, want block", cfg.ModerationAction)
+	}
+}
+
 func TestValidateMCPSelectedToolsSetting(t *testing.T) {
 	if err := validatePatchItem(PatchItem{Namespace: "mcp", Key: "mcp_max_selected_tools_per_message", Value: "32"}); err != nil {
 		t.Fatalf("expected selected tool limit to pass, got %v", err)

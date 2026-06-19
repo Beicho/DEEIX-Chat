@@ -357,6 +357,12 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.ModerationAutoLimitThreshold = toInt(item.Value, cfg.ModerationAutoLimitThreshold)
 	case "moderation:auto_suspend_threshold":
 		cfg.ModerationAutoSuspendThreshold = toInt(item.Value, cfg.ModerationAutoSuspendThreshold)
+	case "moderation:auto_limit_rpm":
+		cfg.ModerationAutoLimitRPM = toInt(item.Value, cfg.ModerationAutoLimitRPM)
+	case "moderation:auto_limit_duration_minutes":
+		cfg.ModerationAutoLimitDurationMinutes = toInt(item.Value, cfg.ModerationAutoLimitDurationMinutes)
+	case "moderation:output_window_chars":
+		cfg.ModerationOutputWindowChars = toInt(item.Value, cfg.ModerationOutputWindowChars)
 	case "status:notifier_enabled":
 		cfg.StatusNotifierEnabled = toBool(item.Value, cfg.StatusNotifierEnabled)
 	case "status:notifier_webhook_url":
@@ -480,7 +486,7 @@ func (r *RuntimeSettings) normalizeConfig(cfg *config.Config) {
 	if cfg.ModerationThreshold <= 0 || cfg.ModerationThreshold > 1 {
 		cfg.ModerationThreshold = 0.5
 	}
-	if cfg.ModerationAction == "" {
+	if strings.TrimSpace(cfg.ModerationAction) != "block" {
 		cfg.ModerationAction = "block"
 	}
 	if cfg.ModerationTimeoutSeconds <= 0 {
@@ -504,6 +510,15 @@ func (r *RuntimeSettings) normalizeConfig(cfg *config.Config) {
 	}
 	if cfg.ModerationAutoSuspendThreshold < 0 {
 		cfg.ModerationAutoSuspendThreshold = 0
+	}
+	if cfg.ModerationAutoLimitRPM <= 0 {
+		cfg.ModerationAutoLimitRPM = 5
+	}
+	if cfg.ModerationAutoLimitDurationMinutes <= 0 {
+		cfg.ModerationAutoLimitDurationMinutes = 60
+	}
+	if cfg.ModerationOutputWindowChars <= 0 {
+		cfg.ModerationOutputWindowChars = 800
 	}
 	if cfg.VoiceASRProvider == "" {
 		cfg.VoiceASRProvider = "disabled"

@@ -4,6 +4,9 @@
   "open": "Open notifications",
   "refresh": "Refresh",
   "markAllRead": "Mark all read",
+  "viewAll": "View all",
+  "loadMore": "Load more",
+  "loadingMore": "Loading",
   "read": "Read",
   "unread": "Unread",
   "unreadCount": "{count} unread",
@@ -14,7 +17,21 @@
   "partialList": "Showing {count} of {total}.",
   "sources": {
     "announcement": "Announcement",
+    "auth": "Account security",
+    "billing": "Billing",
+    "billing_expiry": "Subscription reminder",
+    "moderation": "Content safety",
+    "mcp": "Connector",
+    "scheduled_prompt": "Scheduled task",
+    "weekly_summary": "Weekly summary",
     "system": "Notification"
+  },
+  "center": {
+    "title": "Notifications",
+    "description": "View and manage recent notifications.",
+    "allLoaded": "All shown",
+    "markRead": "Mark read",
+    "openLink": "Open"
   },
   "toast": {
     "loadFailed": "Failed to load notifications",

@@ -39,4 +39,6 @@ var (
 	ErrRedemptionCodeExhausted = errors.New("redemption code exhausted")
 	// ErrRedemptionUserLimitExceeded 当前用户已达到兑换次数上限。
 	ErrRedemptionUserLimitExceeded = errors.New("redemption user limit exceeded")
+	// ErrNewAPIDailyLimitExceeded 已达到 NewAPI 单日划转上限。
+	ErrNewAPIDailyLimitExceeded = errors.New("newapi daily transfer limit exceeded")
 )

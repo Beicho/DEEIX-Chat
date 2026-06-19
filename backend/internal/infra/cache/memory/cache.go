@@ -31,8 +31,14 @@ type Cache struct {
 	rateLimits   map[uint]rateLimitState
 	keyCounters  map[uint]int64
 
-	slidingHTTP map[string][]time.Time
-	fixedHTTP   map[string]fixedWindowCounter
+	slidingHTTP        map[string][]time.Time
+	fixedHTTP          map[string]fixedWindowCounter
+	rateLimitOverrides map[uint]rateLimitOverride
+}
+
+type rateLimitOverride struct {
+	rpm       int
+	expiresAt time.Time
 }
 
 type expiringString struct {
@@ -48,18 +54,19 @@ type expiringRAG struct {
 // New creates an in-memory cache backend.
 func New() *Cache {
 	return &Cache{
-		settings:     map[string]expiringString{},
-		fileInflight: map[string]repository.FileProcessingMessage{},
-		fileNotify:   make(chan struct{}),
-		rag:          map[string]expiringRAG{},
-		streams:      map[string]*generationStream{},
-		upstreamCB:   map[uint]*circuitState{},
-		modelCB:      map[string]*circuitState{},
-		upstreamMeta: map[uint]upstreamMetadata{},
-		rateLimits:   map[uint]rateLimitState{},
-		keyCounters:  map[uint]int64{},
-		slidingHTTP:  map[string][]time.Time{},
-		fixedHTTP:    map[string]fixedWindowCounter{},
+		settings:           map[string]expiringString{},
+		fileInflight:       map[string]repository.FileProcessingMessage{},
+		fileNotify:         make(chan struct{}),
+		rag:                map[string]expiringRAG{},
+		streams:            map[string]*generationStream{},
+		upstreamCB:         map[uint]*circuitState{},
+		modelCB:            map[string]*circuitState{},
+		upstreamMeta:       map[uint]upstreamMetadata{},
+		rateLimits:         map[uint]rateLimitState{},
+		keyCounters:        map[uint]int64{},
+		slidingHTTP:        map[string][]time.Time{},
+		fixedHTTP:          map[string]fixedWindowCounter{},
+		rateLimitOverrides: map[uint]rateLimitOverride{},
 	}
 }
 

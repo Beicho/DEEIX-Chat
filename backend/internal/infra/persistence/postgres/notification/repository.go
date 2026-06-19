@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -26,20 +27,45 @@ func (r *Repo) CreateNotification(ctx context.Context, item *domainnotification.
 	if item == nil || item.UserID == 0 {
 		return nil, repository.ErrInvalidInput
 	}
+	link := item.ActionURL
+	if link == "" {
+		link = item.Link
+	}
+	metadataJSON, err := encodeMetadata(item.Metadata)
+	if err != nil {
+		return nil, repository.ErrInvalidInput
+	}
 	record := model.Notification{
-		UserID:   item.UserID,
-		Type:     item.Type,
-		Title:    item.Title,
-		Body:     item.Body,
-		Link:     item.Link,
-		ReadAt:   item.ReadAt,
-		Source:   item.Source,
-		SourceID: item.SourceID,
+		UserID:       item.UserID,
+		Type:         item.Type,
+		Title:        item.Title,
+		Body:         item.Body,
+		Link:         link,
+		MetadataJSON: metadataJSON,
+		ReadAt:       item.ReadAt,
+		Source:       item.Source,
+		SourceID:     item.SourceID,
 	}
 	if err := r.db.WithContext(ctx).Create(&record).Error; err != nil {
 		return nil, translateError(err)
 	}
 	result := toDomain(record)
+	return &result, nil
+}
+
+// GetNotificationBySource 查询一个生产者幂等键对应的通知。
+func (r *Repo) GetNotificationBySource(ctx context.Context, userID uint, source string, sourceID string) (*domainnotification.Notification, error) {
+	if userID == 0 || source == "" || sourceID == "" {
+		return nil, repository.ErrInvalidInput
+	}
+	var item model.Notification
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND source = ? AND source_id = ?", userID, source, sourceID).
+		Order("id DESC").
+		First(&item).Error; err != nil {
+		return nil, translateError(err)
+	}
+	result := toDomain(item)
 	return &result, nil
 }
 
@@ -134,19 +160,44 @@ func (r *Repo) MarkAllNotificationsRead(ctx context.Context, userID uint, now ti
 }
 
 func toDomain(item model.Notification) domainnotification.Notification {
+	metadata := decodeMetadata(item.MetadataJSON)
 	return domainnotification.Notification{
 		ID:        item.ID,
 		UserID:    item.UserID,
 		Type:      item.Type,
 		Title:     item.Title,
 		Body:      item.Body,
+		ActionURL: item.Link,
 		Link:      item.Link,
 		ReadAt:    item.ReadAt,
 		Source:    item.Source,
 		SourceID:  item.SourceID,
+		Metadata:  metadata,
 		CreatedAt: item.CreatedAt,
 		UpdatedAt: item.UpdatedAt,
 	}
+}
+
+func encodeMetadata(metadata map[string]any) (string, error) {
+	if len(metadata) == 0 {
+		return "{}", nil
+	}
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func decodeMetadata(raw string) map[string]any {
+	if raw == "" {
+		return map[string]any{}
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil || metadata == nil {
+		return map[string]any{}
+	}
+	return metadata
 }
 
 func translateError(err error) error {

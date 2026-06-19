@@ -146,6 +146,7 @@ func mapStreamError(err error) streamError {
 		message = "model returned empty response"
 	case errors.Is(err, appconversation.ErrModerationBlocked):
 		status = http.StatusBadRequest
+		code = "moderation_blocked"
 		message = "message was blocked"
 	case errors.Is(err, appconversation.ErrMessageGenerationCanceled):
 		status = http.StatusBadRequest

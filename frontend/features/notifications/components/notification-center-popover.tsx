@@ -66,8 +66,32 @@ function isRead(item: NotificationDTO): boolean {
   return Boolean(item.readAt);
 }
 
-function notificationSourceKey(source: string): "announcement" | "system" {
-  return source === "announcement" ? "announcement" : "system";
+type NotificationSourceKey =
+  | "announcement"
+  | "auth"
+  | "billing"
+  | "billing_expiry"
+  | "moderation"
+  | "mcp"
+  | "scheduled_prompt"
+  | "weekly_summary"
+  | "system";
+
+function notificationSourceKey(item: NotificationDTO): NotificationSourceKey {
+  const type = (item.type || "").trim();
+  switch (type) {
+    case "announcement":
+    case "auth":
+    case "billing":
+    case "billing_expiry":
+    case "moderation":
+    case "mcp":
+    case "scheduled_prompt":
+    case "weekly_summary":
+      return type;
+    default:
+      return "system";
+  }
 }
 
 function NotificationListSkeleton() {
@@ -166,6 +190,11 @@ export function NotificationCenterPopover({ variant = "icon", className }: Notif
   const closePanel = React.useCallback(() => {
     setOpen(false);
   }, []);
+
+  const onOpenCenter = React.useCallback(() => {
+    closePanel();
+    router.push("/notifications");
+  }, [closePanel, router]);
 
   const onOpenNotification = React.useCallback(async (item: NotificationDTO) => {
     if (!accessToken || savingID) {
@@ -279,7 +308,7 @@ export function NotificationCenterPopover({ variant = "icon", className }: Notif
             type="button"
             variant="ghost"
             size="icon"
-            className="size-9"
+            className="relative size-9 after:absolute after:-inset-1 after:content-['']"
             onClick={() => void loadItems(true)}
             disabled={refreshing || loading}
           >
@@ -290,7 +319,7 @@ export function NotificationCenterPopover({ variant = "icon", className }: Notif
             type="button"
             variant="ghost"
             size="icon"
-            className="size-9"
+            className="relative size-9 after:absolute after:-inset-1 after:content-['']"
             onClick={() => void onMarkAllRead()}
             disabled={unreadCount === 0 || markingAll}
           >
@@ -337,7 +366,7 @@ export function NotificationCenterPopover({ variant = "icon", className }: Notif
                     {summary || t("emptyBody")}
                   </span>
                   <span className="mt-2 flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <span className="truncate">{t(`sources.${notificationSourceKey(item.source)}`)}</span>
+                    <span className="truncate">{t(`sources.${notificationSourceKey(item)}`)}</span>
                     <span className="shrink-0 tabular-nums">{notificationTime(item.updatedAt, locale)}</span>
                   </span>
                 </button>
@@ -347,11 +376,21 @@ export function NotificationCenterPopover({ variant = "icon", className }: Notif
         )}
       </div>
 
-      {total > items.length ? (
-        <div className="shrink-0 border-t border-border/60 px-4 py-2 text-xs text-muted-foreground">
-          {t("partialList", { count: items.length, total })}
+      <div className="shrink-0 border-t border-border/60 px-4 py-2">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <p className="min-w-0 truncate text-xs text-muted-foreground">
+            {total > items.length ? t("partialList", { count: items.length, total }) : t("center.allLoaded")}
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-8 shrink-0 rounded-lg px-2 text-xs"
+            onClick={onOpenCenter}
+          >
+            {t("viewAll")}
+          </Button>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 

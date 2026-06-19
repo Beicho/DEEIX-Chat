@@ -305,7 +305,7 @@ func handleSendMessageError(c *gin.Context, err error) {
 	case errors.Is(err, appconversation.ErrUpstreamEmptyResponse):
 		response.Error(c, http.StatusBadGateway, "model returned empty response")
 	case errors.Is(err, appconversation.ErrModerationBlocked):
-		response.Error(c, http.StatusBadRequest, "message was blocked")
+		response.ErrorWithCode(c, http.StatusBadRequest, "moderation_blocked", "message was blocked")
 	case errors.Is(err, appconversation.ErrUpstreamRequestFailed):
 		if code := appconversation.MessageErrorCode(err); code != "" {
 			response.ErrorWithCode(c, http.StatusBadGateway, code, mapClientErrorMessage(err))

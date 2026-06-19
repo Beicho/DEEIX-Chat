@@ -47,6 +47,7 @@ type Service struct {
 	logger               *zap.Logger
 	storeProvider        appstorage.Provider
 	auditWriter          auditWriter
+	notificationNotifier authNotificationNotifier
 }
 
 type subscriptionResolver interface {
@@ -120,6 +121,11 @@ func (s *Service) ShouldUseSecureCookies() bool {
 // SetAuditWriter 注入认证域审计写入器。
 func (s *Service) SetAuditWriter(writer auditWriter) {
 	s.auditWriter = writer
+}
+
+// SetNotificationNotifier enables login-related user-facing notifications.
+func (s *Service) SetNotificationNotifier(notifier authNotificationNotifier) {
+	s.notificationNotifier = notifier
 }
 
 // AuditInput 描述认证域审计写入。
@@ -391,6 +397,10 @@ func (s *Service) issueLoginResult(
 		return nil, err
 	}
 	sessionSnapshot := buildSessionAuditSnapshot(normalizedAuditCtx)
+	var existingSessions []domainuser.Session
+	if s.notificationNotifier != nil {
+		existingSessions, _ = s.repo.ListActiveSessionsByUserID(ctx, item.ID, now)
+	}
 
 	session := &domainuser.Session{
 		SessionID:        sessionID,
@@ -424,6 +434,7 @@ func (s *Service) issueLoginResult(
 	if err = s.repo.UpdateLastLogin(ctx, item.ID); err != nil {
 		return nil, err
 	}
+	s.notifyNewDeviceLogin(ctx, item, session, existingSessions, sessionSnapshot, now)
 
 	userView, err := s.buildUserView(ctx, *item)
 	if err != nil {

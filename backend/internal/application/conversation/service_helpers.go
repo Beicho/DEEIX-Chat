@@ -177,6 +177,8 @@ func classifyRunErrorCode(err error) string {
 		return "model_route_not_configured"
 	case errors.Is(err, ErrUpstreamEmptyResponse):
 		return "upstream_empty_response"
+	case errors.Is(err, ErrModerationBlocked):
+		return "moderation_blocked"
 	case errors.Is(err, ErrMessageGenerationCanceled):
 		return "generation_canceled"
 	case errors.Is(err, ErrMediaImagePromptRequired):

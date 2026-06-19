@@ -23,8 +23,6 @@ type NotificationResponse struct {
 	Body      string     `json:"body"`
 	Link      string     `json:"link"`
 	ReadAt    *time.Time `json:"readAt"`
-	Source    string     `json:"source"`
-	SourceID  string     `json:"sourceId"`
 	CreatedAt time.Time  `json:"createdAt"`
 	UpdatedAt time.Time  `json:"updatedAt"`
 }
@@ -68,8 +66,6 @@ func toNotificationResponse(item appnotification.NotificationView) NotificationR
 		Body:      item.Body,
 		Link:      item.Link,
 		ReadAt:    item.ReadAt,
-		Source:    item.Source,
-		SourceID:  item.SourceID,
 		CreatedAt: item.CreatedAt,
 		UpdatedAt: item.UpdatedAt,
 	}

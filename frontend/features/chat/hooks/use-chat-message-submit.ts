@@ -521,6 +521,7 @@ export function useChatMessageSubmit({
           branchReason: resolvedBranchReason,
         };
         let terminalStreamError: Extract<StreamMessageEvent, { type: "error" }> | null = null;
+        let moderationRetracted = false;
         const streamOptions: ConversationStreamOptions = {
           signal: streamAbortController.signal,
           onInterrupted: (event) => {
@@ -604,6 +605,29 @@ export function useChatMessageSubmit({
             );
             enqueueStreamText(delta);
           },
+          onModerationRetract: () => {
+            moderationRetracted = true;
+            resetStreamBuffer();
+            setPendingExchange((prev) =>
+              prev && prev.key === exchangeKey
+                ? {
+                    ...prev,
+                    assistantPending: false,
+                    assistantStreaming: false,
+                    assistantFileProc: false,
+                    assistantActivityLabel: undefined,
+                    assistantText: t("moderationBlocked"),
+                    assistantStatus: "moderation_blocked",
+                    assistantErrorCode: "moderation_blocked",
+                    assistantErrorMessage: t("moderationBlocked"),
+                    assistantInlineAlert: {
+                      title: t("generationInterrupted"),
+                      message: t("moderationBlocked"),
+                    },
+                  }
+                : prev,
+            );
+          },
           onUsage: (event) => {
             setPendingExchange((prev) =>
               prev && prev.key === exchangeKey
@@ -663,6 +687,7 @@ export function useChatMessageSubmit({
           const terminalErrorMessage = terminalStreamError
             ? resolveErrorMessage(streamEventErrorToApiError(terminalStreamError, t("retryLater")), terminalStreamError.message || t("retryLater"))
             : "";
+          const moderationBlocked = moderationRetracted || terminalStreamError?.errorCode === "moderation_blocked" || completed.assistantMessage.errorCode === "moderation_blocked";
           const completedErrorMessage = completed.assistantMessage.errorCode
             ? resolveErrorMessage(
                 new ApiError(
@@ -713,14 +738,15 @@ export function useChatMessageSubmit({
             assistantErrorCode: completed.assistantMessage.errorCode,
             assistantErrorMessage: completed.assistantMessage.errorMessage,
             assistantInlineAlert:
-              completed.assistantMessage.status === "error" || completed.assistantMessage.status === "interrupted"
+              completed.assistantMessage.status === "error" || completed.assistantMessage.status === "interrupted" || moderationBlocked
                 ? {
                     title: t("generationInterrupted"),
-                    message: terminalErrorMessage || completedErrorMessage || t("retryLater"),
+                    message: moderationBlocked ? t("moderationBlocked") : terminalErrorMessage || completedErrorMessage || t("retryLater"),
                     details: terminalStreamError?.debug,
                   }
                 : undefined,
             assistantText:
+              moderationBlocked ? t("moderationBlocked") :
               streamedText === completed.assistantMessage.content
                 ? prev.assistantText
                 : completed.assistantMessage.content,
