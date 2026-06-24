@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useTranslations } from "next-intl";
-import { Gift, TrendingUp, Users } from "lucide-react";
+import { CalendarCheck, Gift, TrendingUp, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -82,7 +82,20 @@ export function AdminCheckInPage() {
         </Card>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-4">
+            <Card className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-primary/10 p-2.5">
+                  <CalendarCheck className="h-5 w-5 text-primary" aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">{t("todayCheckIns")}</p>
+                  <p className="text-2xl font-semibold tabular-nums">{view?.stats.todayCheckIns ?? 0}</p>
+                  <p className="text-xs text-muted-foreground">{t("today")}</p>
+                </div>
+              </div>
+            </Card>
+
             <Card className="p-4">
               <div className="flex items-center gap-3">
                 <div className="rounded-lg bg-primary/10 p-2.5">

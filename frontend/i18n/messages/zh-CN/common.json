@@ -136,5 +136,10 @@
   },
   "network": {
     "offline": "当前处于离线状态，部分操作会在网络恢复后继续。"
+  },
+  "error": {
+    "errorTitle": "出错了",
+    "errorDescription": "页面加载时发生错误",
+    "retry": "重试"
   }
 }
