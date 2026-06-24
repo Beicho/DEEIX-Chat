@@ -96,7 +96,6 @@ const SETTINGS_FIELD_LABELS: Record<AppLocale, Record<string, string>> = {
     "auth:email_registration_block_plus_alias": "Block plus aliases",
     "auth:email_registration_enabled": "Email registration",
     "auth:email_verification_enabled": "Email verification",
-    "auth:password_reset_enabled": "Password reset",
     "auth:login_default_next_path": "Default redirect path",
     "auth:login_lock_minutes": "Lock duration",
     "auth:login_max_failures": "Login failure limit",
@@ -144,11 +143,10 @@ const SETTINGS_FIELD_LABELS: Record<AppLocale, Record<string, string>> = {
   "zh-CN": {
     "auth:auto_link_verified_email": "同邮箱自动绑定",
     "auth:email_login_enabled": "邮箱登录",
-    "auth:email_registration_allowed_domains": "邮箱注册域名允许列表",
+    "auth:email_registration_allowed_domains": "邮箱注册域名白名单",
     "auth:email_registration_block_plus_alias": "禁止邮箱 + 别名",
     "auth:email_registration_enabled": "邮箱注册",
     "auth:email_verification_enabled": "邮箱验证",
-    "auth:password_reset_enabled": "重置密码",
     "auth:login_default_next_path": "登录后默认跳转路径",
     "auth:login_lock_minutes": "锁定时长",
     "auth:login_max_failures": "登录失败阈值",
@@ -182,12 +180,12 @@ const SETTINGS_FIELD_LABELS: Record<AppLocale, Record<string, string>> = {
     "branding:app_name": "系统名称",
     "branding:logo_dark_url": "深色 Logo",
     "branding:logo_url": "浅色 Logo",
-    "chat:model_option_allowed_paths": "模型参数允许列表",
+    "chat:model_option_allowed_paths": "模型参数白名单",
     "chat:default_system_prompt": "全局默认系统提示词",
     "chat:model_option_denied_paths": "模型参数黑名单",
     "chat:model_option_policy_mode": "模型参数透传策略",
     "file:embedding_enabled": "向量服务",
-    "file:full_context_limit_enabled": "正在建立索引限制",
+    "file:full_context_limit_enabled": "全文注入限制",
     "file:file_full_context_max_bytes": "全文大小上限",
     "file:full_context_max_tokens": "全文 Token 上限",
     "file:full_context_pdf_max_pages": "全文页数上限",
@@ -336,7 +334,7 @@ function resolveSettingsReason(locale: AppLocale, label: string, reason: string)
     const invalidDomain = normalized.match(/^contains invalid domain: (.+)$/);
     if (invalidDomain) return `${label}包含无效域名：${invalidDomain[1]}。`;
     const invalidMime = normalized.match(/^contains invalid mime: (.+)$/);
-    if (invalidMime) return `${label}包含无效 文件类型 类型：${invalidMime[1]}。`;
+    if (invalidMime) return `${label}包含无效 MIME 类型：${invalidMime[1]}。`;
     switch (normalized) {
       case "cannot be empty":
       case "is required":

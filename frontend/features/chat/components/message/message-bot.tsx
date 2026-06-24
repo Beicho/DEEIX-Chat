@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, CircleAlert, Volume2, VolumeX } from "lucide-react";
-import { useTTS } from "@/features/chat/hooks/use-tts";
+import { ChevronDown, CircleAlert } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { AssistantMessageMeta } from "@/features/chat/components/message/message-meta";
@@ -18,8 +17,6 @@ import type {
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
 import { MarkdownImage, type MarkdownArtifactActions } from "@/features/chat/components/markdown/streamdown-components";
 import { StreamdownRender } from "@/features/chat/components/markdown/streamdown-render";
-import { MarkdownImage, type MarkdownArtifactActions } from "@/shared/components/markdown/streamdown-components";
-import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 import {
   Accordion,
   AccordionContent,
@@ -36,9 +33,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { isUpstreamStreamingDebugBody, summarizeUpstreamError } from "@/features/chat/utils/chat-runtime";
 import type { FileContentResult } from "@/shared/api/file";
-import type { PreviewDialogFile } from "@/shared/components/file-preview/file-preview-dialog";
+import type { PreviewDialogFile } from "@/features/files/components/preview/file-preview-dialog";
 import { resolveLeadingImagePreview } from "@/features/chat/model/media-image-preview";
-import type { BillingDisplayCurrency } from "@/shared/lib/billing-display";
 
 const EMPTY_TRACE_EVENTS: NonNullable<ChatAreaMessage["processTrace"]>["events"] = [];
 
@@ -100,14 +96,11 @@ type ChatMessageBotProps = {
   onCopy: () => void;
   bookmarked?: boolean;
   onToggleBookmark?: () => void;
-  copySucceeded?: boolean;
   markdownRender?: boolean;
   showModelInfo?: boolean;
   showLatency?: boolean;
   showTokenUsage?: boolean;
   showBillingCost?: boolean;
-  billingDisplayCurrency?: BillingDisplayCurrency;
-  billingDisplayUsdToCnyRate?: number | null;
   readOnly?: boolean;
   attachmentContentLoader?: (file: PreviewDialogFile) => Promise<FileContentResult>;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
@@ -119,7 +112,6 @@ type ChatMessageBotProps = {
   retryModelOptions?: ChatModelOption[];
   selectedPlatformModelName?: string;
   showBranchNavigator?: boolean;
-  contentWidthClassName?: string;
 };
 
 export function ChatMessageBot({
@@ -135,14 +127,11 @@ export function ChatMessageBot({
   onCopy,
   bookmarked = false,
   onToggleBookmark,
-  copySucceeded = false,
   markdownRender = true,
   showModelInfo = true,
   showLatency = true,
   showTokenUsage = true,
   showBillingCost = false,
-  billingDisplayCurrency = "USD",
-  billingDisplayUsdToCnyRate = null,
   readOnly = false,
   attachmentContentLoader,
   onEditImageAttachment,
@@ -154,7 +143,6 @@ export function ChatMessageBot({
   retryModelOptions = [],
   selectedPlatformModelName = "",
   showBranchNavigator = true,
-  contentWidthClassName = "max-w-[1080px]",
 }: ChatMessageBotProps) {
   const tCommon = useTranslations("common.actions");
   const submitT = useTranslations("chat.submit");
@@ -252,7 +240,7 @@ export function ChatMessageBot({
 
     return (
       <div className="flex justify-start">
-        <div className={cn("w-full rounded-lg bg-muted/40 p-3 text-foreground", contentWidthClassName)}>
+        <div className="w-full max-w-[760px] rounded-lg bg-muted/40 p-3 text-foreground">
           <Textarea
             autoFocus
             value={editingValue}
@@ -364,15 +352,6 @@ export function ChatMessageBot({
         </div>
       ) : null}
 
-      <button
-        type="button"
-        onClick={() => tts.toggle(textContent)}
-        className="inline-flex min-h-11 items-center justify-center rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground sm:min-h-9"
-        aria-label={t.isSpeaking ? t("tts.stop") : t("tts.speak")}
-        title={t.isSpeaking ? t("tts.stop") : t("tts.speak")}
-      >
-        {tts.isSpeaking ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
-      </button>
       <AssistantMessageMeta
         item={item}
         busy={busy}
@@ -385,7 +364,6 @@ export function ChatMessageBot({
         onCopy={onCopy}
         bookmarked={bookmarked}
         onToggleBookmark={onToggleBookmark}
-        copySucceeded={copySucceeded}
         onReact={(value) => onReactAssistantMessage(item.publicID, value)}
         speechSupported={speechSupported}
         speechActive={speechActive}
@@ -397,8 +375,6 @@ export function ChatMessageBot({
         showLatency={showLatency}
         showTokenUsage={showTokenUsage}
         showBillingCost={showBillingCost}
-        billingDisplayCurrency={billingDisplayCurrency}
-        billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
         readOnly={readOnly}
         alwaysVisible={readOnly}
         showBranchNavigator={showBranchNavigator}
