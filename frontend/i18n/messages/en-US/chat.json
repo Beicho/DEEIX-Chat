@@ -136,8 +136,6 @@
     "rename": "Rename",
     "renameDescription": "Enter a new conversation name.",
     "renamePlaceholder": "Enter a new conversation name",
-    "autoRename": "Auto rename",
-    "autoRenameFailed": "Auto rename failed",
     "moveToProject": "Move",
     "unassignedProject": "Default",
     "shareAndExport": "Share & Export",
@@ -176,8 +174,7 @@
       "description": "You are about to leave this site. Confirm the link before continuing.",
       "linkAddress": "Link address",
       "copy": "Copy link",
-      "copied": "Link copied",
-      "copyFailed": "Could not copy link"
+      "copied": "Link copied"
     },
     "codeBlock": {
       "collapse": "Collapse",
@@ -254,8 +251,6 @@
     "contextCompressed": "Context was automatically compressed",
     "scrollToBottom": "Scroll to bottom",
     "processing": "Processing...",
-    "expandUserMessage": "Expand",
-    "collapseUserMessage": "Collapse",
     "editCreatesBranch": "Saving creates a new branch in this conversation.",
     "previousBranch": "Switch to previous branch",
     "nextBranch": "Switch to next branch",
@@ -425,8 +420,6 @@
     "chooseFromGallery": "Choose from gallery",
     "screenshot": "Screenshot",
     "openTools": "Open tools",
-    "inputPlaceholder": "Message, or use / for context, @ for resources",
-    "voiceListeningPlaceholder": "Receiving voice input…",
     "modelOptions": "Parameters",
     "mcpTools": "Connectors",
     "mcpToolsSelected": "{count} connectors enabled",
@@ -438,21 +431,15 @@
     "notEnabled": "Not enabled",
     "ignored": "Ignored",
     "willPass": "Passes through",
-    "locked": "Locked",
     "nativeToolMayNotApply": "May not apply",
     "nativeToolMayNotApplyHelp": "This tool is not adapted for the current request protocol. If enabled, it is still written to JSON and left for the model service to handle.",
     "currentProtocol": "Current protocol",
     "toolProtocols": "Tool protocols",
-    "notEnabledHelp": "Not enabled: this option is not present in the JSON on the left and will not be sent.",
-    "ignoredHelp": "Ignored: this option is present in JSON but filtered by the backend passthrough policy.",
-    "lockedHelp": "Locked: the administrator fixed this option to the model default.",
+    "ignoredHelp": "Not enabled means this option is not present in the JSON on the left and will not be sent. Ignored means it is present in JSON but filtered by the backend passthrough policy.",
     "noVisualFields": "No visual fields",
     "saveFailed": "Failed to save parameters",
-    "defaultMCPToolsSaved": "Default MCP tools saved",
-    "defaultMCPToolsSaveFailed": "Failed to save default MCP tools",
     "defaultLoadFailed": "Failed to restore default parameters",
     "defaultModelUnavailable": "The current model is unavailable. Select another model.",
-    "sessionExpired": "Your session has expired. Please sign in again.",
     "retryLater": "Please try again later.",
     "streamResponseParseFailed": "The model service returned HTTP {statusCode}, but the stream format is incompatible with the selected protocol.",
     "jsonMustBeObject": "JSON must be an object",
@@ -471,13 +458,12 @@
     "noMatchingTools": "No matching tools",
     "mcpUnknownServer": "Unnamed server",
     "mcpServerToolCount": "{selected} / {total} selected",
+    "mcpSelectServerTools": "Select all",
+    "mcpClearServerTools": "Clear",
     "mcpToggleServerTools": "Select tools from {server}",
-    "mcpExpandServerTools": "Expand {server} tools",
-    "mcpCollapseServerTools": "Collapse {server} tools",
-    "mcpToggleTool": "Select {tool}",
     "mcpServerLimitHint": "Max {limit}",
     "mcpToolLimitTitle": "Tool limit reached",
-    "mcpToolLimitDescription": "A message can use up to {limit} MCP tools. Clear some tools before selecting more.",
+    "mcpToolLimitDescription": "A message can use up to {limit} connectors. Clear some tools before selecting more.",
     "enabled": "On",
     "disabled": "Off",
     "webSearch": "Web search",
@@ -534,16 +520,6 @@
     "booleanOn": "On",
     "booleanOff": "Off",
     "tool": "Tool {id}",
-    "mention": {
-      "fileFallback": "File",
-      "sections": {
-        "file": "Files",
-        "tool": "MCP",
-        "model": "Models",
-        "skill": "Skills",
-        "prompt": "Prompts"
-      }
-    },
     "mediaMode": {
       "imageGeneration": "Image generation",
       "imageGenerationIntro": "Image generation mode is active.",
@@ -567,26 +543,10 @@
       "openai": "OpenAI native tools",
       "claude": "Claude native tools",
       "google": "Google native tools"
-    },
-    "skillLimitTitle": "Skill limit reached",
-    "skillLimitDescription": "A message can load up to {limit} skills. Clear one before selecting more.",
-    "selectedSkillsLabel": "Loaded skills",
-    "mcpSetDefaultTool": "Use {tool} by default in new chats",
-    "mcpUnsetDefaultTool": "Stop using {tool} by default in new chats",
-    "mcpDefaultToolEnabled": "Enabled by default in new chats",
-    "mcpDefaultToolDisabled": "Set as a default tool for new chats",
-    "queueMessage": "Queue message",
-    "queuedAttachmentOnly": "{count} attachments",
-    "queuedAttachmentCount": "{count} attachments",
-    "queuedEmptyMessage": "Empty message",
-    "queuedEditPlaceholder": "Edit queued message",
-    "guideQueuedMessageTitle": "Stop the current generation and send this queued message",
-    "editQueuedMessage": "Edit queued message",
-    "deleteQueuedMessage": "Delete queued message"
+    }
   },
   "modelPicker": {
     "selectModel": "Select model",
-    "empty": "No models",
     "vendor": "Vendor",
     "searchPlaceholder": "Search models or vendors",
     "recent": "Recent",
@@ -670,15 +630,7 @@
       "retrieval": "Retrieval",
       "fullContext": "Full text",
       "skipped": "Skipped",
-      "file": "File",
-      "descriptions": {
-        "directRead": "Images and similar files are sent directly as visual context.",
-        "budget": "The file is within the full-context budget, so its extracted text was included in this turn.",
-        "retrieval": "The file used RAG retrieval, so only relevant chunks were included in this turn.",
-        "fullContext": "The file was included in this turn as full extracted text.",
-        "skipped": "The file was not included in this turn, usually because it exceeded the budget or had no usable extracted text.",
-        "file": "The file participated in context processing for this turn."
-      }
+      "file": "File"
     },
     "rag": {
       "sourceFallback": "Chunk source {fileID}",
@@ -802,7 +754,6 @@
       "contentRetrieval": "Content retrieval",
       "fileContext": "File context",
       "contextCompaction": "Context compaction",
-      "skillContext": "Skill context",
       "requestResult": "Request result",
       "upstreamRequestTriggered": "Model request triggered"
     },
@@ -1048,15 +999,5 @@
     "advisor": "Advisor",
     "toolSearchRegex": "Tool search (Regex)",
     "toolSearchBm25": "Tool search (BM25)"
-  },
-  "tts": {
-    "speak": "Read aloud",
-    "stop": "Stop reading",
-    "notSupported": "Browser does not support text-to-speech"
-  },
-  "share": {
-    "downloadImage": "Download as image",
-    "generating": "Generating…",
-    "imageGenerated": "Image generated"
   }
 }

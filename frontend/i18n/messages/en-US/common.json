@@ -136,10 +136,5 @@
   },
   "network": {
     "offline": "You are offline. Some actions will continue after the connection returns."
-  },
-  "error": {
-    "errorTitle": "Something went wrong",
-    "errorDescription": "An error occurred while loading this page",
-    "retry": "Retry"
   }
 }

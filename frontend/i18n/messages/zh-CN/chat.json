@@ -136,8 +136,6 @@
     "rename": "重新命名",
     "renameDescription": "请输入新的会话名称",
     "renamePlaceholder": "请输入新的会话名称",
-    "autoRename": "自动命名",
-    "autoRenameFailed": "自动命名失败",
     "moveToProject": "移至项目",
     "unassignedProject": "默认",
     "shareAndExport": "分享 & 导出",
@@ -176,8 +174,7 @@
       "description": "即将跳转到外部网站，请确认链接地址。",
       "linkAddress": "链接地址",
       "copy": "复制链接",
-      "copied": "已复制链接",
-      "copyFailed": "链接复制失败"
+      "copied": "已复制链接"
     },
     "codeBlock": {
       "collapse": "折叠",
@@ -254,12 +251,10 @@
     "contextCompressed": "上下文已自动压缩",
     "scrollToBottom": "回到底部",
     "processing": "正在处理…",
-    "expandUserMessage": "展开",
-    "collapseUserMessage": "收起",
     "editCreatesBranch": "保存后会在当前 conversation 内创建新分支。",
     "previousBranch": "切换到上一个分支",
     "nextBranch": "切换到下一个分支",
-    "retryMessage": "重试",
+    "retryMessage": "重新",
     "editMessage": "编辑",
     "copyMessage": "复制",
     "deleteMessage": "删除",
@@ -425,8 +420,6 @@
     "chooseFromGallery": "从相册选择",
     "screenshot": "屏幕截图",
     "openTools": "打开工具菜单",
-    "inputPlaceholder": "输入消息，或用 / 添加上下文，@ 添加资源",
-    "voiceListeningPlaceholder": "正在接收语音…",
     "modelOptions": "模型配置",
     "mcpTools": "扩展工具",
     "mcpToolsSelected": "已启用 {count} 个扩展工具",
@@ -438,19 +431,15 @@
     "notEnabled": "未启用",
     "ignored": "已忽略",
     "willPass": "会透传",
-    "locked": "不可修改",
     "nativeToolMayNotApply": "可能不适用",
     "nativeToolMayNotApplyHelp": "该工具不是当前协议的已适配原生工具，开启后仍会按配置写入请求并交由模型服务处理。",
     "currentProtocol": "当前协议",
     "toolProtocols": "工具协议",
-    "ignoredHelp": "已忽略：该配置已写入 JSON，但会被后台透传策略过滤。",
+    "ignoredHelp": "未启用表示该配置当前不在左侧 JSON 中，不会随请求发送。已忽略表示该配置已写入 JSON，但会被系统发送策略过滤。",
     "noVisualFields": "暂无可视化字段",
     "saveFailed": "模型配置保存失败",
-    "defaultMCPToolsSaved": "已保存默认 MCP 工具",
-    "defaultMCPToolsSaveFailed": "默认 MCP 工具保存失败",
     "defaultLoadFailed": "恢复默认参数失败",
     "defaultModelUnavailable": "当前模型不可用，请重新选择模型。",
-    "sessionExpired": "登录状态已失效，请重新登录。",
     "retryLater": "请稍后重试。",
     "streamResponseParseFailed": "模型服务返回 HTTP {statusCode}，但流式响应格式与当前协议不兼容。",
     "jsonMustBeObject": "JSON 必须是对象",
@@ -469,13 +458,12 @@
     "noMatchingTools": "没有匹配的工具",
     "mcpUnknownServer": "未命名服务",
     "mcpServerToolCount": "已选 {selected} / {total}",
+    "mcpSelectServerTools": "全选",
+    "mcpClearServerTools": "取消",
     "mcpToggleServerTools": "选择 {server} 的工具",
-    "mcpExpandServerTools": "展开 {server} 的工具",
-    "mcpCollapseServerTools": "收起 {server} 的工具",
-    "mcpToggleTool": "选择 {tool}",
     "mcpServerLimitHint": "最多 {limit} 个",
     "mcpToolLimitTitle": "工具数量已达上限",
-    "mcpToolLimitDescription": "单次消息最多选择 {limit} 个 MCP 工具，请减少选择后再继续。",
+    "mcpToolLimitDescription": "单次消息最多选择 {limit} 个扩展工具，请减少选择后再继续。",
     "enabled": "已开",
     "disabled": "已关",
     "webSearch": "联网搜索",
@@ -532,16 +520,6 @@
     "booleanOn": "开启",
     "booleanOff": "关闭",
     "tool": "工具 {id}",
-    "mention": {
-      "fileFallback": "文件",
-      "sections": {
-        "file": "文件",
-        "tool": "MCP",
-        "model": "模型",
-        "skill": "Skills",
-        "prompt": "Prompts"
-      }
-    },
     "mediaMode": {
       "imageGeneration": "图像生成",
       "imageGenerationIntro": "当前为图像生成模式。",
@@ -565,28 +543,10 @@
       "openai": "OpenAI 原生工具",
       "claude": "Claude 原生工具",
       "google": "Google 原生工具"
-    },
-    "notEnabledHelp": "未启用：该配置当前不在左侧 JSON 中，不会随请求透传。",
-    "lockedHelp": "不可修改：该参数由管理员锁定，会使用模型默认值。",
-    "skillLimitTitle": "Skills 数量已达上限",
-    "skillLimitDescription": "单次消息最多加载 {limit} 个 Skills，请移除一个后再继续。",
-    "selectedSkillsLabel": "已加载 Skills",
-    "mcpSetDefaultTool": "新对话默认使用 {tool}",
-    "mcpUnsetDefaultTool": "新对话不再默认使用 {tool}",
-    "mcpDefaultToolEnabled": "新对话会默认启用",
-    "mcpDefaultToolDisabled": "设为新对话默认工具",
-    "queueMessage": "排队发送",
-    "queuedAttachmentOnly": "{count} 个附件",
-    "queuedAttachmentCount": "{count} 个附件",
-    "queuedEmptyMessage": "空消息",
-    "queuedEditPlaceholder": "编辑排队消息",
-    "guideQueuedMessageTitle": "停止当前生成并发送这条排队消息",
-    "editQueuedMessage": "编辑排队消息",
-    "deleteQueuedMessage": "删除排队消息"
+    }
   },
   "modelPicker": {
     "selectModel": "选择模型",
-    "empty": "暂无模型",
     "vendor": "厂商",
     "searchPlaceholder": "搜索模型或厂商",
     "recent": "最近使用",
@@ -670,15 +630,7 @@
       "retrieval": "检索",
       "fullContext": "全文",
       "skipped": "未纳入",
-      "file": "文件",
-      "descriptions": {
-        "directRead": "图片等文件会直接作为视觉上下文提供给模型。",
-        "budget": "文件在全文注入预算内，系统已将提取文本纳入本轮上下文。",
-        "retrieval": "文件通过 RAG 检索，仅相关片段会纳入本轮上下文。",
-        "fullContext": "文件以全文注入方式纳入本轮上下文。",
-        "skipped": "文件未纳入本轮上下文，通常是超出预算或没有可用提取文本。",
-        "file": "文件已参与本轮上下文处理。"
-      }
+      "file": "文件"
     },
     "rag": {
       "sourceFallback": "片段来源 {fileID}",
@@ -802,7 +754,6 @@
       "contentRetrieval": "内容检索",
       "fileContext": "文件上下文",
       "contextCompaction": "上下文压缩",
-      "skillContext": "Skill 上下文",
       "requestResult": "请求结果",
       "upstreamRequestTriggered": "模型请求已触发"
     },
@@ -1048,15 +999,5 @@
     "advisor": "Advisor",
     "toolSearchRegex": "工具搜索（Regex）",
     "toolSearchBm25": "工具搜索（BM25）"
-  },
-  "tts": {
-    "speak": "朗读",
-    "stop": "停止朗读",
-    "notSupported": "浏览器不支持语音朗读"
-  },
-  "share": {
-    "downloadImage": "下载长图",
-    "generating": "生成中…",
-    "imageGenerated": "已生成长图"
   }
 }
