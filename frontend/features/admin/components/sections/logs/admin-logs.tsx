@@ -23,10 +23,8 @@ import {
   TableLoadingRow,
   TableRow,
 } from "@/components/ui/table";
-import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import { AdminDateRangeFilter, ADMIN_DATE_PICKER_TRIGGER_CLASSNAME } from "@/features/admin/components/admin-date-range-filter";
 import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
-import { CopyActionButton } from "@/shared/components/copy-action";
 import type {
   AdminAuditLogDTO,
   AdminConversationEventDTO,

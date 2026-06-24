@@ -38,7 +38,6 @@ import {
 import type { ConversationShareDTO, CreateConversationShareRequest } from "@/shared/api/conversation.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
-import { CopyActionButton } from "@/shared/components/copy-action";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import {
   buildConversationNativeShareData,
