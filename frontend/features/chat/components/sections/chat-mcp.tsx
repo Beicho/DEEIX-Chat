@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Check, ChevronDown, Globe2, Info, SlidersHorizontal, Terminal } from "lucide-react";
+import { ChevronDown, Info, Star } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
@@ -52,14 +53,47 @@ type ChatMCPProps = {
   onCodeSandboxEnabledChange: (enabled: boolean) => void;
   onResearchMaxLLMCallsChange: (value: number) => void;
   onResearchMaxToolCallsChange: (value: number) => void;
+  defaultToolIDs: number[];
+  maxSelectedTools: number;
+  disabled: boolean;
+  onSelectedToolsChange: (toolIDs: number[]) => void;
+  onDefaultToolsChange: (toolIDs: number[]) => void | Promise<void>;
 };
 
+type MCPToolRowActionProps = React.ComponentPropsWithoutRef<"button"> & {
+  label: string;
+};
+
+function MCPToolRowAction({
+  label,
+  className,
+  children,
+  ...props
+}: MCPToolRowActionProps) {
+  return (
+    <button
+      {...props}
+      type="button"
+      aria-label={label}
+      title={label}
+      className={cn(
+        "flex size-8 shrink-0 items-center justify-center rounded-md text-foreground/45 outline-none transition-[background-color,color] duration-150 hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function resolveMCPToolLabel(tool: MCPToolDTO, fallback: string): string {
-  return tool.displayName.trim() || tool.name.trim() || fallback;
+  const displayName = typeof tool.displayName === "string" ? tool.displayName.trim() : "";
+  const name = typeof tool.name === "string" ? tool.name.trim() : "";
+  return displayName || name || fallback;
 }
 
 function resolveMCPToolServerName(tool: MCPToolDTO): string {
-  return tool.serverName?.trim() ?? "";
+  return typeof tool.serverName === "string" ? tool.serverName.trim() : "";
 }
 
 function resolveMCPToolServerKey(tool: MCPToolDTO): string {
@@ -146,16 +180,45 @@ export function ChatMCP({
   onCodeSandboxEnabledChange,
   onResearchMaxLLMCallsChange,
   onResearchMaxToolCallsChange,
+  defaultToolIDs,
+  maxSelectedTools,
+  disabled,
+  onSelectedToolsChange,
+  onDefaultToolsChange,
 }: ChatMCPProps) {
   const tComposer = useTranslations("chat.composer");
   const isMobile = useIsMobile();
   const [hovered, setHovered] = React.useState(false);
+  const [hoveredRowKey, setHoveredRowKey] = React.useState<string | null>(null);
+  const [focusedRowKey, setFocusedRowKey] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
   const [expandedServerKeys, setExpandedServerKeys] = React.useState<Set<string>>(() => new Set());
   const selectedToolIDSet = React.useMemo(() => new Set(selectedToolIDs), [selectedToolIDs]);
+  // Persist MCP tool selection to localStorage
+  React.useEffect(() => {
+    try {
+      localStorage.setItem("deeix-chat:mcp-tools:v1", JSON.stringify(selectedToolIDs));
+    } catch {}
+  }, [selectedToolIDs]);
+
+  React.useEffect(() => {
+    const saved = localStorage.getItem("deeix-chat:mcp-tools:v1");
+    if (saved) {
+      try {
+        const ids = JSON.parse(saved) as number[];
+        if (ids.length > 0 && ids.length !== selectedToolIDs.length) {
+          onSelectedToolsChange(ids);
+        }
+      } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const confirmedToolIDSet = React.useMemo(() => new Set(confirmedToolIDs), [confirmedToolIDs]);
   const selectedToolCount = selectedToolIDs.length + (webSearchEnabled ? 1 : 0) + (codeSandboxEnabled ? 1 : 0);
+  const defaultToolIDSet = React.useMemo(() => new Set(defaultToolIDs), [defaultToolIDs]);
+  const selectedToolCount = selectedToolIDs.length;
   const selectionLimit = resolveToolSelectionLimit(maxSelectedTools);
   const toolGroups = React.useMemo(
     () => buildMCPToolGroups(availableTools, tComposer("mcpUnknownServer")),
@@ -233,6 +296,21 @@ export function ChatMCP({
     }
     onResearchMaxToolCallsChange(value);
   }, [onResearchMaxLLMCallsChange, onResearchMaxToolCallsChange]);
+
+  const toggleDefaultTool = React.useCallback(
+    (toolID: number) => {
+      if (defaultToolIDSet.has(toolID)) {
+        void onDefaultToolsChange(defaultToolIDs.filter((id) => id !== toolID));
+        return;
+      }
+      if (defaultToolIDs.length >= selectionLimit) {
+        showToolLimitToast();
+        return;
+      }
+      void onDefaultToolsChange([...defaultToolIDs, toolID]);
+    },
+    [defaultToolIDs, defaultToolIDSet, onDefaultToolsChange, selectionLimit, showToolLimitToast],
+  );
 
   const toggleServerExpanded = React.useCallback((serverKey: string) => {
     setExpandedServerKeys((current) => {
@@ -555,6 +633,191 @@ export function ChatMCP({
         }}
       >
         {content}
+        <div className="flex items-center justify-between gap-3 px-2 pb-1.5 text-[11px] font-medium text-foreground/70">
+          <span>{tComposer("mcpTools")}</span>
+          {selectedToolCount > 0 ? (
+            <button
+              type="button"
+              className="text-[11px] leading-none text-foreground/55 outline-none transition-colors hover:text-foreground focus-visible:text-foreground"
+              onClick={() => onSelectedToolsChange([])}
+            >
+              {tComposer("clear")}
+            </button>
+          ) : null}
+        </div>
+        <div
+          className="px-1 py-1"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={(event) => event.stopPropagation()}
+            className="border-border/60 bg-transparent dark:bg-transparent"
+            placeholder={tComposer("searchToolsPlaceholder")}
+          />
+        </div>
+        <div className="max-h-72 overflow-y-auto px-0.5 pt-1">
+          {filteredToolGroups.map((group) => {
+            const groupState = toolSelectionState(group.tools);
+            const expanded = hasSearch || expandedServerKeys.has(group.key);
+            const overLimit = group.tools.length > selectionLimit;
+            const groupRowKey = `server:${group.key}`;
+            const groupInteractive = hoveredRowKey === groupRowKey || focusedRowKey === groupRowKey;
+            return (
+              <div key={group.key} className="mb-1">
+                <div
+                  data-interactive={groupInteractive}
+                  data-selected={groupState.selectedCount > 0}
+                  className="group/server flex h-8 items-center gap-2 rounded-md px-2 text-[11px] font-medium text-foreground/65 transition-colors data-[interactive=true]:bg-accent data-[interactive=true]:text-accent-foreground"
+                >
+                  <Checkbox
+                    checked={groupState.allSelected ? true : groupState.partiallySelected ? "indeterminate" : false}
+                    className="shrink-0"
+                    aria-label={tComposer("mcpToggleServerTools", { server: group.serverName })}
+                    onCheckedChange={(nextChecked) => toggleToolGroup(group.tools, nextChecked === true)}
+                  />
+                  <button
+                    type="button"
+                    className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none"
+                    onClick={() => toggleServerExpanded(group.key)}
+                    onMouseEnter={() => setHoveredRowKey(groupRowKey)}
+                    onMouseLeave={() => setHoveredRowKey((current) => (current === groupRowKey ? null : current))}
+                    onFocus={() => setFocusedRowKey(groupRowKey)}
+                    onBlur={() => setFocusedRowKey((current) => (current === groupRowKey ? null : current))}
+                  >
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <span className="min-w-0 truncate text-xs font-semibold text-current">{group.serverName}</span>
+                      <span className="shrink-0 text-[10px] leading-none text-foreground/45 transition-colors group-data-[interactive=true]/server:text-accent-foreground/75">
+                        |
+                      </span>
+                      <span className="shrink-0 text-[10px] leading-none text-foreground/45 transition-colors group-data-[interactive=true]/server:text-accent-foreground/75">
+                        {tComposer("mcpServerToolCount", { selected: groupState.selectedCount, total: group.tools.length })}
+                      </span>
+                      {overLimit ? (
+                        <span className="min-w-0 truncate text-[10px] leading-none text-amber-600 dark:text-amber-400">
+                          {tComposer("mcpServerLimitHint", { limit: selectionLimit })}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="-mr-2 flex size-8 shrink-0 items-center justify-center rounded-md text-foreground/45 outline-none transition-[background-color,color] duration-150 hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                    aria-label={expanded ? tComposer("mcpCollapseServerTools", { server: group.serverName }) : tComposer("mcpExpandServerTools", { server: group.serverName })}
+                    onClick={() => toggleServerExpanded(group.key)}
+                  >
+                    <ChevronDown
+                      className={cn("size-3.5 shrink-0 transition-transform duration-200", expanded && "rotate-180")}
+                      strokeWidth={1.7}
+                    />
+                  </button>
+                </div>
+                <AnimatePresence initial={false}>
+                  {expanded ? (
+                    <motion.div
+                      key={`${group.key}-tools`}
+                      initial={{ height: 0, opacity: 0, y: -4 }}
+                      animate={{ height: "auto", opacity: 1, y: 0 }}
+                      exit={{ height: 0, opacity: 0, y: -4 }}
+                      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-1 space-y-1 border-l border-border/60 ml-2 pl-3">
+                        {group.visibleTools.map((tool) => {
+                          const checked = selectedToolIDSet.has(tool.id);
+                          const isDefault = defaultToolIDSet.has(tool.id);
+                          const label = resolveMCPToolLabel(tool, tComposer("tool", { id: tool.id }));
+                          const description = (typeof tool.description === "string" ? tool.description.trim() : "") || tComposer("noToolDescription");
+                          const toolRowKey = `tool:${tool.id}`;
+                          const toolInteractive = hoveredRowKey === toolRowKey || focusedRowKey === toolRowKey;
+                          return (
+                            <div
+                              key={tool.id}
+                              data-interactive={toolInteractive}
+                              data-selected={checked}
+                              className="group/tool flex h-8 items-center gap-2 rounded-md px-2 text-[11px] font-medium text-foreground/65 transition-colors data-[interactive=true]:bg-accent data-[interactive=true]:text-accent-foreground"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                className="shrink-0"
+                                aria-label={tComposer("mcpToggleTool", { tool: label })}
+                                onCheckedChange={(nextChecked) => toggleTool(tool.id, nextChecked === true)}
+                              />
+                              <button
+                                type="button"
+                                className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md text-left outline-none"
+                                onClick={() => toggleTool(tool.id, !checked)}
+                                onMouseEnter={() => setHoveredRowKey(toolRowKey)}
+                                onMouseLeave={() => setHoveredRowKey((current) => (current === toolRowKey ? null : current))}
+                                onFocus={() => setFocusedRowKey(toolRowKey)}
+                                onBlur={() => setFocusedRowKey((current) => (current === toolRowKey ? null : current))}
+                              >
+                                <span className="min-w-0 truncate text-xs text-current">{label}</span>
+                              </button>
+                              <div className="-mr-2 flex shrink-0 items-center gap-0">
+                                <Tooltip disableHoverableContent>
+                                  <TooltipTrigger asChild>
+                                    <MCPToolRowAction
+                                      label={isDefault
+                                        ? tComposer("mcpUnsetDefaultTool", { tool: label })
+                                        : tComposer("mcpSetDefaultTool", { tool: label })}
+                                      className={cn(isDefault && "text-amber-500 hover:text-amber-500 focus-visible:text-amber-500")}
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        toggleDefaultTool(tool.id);
+                                      }}
+                                    >
+                                      <Star
+                                        className="size-3.5"
+                                        strokeWidth={1.8}
+                                        fill={isDefault ? "currentColor" : "none"}
+                                      />
+                                    </MCPToolRowAction>
+                                  </TooltipTrigger>
+                                  <TooltipContent
+                                    side="right"
+                                    align="center"
+                                    sideOffset={6}
+                                    className="text-xs data-[state=closed]:[animation-duration:60ms] data-[state=open]:[animation-duration:90ms]"
+                                  >
+                                    {isDefault ? tComposer("mcpDefaultToolEnabled") : tComposer("mcpDefaultToolDisabled")}
+                                  </TooltipContent>
+                                </Tooltip>
+                                <Tooltip disableHoverableContent>
+                                  <TooltipTrigger asChild>
+                                    <MCPToolRowAction label={tComposer("viewToolDescription")}>
+                                      <Info className="size-3.5" strokeWidth={1.8} />
+                                    </MCPToolRowAction>
+                                  </TooltipTrigger>
+                                  <TooltipContent
+                                    side="right"
+                                    align="center"
+                                    sideOffset={6}
+                                    className="max-w-72 whitespace-normal text-left text-xs leading-5 [text-wrap:auto] data-[state=closed]:[animation-duration:60ms] data-[state=open]:[animation-duration:90ms]"
+                                  >
+                                    {description}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+          {filteredToolGroups.length === 0 ? (
+            <div className="px-2 py-6 text-center text-xs text-muted-foreground">
+              {tComposer("noMatchingTools")}
+            </div>
+          ) : null}
+        </div>
       </PopoverContent>
     </Popover>
   );

@@ -170,7 +170,7 @@ func (c *Client) rpcWithSession(
 
 	timeoutMS := cfg.TimeoutMS
 	if timeoutMS <= 0 {
-		timeoutMS = 10000
+		timeoutMS = 30000
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMS)*time.Millisecond)
 	defer cancel()
@@ -259,10 +259,14 @@ func parseRPCResponse(contentType string, body []byte) (json.RawMessage, error) 
 }
 
 func extractSSEDataPayload(payload string) string {
-	scanner := bufio.NewScanner(strings.NewReader(payload))
+	reader := bufio.NewReader(strings.NewReader(payload))
 	dataLines := make([]string, 0, 4)
-	for scanner.Scan() {
-		line := strings.TrimRight(scanner.Text(), "\r")
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && len(line) == 0 {
+			break
+		}
+		line = strings.TrimRight(line, "\r\n")
 		if line == "" {
 			if len(dataLines) > 0 {
 				break

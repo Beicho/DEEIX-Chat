@@ -1,29 +1,29 @@
 {
   "groups": {
     "uploadLimits": {
-      "title": "上传限制"
+      "title": "上传限制",
+      "description": "控制对话附件数量、文件类型 允许列表和文件大小上限。"
     },
     "extraction": {
-      "title": "内容提取"
+      "title": "内容提取",
+      "description": "控制文件内容提取主链路、共享 OCR 引擎和 OCR 启用范围。"
     },
     "fullContext": {
-      "title": "全文注入"
+      "title": "正在建立索引",
+      "description": "控制提取后的文件文本是否可以直接注入上下文，而不是走 RAG。"
     },
     "embedding": {
-      "title": "向量化检索"
+      "title": "向量化检索",
+      "description": "配置外部 Embedding 服务是否启用；变更模型会将旧向量标记为失效。"
     },
     "semantic": {
-      "title": "语义增强"
+      "title": "语义增强",
+      "description": "基于智能检索召回历史消息语义片段，需要消息向量化就绪。"
     },
     "rag": {
-      "title": "RAG"
-    },
-    "contextCompression": {
-      "title": "上下文压缩增强"
+      "title": "RAG",
+      "description": "控制检索、相似度阈值、注入预算和就绪等待策略。"
     }
-  },
-  "model": {
-    "followCurrent": "跟随当前模型"
   },
   "runtime": {
     "address": "地址",
@@ -93,9 +93,9 @@
     },
     "file": {
       "allowed_mime_types": {
-        "label": "附件 MIME 白名单",
-        "description": "用于限制允许上传的附件 MIME 类型，多个值使用逗号分隔。",
-        "placeholder": "MIME 类型，逗号分隔"
+        "label": "附件 文件类型 允许列表",
+        "description": "用于限制允许上传的附件 文件类型 类型，多个值使用逗号分隔。",
+        "placeholder": "文件类型 类型，逗号分隔"
       },
       "image_max_bytes": {
         "label": "图像大小上限",
@@ -108,27 +108,27 @@
         "placeholder": "留空则回退默认附件大小上限"
       },
       "full_context_limit_enabled": {
-        "label": "全文注入限制",
-        "description": "开启后按大小、Token 和 PDF 页数限制全文注入；关闭后不再限制全文注入阈值。"
+        "label": "正在建立索引限制",
+        "description": "开启后按大小、Token 和 PDF 页数限制正在建立索引；关闭后不再限制正在建立索引阈值。"
       },
       "file_full_context_max_bytes": {
         "label": "全文大小上限",
-        "description": "用于限制全文注入允许的最大文本字节数；留空或填 0 表示不限制大小。",
+        "description": "用于限制正在建立索引允许的最大文本字节数；留空或填 0 表示不限制大小。",
         "placeholder": "留空或 0 表示不限制"
       },
       "full_context_max_tokens": {
         "label": "全文 Token 上限",
-        "description": "用于限制全文注入允许的最大 Token 预算；留空或填 0 表示不限制 Token。",
+        "description": "用于限制正在建立索引允许的最大 Token 预算；留空或填 0 表示不限制 Token。",
         "placeholder": "留空或 0 表示不限制"
       },
       "full_context_pdf_max_pages": {
         "label": "全文页数上限",
-        "description": "用于限制 PDF 走全文注入时允许的最大页数；留空或填 0 表示不限制页数。",
+        "description": "用于限制 PDF 走正在建立索引时允许的最大页数；留空或填 0 表示不限制页数。",
         "placeholder": "留空或 0 表示不限制"
       },
       "embedding_enabled": {
         "label": "启用 Embedding",
-        "description": "开启后启用文件向量化和向量检索能力；关闭后相关链路将停用。"
+        "description": "开启后启用文件向量化和智能检索能力；关闭后相关链路将停用。"
       },
       "embedding_host": {
         "label": "Embedding 服务地址 *",
@@ -434,71 +434,7 @@
       },
       "rag_hybrid_enabled": {
         "label": "混合检索（BM25+向量）",
-        "description": "开启后会并行执行向量检索和全文检索，并使用 RRF 合并结果。"
-      },
-      "context_token_budget_enabled": {
-        "label": "Token 预算截断",
-        "description": "开启后会根据当前模型上下文窗口自动计算预算，并裁剪可发送的历史消息。"
-      },
-      "context_max_turns": {
-        "label": "压缩触发轮次",
-        "description": "用于设置按轮次触发上下文压缩的阈值。",
-        "placeholder": "触发轮次"
-      },
-      "context_compact_trigger_tokens": {
-        "label": "压缩 Token 阈值",
-        "description": "用于设置按 Token 规模触发上下文压缩的阈值。",
-        "placeholder": "Token 阈值"
-      },
-      "context_compact_preserve_recent_turns": {
-        "label": "原文保留轮次",
-        "description": "用于设置压缩时保留的最近原始轮次数量，其余较早内容会写入摘要。",
-        "placeholder": "保留轮次"
-      },
-      "context_compact_highlights_per_role": {
-        "label": "每角色摘要条数",
-        "description": "用于设置模板压缩时，用户和助手各自最多保留多少条摘要信息。",
-        "placeholder": "摘要条数"
-      },
-      "context_compact_snippet_chars": {
-        "label": "片段字符上限",
-        "description": "用于设置模板压缩时单条消息片段允许保留的最大字符数。",
-        "placeholder": "字符数上限"
-      },
-      "context_artifact_retention_days": {
-        "label": "证据保留天数",
-        "description": "用于设置上下文证据的保留时长，包含 RAG 结果、历史证据和工具结果；`0` 表示不自动过期。",
-        "placeholder": "保留天数"
-      },
-      "compact_llm_enabled": {
-        "label": "LLM 压缩",
-        "description": "开启后会调用模型生成语义摘要；关闭后仅使用模板摘要。"
-      },
-      "compact_async_enabled": {
-        "label": "异步压缩",
-        "description": "开启后会在后台异步执行压缩任务，以减少当前回复链路阻塞。"
-      },
-      "compact_task_model": {
-        "label": "压缩模型",
-        "description": "用于指定生成压缩摘要时使用的模型。",
-        "options": {
-          "follow": "跟随当前模型"
-        }
-      },
-      "compact_max_failures": {
-        "label": "熔断阈值",
-        "description": "用于设置 LLM 压缩的连续失败阈值；达到后会自动降级为模板摘要。",
-        "placeholder": "熔断阈值"
-      },
-      "compact_system_prompt": {
-        "label": "全量摘要提示词",
-        "description": "用于自定义全量压缩时发送给 LLM 的指令；留空时使用内置默认值。",
-        "placeholder": "留空使用默认提示词"
-      },
-      "compact_light_prompt": {
-        "label": "轻量摘要提示词",
-        "description": "用于自定义轻量压缩时发送给 LLM 的指令；留空时使用内置默认值。",
-        "placeholder": "留空使用默认提示词"
+        "description": "开启后会并行执行智能检索和全文检索，并使用 RRF 合并结果。"
       }
     }
   }
