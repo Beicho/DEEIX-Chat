@@ -1,6 +1,6 @@
 import type { ChatModelOption, PendingAttachment } from "@/features/chat/types/chat-runtime";
 
-export type ChatSubmitTask = "chat" | "image_generation" | "image_edit";
+export type ChatSubmitTask = "chat" | "image_generation" | "image_edit" | "video_generation";
 export type ChatSubmitBlockReason =
   | "image_edit_input_required"
   | "image_edit_unsupported"
@@ -17,6 +17,7 @@ export type ChatSubmitDecision = {
   supportsChat: boolean;
   supportsImageGeneration: boolean;
   supportsImageEdit: boolean;
+  supportsVideoGeneration: boolean;
 };
 
 function isImageAttachment(item: PendingAttachment): boolean {
@@ -46,6 +47,7 @@ export function resolveChatSubmitDecision(
   const supportsChat = kinds.size === 0 || kinds.has("chat") || kinds.has("audio");
   const supportsImageGeneration = kinds.has("image_gen");
   const supportsImageEdit = kinds.has("image_edit");
+  const supportsVideoGeneration = kinds.has("video_gen");
   const baseDecision = {
     attachmentCount,
     imageAttachmentCount,
@@ -53,7 +55,13 @@ export function resolveChatSubmitDecision(
     supportsChat,
     supportsImageGeneration,
     supportsImageEdit,
+    supportsVideoGeneration,
   };
+
+  // Video generation models
+  if (supportsVideoGeneration && !supportsChat && !supportsImageGeneration) {
+    return buildDecision("video_generation", null, baseDecision);
+  }
 
   if (
     nonImageAttachmentCount > 0 &&
@@ -95,7 +103,7 @@ export function resolveChatSubmitDecision(
   if (supportsImageEdit && !supportsChat) {
     return buildDecision("image_edit", "image_edit_input_required", baseDecision);
   }
-  if (!supportsChat) {
+  if (!supportsChat && !supportsVideoGeneration) {
     return buildDecision("chat", "model_task_unsupported", baseDecision);
   }
 
@@ -103,5 +111,5 @@ export function resolveChatSubmitDecision(
 }
 
 export function isMediaSubmitTask(task: ChatSubmitTask): boolean {
-  return task === "image_generation" || task === "image_edit";
+  return task === "image_generation" || task === "image_edit" || task === "video_generation";
 }

@@ -767,3 +767,182 @@ func attachmentsFromFiles(files []model.FileObject) []AttachmentInput {
 	}
 	return items
 }
+
+// MediaVideoInput 定义视频生成任务的应用层入参。
+type MediaVideoInput struct {
+	UserID                uint
+	ConversationID        uint
+	RequestID             string
+	Prompt                string
+	PlatformModelName     string
+	Options               map[string]interface{}
+	ClientRunID           string
+	FileIDs               []string
+	ParentMessagePublicID string
+	SourceMessagePublicID string
+	BranchReason          string
+	OnEvent               func(eventType string, payload map[string]interface{}) error
+}
+
+// StreamMediaVideo 执行视频生成任务：通过路由解析上游，创建异步任务并轮询直到完成。
+func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (*SendMessageResult, error) {
+	if strings.TrimSpace(input.Prompt) == "" {
+		return nil, ErrMediaImagePromptRequired
+	}
+	if s.routeResolver == nil {
+		return nil, ErrModelRouteNotConfigured
+	}
+
+	if input.OnEvent != nil {
+		_ = input.OnEvent("status", map[string]interface{}{
+			"status":  "processing",
+			"message": "正在生成视频，请稍候...",
+		})
+	}
+
+	// 解析路由
+	route, err := s.routeResolver.ResolveRoute(ctx, channel.ResolveRouteInput{
+		PlatformModelName: input.PlatformModelName,
+		TaskType:          channel.TaskTypeVideoGeneration,
+		Scope:             channel.RouteScopeUser,
+		UserID:            input.UserID,
+		ConversationID:    input.ConversationID,
+		RequestID:         strings.TrimSpace(input.RequestID),
+	})
+	if err != nil {
+		return nil, ErrModelRouteNotConfigured
+	}
+
+	// 构造创建视频任务的请求
+	createBody := map[string]interface{}{
+		"model":      route.UpstreamModel,
+		"prompt":     input.Prompt,
+		"duration":   5,
+		"resolution": "720p",
+		"ratio":      "16:9",
+	}
+	if input.Options != nil {
+		if d, ok := input.Options["duration"]; ok {
+			createBody["duration"] = d
+		}
+		if r, ok := input.Options["resolution"]; ok {
+			createBody["resolution"] = r
+		}
+		if rt, ok := input.Options["ratio"]; ok {
+			createBody["ratio"] = rt
+		}
+	}
+
+	createJSON, _ := json.Marshal(createBody)
+	createURL := strings.TrimRight(route.BaseURL, "/") + "/videos/generations"
+	createReq, err := http.NewRequestWithContext(ctx, "POST", createURL, bytes.NewReader(createJSON))
+	if err != nil {
+		return nil, fmt.Errorf("创建视频请求失败: %w", err)
+	}
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+route.APIKey)
+
+	httpClient := &http.Client{Timeout: 300 * time.Second}
+	createResp, err := httpClient.Do(createReq)
+	if err != nil {
+		s.routeResolver.MarkRouteFailure(ctx, route, err)
+		return nil, fmt.Errorf("视频生成请求失败: %w", err)
+	}
+	defer createResp.Body.Close()
+	if createResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(createResp.Body)
+		s.routeResolver.MarkRouteFailure(ctx, route, fmt.Errorf("HTTP %d", createResp.StatusCode))
+		return nil, fmt.Errorf("视频生成失败(HTTP %d): %s", createResp.StatusCode, string(body))
+	}
+
+	var createResult struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&createResult); err != nil {
+		return nil, fmt.Errorf("解析视频任务响应失败: %w", err)
+	}
+	if createResult.ID == "" {
+		return nil, fmt.Errorf("视频任务创建失败：未返回任务ID")
+	}
+
+	s.routeResolver.MarkRouteSuccess(ctx, route)
+
+	// 轮询任务状态
+	taskID := createResult.ID
+	var videoURL string
+	maxAttempts := 120
+	for i := 0; i < maxAttempts; i++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
+
+		pollURL := strings.TrimRight(route.BaseURL, "/") + "/videos/generations/" + taskID
+		pollReq, _ := http.NewRequestWithContext(ctx, "GET", pollURL, nil)
+		pollReq.Header.Set("Authorization", "Bearer "+route.APIKey)
+		pollResp, err := httpClient.Do(pollReq)
+		if err != nil {
+			continue
+		}
+		var pollResult struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+			Video  struct {
+				URL        string  `json:"url"`
+				Duration   float64 `json:"duration"`
+				Resolution string  `json:"resolution"`
+			} `json:"video"`
+			Error map[string]interface{} `json:"error"`
+		}
+		json.NewDecoder(pollResp.Body).Decode(&pollResult)
+		pollResp.Body.Close()
+
+		if input.OnEvent != nil {
+			_ = input.OnEvent("status", map[string]interface{}{
+				"status":  pollResult.Status,
+				"message": fmt.Sprintf("视频生成中... (%d/%d)", i+1, maxAttempts),
+			})
+		}
+
+		if pollResult.Status == "succeeded" {
+			videoURL = pollResult.Video.URL
+			break
+		}
+		if pollResult.Status == "failed" {
+			errMsg := "视频生成失败"
+			if pollResult.Error != nil {
+				if m, ok := pollResult.Error["message"].(string); ok {
+					errMsg = m
+				}
+			}
+			return nil, fmt.Errorf(errMsg)
+		}
+	}
+
+	if videoURL == "" {
+		return nil, fmt.Errorf("视频生成超时")
+	}
+
+	result := &SendMessageResult{
+		AssistantMessage: model.Message{
+			Content: fmt.Sprintf("<video src="%s" />", videoURL),
+			Status:  "success",
+		},
+		UpstreamID:        route.UpstreamID,
+		UpstreamName:      route.UpstreamName,
+		PlatformModelName: route.PlatformModelName,
+		RoutedBindingCode: route.BindingCode,
+		UpstreamModelName: route.UpstreamModel,
+		UpstreamProtocol:  route.Protocol,
+	}
+
+	if input.OnEvent != nil {
+		_ = input.OnEvent("video_ready", map[string]interface{}{
+			"url": videoURL,
+		})
+	}
+
+	return result, nil
+}
