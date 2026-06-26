@@ -568,6 +568,17 @@ export type MediaImageRequest = {
 };
 
 
+
+export type MediaVideoRequest = {
+  prompt: string;
+  model?: string;
+  options?: ConversationOptions;
+  clientRunID?: string;
+  fileIDs?: string[];
+  parentMessagePublicID?: string;
+  sourceMessagePublicID?: string;
+  branchReason?: "default" | "retry" | "edit";
+};
 export type SendMessageResult = {
   userMessage: MessageDTO;
   assistantMessage: MessageDTO;
