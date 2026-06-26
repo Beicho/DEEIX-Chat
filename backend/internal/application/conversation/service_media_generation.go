@@ -927,7 +927,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 
 	result := &SendMessageResult{
 		AssistantMessage: model.Message{
-			Content: fmt.Sprintf("<video src="%s" />", videoURL),
+			Content: fmt.Sprintf("<video src='%s' />", videoURL),
 			Status:  "success",
 		},
 		UpstreamID:        route.UpstreamID,
