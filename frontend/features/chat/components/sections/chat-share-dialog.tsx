@@ -2,9 +2,7 @@ import { generateLongImage, downloadDataUrl, type LongImageMessage } from "@/fea
 "use client";
 import * as React from "react";
 
-import * as React from "react";
 import { Copy, ExternalLink, ImageDown, Share2 } from "lucide-react";
-import { ExternalLink } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
