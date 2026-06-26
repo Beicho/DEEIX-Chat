@@ -27,6 +27,8 @@ const (
 	EndpointImageGenerations = "image_generations"
 	// EndpointImageEdits 表示 OpenAI Images API 编辑端点。
 	EndpointImageEdits = "image_edits"
+	// EndpointVideoGenerations 表示视频生成端点。
+	EndpointVideoGenerations = "video_generations"
 )
 
 // 超时默认值。

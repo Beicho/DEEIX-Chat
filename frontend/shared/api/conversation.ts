@@ -33,6 +33,7 @@ import type {
   ReorderConversationProjectsRequest,
   SendMessageRequest,
   MediaImageRequest,
+  MediaVideoRequest,
   MessageBookmarkListItemDTO,
   MessageBookmarkResult,
   SendMessageResult,
@@ -1173,6 +1174,7 @@ export async function streamImageGeneration(
   accessToken: string,
   conversationPublicID: string,
   payload: MediaImageRequest,
+  MediaVideoRequest,
   options: ConversationStreamOptions = {},
 ): Promise<SendMessageResult> {
   return postConversationStream(
@@ -1188,12 +1190,28 @@ export async function streamImageEdit(
   accessToken: string,
   conversationPublicID: string,
   payload: MediaImageRequest,
+  MediaVideoRequest,
   options: ConversationStreamOptions = {},
 ): Promise<SendMessageResult> {
   return postConversationStream(
     accessToken,
     conversationPublicID,
     "/media/images/edits/stream",
+    payload,
+    options,
+  );
+}
+
+export async function streamVideoGeneration(
+  accessToken: string,
+  conversationPublicID: string,
+  payload: MediaVideoRequest,
+  options: ConversationStreamOptions = {},
+): Promise<SendMessageResult> {
+  return postConversationStream(
+    accessToken,
+    conversationPublicID,
+    "/media/videos/generations/stream",
     payload,
     options,
   );

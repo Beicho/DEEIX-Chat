@@ -40,6 +40,7 @@ import {
   getConversation,
   streamImageEdit,
   streamImageGeneration,
+  streamVideoGeneration,
   streamMessage as streamConversationMessage,
   updateMessage,
   type ConversationStreamOptions,
@@ -48,6 +49,7 @@ import type {
   ConversationDTO,
   ConversationOptions,
   MediaImageRequest,
+  MediaVideoRequest,
   MessageDTO,
   SendMessageRequest,
   SendMessageResult,
@@ -662,6 +664,12 @@ export function useChatMessageSubmit({
             htmlVisualColorMode: htmlVisualPromptEnabled ? htmlVisualColorMode : undefined,
           };
           completed = await streamConversationMessage(token, targetConversationID, chatPayload, streamOptions);
+        } else if (submitTask === "video_generation") {
+          const videoPayload: MediaVideoRequest = {
+            ...commonStreamPayload,
+            prompt: payloadContent,
+          };
+          completed = await streamVideoGeneration(token, targetConversationID, videoPayload, streamOptions);
         } else {
           const mediaPayload: MediaImageRequest = {
             ...commonStreamPayload,

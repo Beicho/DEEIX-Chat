@@ -546,16 +546,27 @@ export type SendMessageRequest = {
 };
 
 export type MediaImageRequest = {
+
   prompt: string;
+
   model?: string;
+
   options?: ConversationOptions;
+
   clientRunID?: string;
+
   fileIDs?: string[];
+
   maskFileID?: string;
+
   parentMessagePublicID?: string;
+
   sourceMessagePublicID?: string;
+
   branchReason?: "default" | "retry" | "edit";
+
 };
+
 
 export type SendMessageResult = {
   userMessage: MessageDTO;

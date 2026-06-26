@@ -173,4 +173,4 @@ docker-compose.local.yml
 /findings.md
 /docs/
 /ops/
-/.codex/
+/.codex/frontend/.pnpm-store/

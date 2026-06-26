@@ -14,6 +14,8 @@ const (
 	TaskTypeImageGeneration = "image_generation"
 	// TaskTypeImageEdit 表示图片编辑任务。
 	TaskTypeImageEdit = "image_edit"
+	// TaskTypeVideoGeneration 表示视频生成任务。
+	TaskTypeVideoGeneration = "video_generation"
 
 	modelKindChat      = "chat"
 	modelKindAudio     = "audio"
@@ -379,6 +381,8 @@ func NormalizeTaskType(raw string) string {
 		return TaskTypeImageGeneration
 	case TaskTypeImageEdit:
 		return TaskTypeImageEdit
+	case TaskTypeVideoGeneration:
+		return TaskTypeVideoGeneration
 	default:
 		return TaskTypeChat
 	}
@@ -395,6 +399,8 @@ func IsRouteAllowedForTask(taskType string, kindsJSON string, protocol string) b
 			return isProtocolAllowedForKind(modelKindImageGen, protocol)
 		case TaskTypeImageEdit:
 			return isProtocolAllowedForKind(modelKindImageEdit, protocol)
+		case TaskTypeVideoGeneration:
+			return isProtocolAllowedForKind(modelKindVideoGen, protocol)
 		default:
 			return isProtocolAllowedForKind(modelKindChat, protocol) || isProtocolAllowedForKind(modelKindAudio, protocol)
 		}
@@ -404,6 +410,8 @@ func IsRouteAllowedForTask(taskType string, kindsJSON string, protocol string) b
 		return hasModelKind(kinds, modelKindImageGen) && isProtocolAllowedForKind(modelKindImageGen, protocol)
 	case TaskTypeImageEdit:
 		return hasModelKind(kinds, modelKindImageEdit) && isProtocolAllowedForKind(modelKindImageEdit, protocol)
+	case TaskTypeVideoGeneration:
+		return hasModelKind(kinds, modelKindVideoGen) && isProtocolAllowedForKind(modelKindVideoGen, protocol)
 	default:
 		for _, kind := range kinds {
 			if (kind == modelKindChat || kind == modelKindAudio) && isProtocolAllowedForKind(kind, protocol) {
