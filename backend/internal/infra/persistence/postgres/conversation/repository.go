@@ -97,7 +97,7 @@ func (r *Repo) ListConversationsByUser(
 ) ([]domainconversation.Conversation, int64, error) {
 	items := make([]models.Conversation, 0)
 	var total int64
-	query := r.db.WithContext(ctx).Model(&models.Conversation{}).Where("user_id = ?", userID)
+	query := r.db.WithContext(ctx).Model(&models.Conversation{}).Where("user_id = ?", userID).Where("deleted_at IS NULL")
 
 	switch statusFilter {
 	case "archived":

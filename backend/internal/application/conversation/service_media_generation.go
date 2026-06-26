@@ -784,25 +784,48 @@ type MediaVideoInput struct {
 	OnEvent               func(eventType string, payload map[string]interface{}) error
 }
 
-// StreamMediaVideo 执行视频生成任务：通过路由解析上游，创建异步任务并轮询直到完成。
+// StreamMediaVideo 执行视频生成任务：通过路由解析上游，创建异步任务并轮询直到完成，保存视频文件。
 func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (*SendMessageResult, error) {
 	if strings.TrimSpace(input.Prompt) == "" {
 		return nil, ErrMediaImagePromptRequired
 	}
-	if s.routeResolver == nil {
+	if s.routeResolver == nil || s.llmClient == nil {
+		return nil, ErrModelRouteNotConfigured
+	}
+	ctx = context.WithoutCancel(ctx)
+
+	// clientRunID 是幂等键
+	runID := normalizeRunID(input.ClientRunID)
+	if runID == "" {
+		runID = "run_" + normalizePublicID(uuid.NewString())
+	}
+	existingRuns, err := s.repo.ListConversationRunsByRunIDs(ctx, input.UserID, input.ConversationID, []string{runID})
+	if err != nil {
+		return nil, err
+	}
+	if len(existingRuns) > 0 {
+		return nil, ErrDuplicateMessageGenerationRun
+	}
+	cancelCtx, cancel := context.WithCancel(ctx)
+	ctx = cancelCtx
+	s.generationStreams.register(ctx, runID, input.UserID, cancel)
+
+	startedAt := time.Now()
+	conversation, err := s.repo.GetConversationByUser(ctx, input.ConversationID, input.UserID)
+	if err != nil {
+		return nil, ErrConversationNotFound
+	}
+
+	platformModelName := strings.TrimSpace(input.PlatformModelName)
+	if platformModelName == "" {
+		platformModelName = strings.TrimSpace(conversation.Model)
+	}
+	if platformModelName == "" {
 		return nil, ErrModelRouteNotConfigured
 	}
 
-	if input.OnEvent != nil {
-		_ = input.OnEvent("status", map[string]interface{}{
-			"status":  "processing",
-			"message": "正在生成视频，请稍候...",
-		})
-	}
-
-	// 解析路由
 	route, err := s.routeResolver.ResolveRoute(ctx, channel.ResolveRouteInput{
-		PlatformModelName: input.PlatformModelName,
+		PlatformModelName: platformModelName,
 		TaskType:          channel.TaskTypeVideoGeneration,
 		Scope:             channel.RouteScopeUser,
 		UserID:            input.UserID,
@@ -812,6 +835,109 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	if err != nil {
 		return nil, ErrModelRouteNotConfigured
 	}
+
+	// 更新会话模型
+	if strings.TrimSpace(conversation.Model) != strings.TrimSpace(route.PlatformModelName) {
+		conversation.Model = strings.TrimSpace(route.PlatformModelName)
+		conversation.Provider = inferProvider(conversation.Model)
+		if err = s.repo.UpdateConversationModel(ctx, input.ConversationID, conversation.Model, conversation.Provider); err != nil {
+			return nil, err
+		}
+	}
+
+	normalizedBranchReason := normalizeBranchReason(input.BranchReason)
+	branchState, err := s.resolveMessageBranch(ctx, input.ConversationID, input.UserID, input.ParentMessagePublicID, input.SourceMessagePublicID, normalizedBranchReason)
+	if err != nil {
+		return nil, err
+	}
+
+	run := &model.Run{
+		RunID:              runID,
+		RequestID:          strings.TrimSpace(input.RequestID),
+		UserID:             input.UserID,
+		ConversationID:     input.ConversationID,
+		TaskType:           "video_generation",
+		Endpoint:           llm.EndpointVideoGenerations,
+		Provider:           strings.TrimSpace(conversation.Provider),
+		ProviderProtocol:   route.Protocol,
+		UpstreamID:         route.UpstreamID,
+		UpstreamModelID:    route.UpstreamModelID,
+		UpstreamName:       route.UpstreamName,
+		RequestedModelName: platformModelName,
+		PlatformModelName:  route.PlatformModelName,
+		RoutedBindingCode:  route.BindingCode,
+		ModelVendor:        route.ModelVendor,
+		ModelIcon:          route.ModelIcon,
+		UpstreamModelName:  route.UpstreamModel,
+		Status:             "error",
+		StartedAt:          startedAt,
+	}
+	var retErr error
+	defer func() {
+		endedAt := time.Now()
+		run.EndedAt = &endedAt
+		run.TotalLatencyMS = endedAt.Sub(startedAt).Milliseconds()
+		if retErr == nil {
+			run.Status = "success"
+		} else {
+			run.Status = "error"
+			run.ErrorCode = classifyRunErrorCode(retErr)
+			run.ErrorMessage = truncateError(messageErrorSummary(retErr), 255)
+		}
+		if err := s.repo.CreateConversationRun(context.WithoutCancel(ctx), run); err != nil && s.logger != nil {
+			s.logger.Error("create_video_conversation_run_failed",
+				zap.String("trace_id", traceid.FromContext(ctx)),
+				zap.String("run_id", run.RunID),
+				zap.Error(err),
+			)
+		}
+	}()
+
+	userMessage := &model.Message{
+		ConversationID:  input.ConversationID,
+		UserID:          input.UserID,
+		PublicID:        normalizePublicID(uuid.NewString()),
+		ParentMessageID: branchState.ParentMessageID,
+		RunID:           runID,
+		Role:            "user",
+		ContentType:     "text",
+		Content:         strings.TrimSpace(input.Prompt),
+		BranchReason:    normalizedBranchReason,
+		SourceMessageID: branchState.SourceMessageID,
+		TokenUsage:      estimateTokens(input.Prompt),
+		InputTokens:     estimateTokens(input.Prompt),
+		Status:          "success",
+		Attachments:     "[]",
+	}
+
+	assistantMessage := &model.Message{
+		ConversationID: input.ConversationID,
+		UserID:         input.UserID,
+		PublicID:       normalizePublicID(uuid.NewString()),
+		RunID:          runID,
+		Role:           "assistant",
+		ContentType:    "video",
+		Content:        "",
+		BranchReason:   normalizedBranchReason,
+		Status:         "pending",
+		Attachments:    "[]",
+	}
+
+	if err = s.repo.CreateMessagePairWithUserAttachments(ctx, userMessage, assistantMessage, nil); err != nil {
+		retErr = err
+		return nil, err
+	}
+	userMessage.ParentPublicID = branchState.ParentPublicID
+	userMessage.SourcePublicID = branchState.SourcePublicID
+	assistantMessage.ParentPublicID = userMessage.PublicID
+	traceRecorder := newMessageTraceRecorder(s, ctx, assistantMessage, input.OnEvent)
+	defer func() {
+		if retErr != nil && traceRecorder != nil {
+			traceRecorder.fail(retErr)
+			traceRecorder.attachToMessage(assistantMessage)
+		}
+	}()
+	emitMediaEvent(input.OnEvent, "queued", "video task queued")
 
 	// 构造创建视频任务的请求
 	createBody := map[string]interface{}{
@@ -833,26 +959,35 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		}
 	}
 
+	emitMediaEvent(input.OnEvent, "running", "generating video")
 	createJSON, _ := json.Marshal(createBody)
 	createURL := strings.TrimRight(route.BaseURL, "/") + "/videos/generations"
 	createReq, err := http.NewRequestWithContext(ctx, "POST", createURL, bytes.NewReader(createJSON))
 	if err != nil {
-		return nil, fmt.Errorf("创建视频请求失败: %w", err)
+		retErr = fmt.Errorf("创建视频请求失败: %w", err)
+		s.routeResolver.MarkRouteFailure(ctx, route, retErr)
+		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
+		return nil, retErr
 	}
 	createReq.Header.Set("Content-Type", "application/json")
 	createReq.Header.Set("Authorization", "Bearer "+route.APIKey)
 
-	httpClient := &http.Client{Timeout: 300 * time.Second}
+	cfg := s.cfg.Snapshot()
+	httpClient := security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
 	createResp, err := httpClient.Do(createReq)
 	if err != nil {
+		retErr = wrapUpstreamRequestError(err)
 		s.routeResolver.MarkRouteFailure(ctx, route, err)
-		return nil, fmt.Errorf("视频生成请求失败: %w", err)
+		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
+		return nil, retErr
 	}
 	defer createResp.Body.Close()
-	if createResp.StatusCode != http.StatusOK {
+	if createResp.StatusCode != http.StatusOK && createResp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(createResp.Body)
+		retErr = fmt.Errorf("视频生成失败(HTTP %d): %s", createResp.StatusCode, string(body))
 		s.routeResolver.MarkRouteFailure(ctx, route, fmt.Errorf("HTTP %d", createResp.StatusCode))
-		return nil, fmt.Errorf("视频生成失败(HTTP %d): %s", createResp.StatusCode, string(body))
+		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
+		return nil, retErr
 	}
 
 	var createResult struct {
@@ -860,10 +995,14 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(createResp.Body).Decode(&createResult); err != nil {
-		return nil, fmt.Errorf("解析视频任务响应失败: %w", err)
+		retErr = fmt.Errorf("解析视频任务响应失败: %w", err)
+		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
+		return nil, retErr
 	}
 	if createResult.ID == "" {
-		return nil, fmt.Errorf("视频任务创建失败：未返回任务ID")
+		retErr = fmt.Errorf("视频任务创建失败：未返回任务ID")
+		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
+		return nil, retErr
 	}
 
 	s.routeResolver.MarkRouteSuccess(ctx, route)
@@ -875,7 +1014,9 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	for i := 0; i < maxAttempts; i++ {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			retErr = ctx.Err()
+			_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), "generation cancelled")
+			return nil, retErr
 		case <-time.After(5 * time.Second):
 		}
 
@@ -900,7 +1041,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		pollResp.Body.Close()
 
 		if input.OnEvent != nil {
-			_ = input.OnEvent("status", map[string]interface{}{
+			_ = input.OnEvent("media_status", map[string]interface{}{
 				"status":  pollResult.Status,
 				"message": fmt.Sprintf("视频生成中... (%d/%d)", i+1, maxAttempts),
 			})
@@ -917,32 +1058,155 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 					errMsg = m
 				}
 			}
-			return nil, fmt.Errorf(errMsg)
+			retErr = fmt.Errorf(errMsg)
+			_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(errMsg, 255))
+			return nil, retErr
 		}
 	}
 
 	if videoURL == "" {
-		return nil, fmt.Errorf("视频生成超时")
+		retErr = fmt.Errorf("视频生成超时")
+		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), "generation timeout")
+		return nil, retErr
 	}
 
-	result := &SendMessageResult{
-		AssistantMessage: model.Message{
-			Content: fmt.Sprintf("<video src='%s' />", videoURL),
-			Status:  "success",
+	// 下载视频并保存为文件
+	emitMediaEvent(input.OnEvent, "saving_artifact", "saving video")
+	videoData, mimeType, downloadErr := s.downloadGeneratedVideo(ctx, videoURL)
+	if downloadErr != nil {
+		retErr = downloadErr
+		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
+		return nil, retErr
+	}
+
+	fileName := generatedVideoFileName(route.PlatformModelName, time.Now(), mimeType)
+	uploadResult, uploadErr := s.UploadFile(ctx, appupload.UploadFileInput{
+		UserID:       input.UserID,
+		Purpose:      "generated_video",
+		FileName:     fileName,
+		MimeType:     mimeType,
+		DeclaredSize: int64(len(videoData)),
+		Reader:       bytes.NewReader(videoData),
+	})
+	if uploadErr != nil {
+		retErr = uploadErr
+		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
+		return nil, retErr
+	}
+
+	file := uploadResult.File
+	now := time.Now()
+	attachmentRow := model.Attachment{
+		ConversationID: input.ConversationID,
+		MessageID:      assistantMessage.ID,
+		UserID:         input.UserID,
+		FileID:         file.FileID,
+		Kind:           "video",
+		FileName:       file.FileName,
+		MimeType:       file.DetectedMIME,
+		FileSize:       file.SizeBytes,
+		SHA256:         file.SHA256,
+		StoragePath:    file.StoragePath,
+		Status:         "active",
+		UploadedAt:     now,
+	}
+
+	content := fmt.Sprintf("![Generated video](/api/v1/files/%s/content)", file.FileID)
+	latencyMS := time.Since(startedAt).Milliseconds()
+	// 假设视频生成按次计费，这里可以根据实际情况调整 token 计算
+	outputTokens := estimateTokens(input.Prompt)
+	if err = s.repo.CompleteAssistantMessageWithAttachments(ctx,
+		userMessage.ID,
+		repository.MessageUsageUpdate{
+			InputTokens:      userMessage.InputTokens,
+			CacheReadTokens:  0,
+			CacheWriteTokens: 0,
 		},
-		UpstreamID:        route.UpstreamID,
-		UpstreamName:      route.UpstreamName,
-		PlatformModelName: route.PlatformModelName,
-		RoutedBindingCode: route.BindingCode,
-		UpstreamModelName: route.UpstreamModel,
-		UpstreamProtocol:  route.Protocol,
+		assistantMessage.ID,
+		repository.AssistantMessageCompletionUpdate{
+			ContentType:     "video",
+			Content:         content,
+			OutputTokens:    outputTokens,
+			ReasoningTokens: 0,
+			LatencyMS:       latencyMS,
+			Status:          "success",
+		},
+		[]model.Attachment{attachmentRow},
+	); err != nil {
+		retErr = err
+		return nil, err
 	}
 
-	if input.OnEvent != nil {
-		_ = input.OnEvent("video_ready", map[string]interface{}{
-			"url": videoURL,
-		})
-	}
+	assistantMessage.Content = content
+	assistantMessage.OutputTokens = outputTokens
+	assistantMessage.TokenUsage = outputTokens
+	assistantMessage.LatencyMS = latencyMS
+	assistantMessage.Status = "success"
+	assistantMessage.Attachments = string(marshalAttachmentSnapshots(attachmentsFromFiles([]model.FileObject{file})))
+	run.InputTokens = userMessage.InputTokens
+	run.OutputTokens = outputTokens
 
-	return result, nil
+	s.maybeGenerateConversationMetadataAsync(*conversation, *userMessage, model.Message{})
+
+	return &SendMessageResult{
+		UserMessage:        *userMessage,
+		AssistantMessage:   *assistantMessage,
+		UpstreamID:         route.UpstreamID,
+		UpstreamName:       route.UpstreamName,
+		PlatformModelName:  route.PlatformModelName,
+		RoutedBindingCode:  route.BindingCode,
+		UpstreamModelName:  route.UpstreamModel,
+		UpstreamProtocol:   route.Protocol,
+		EffectiveOptions:   input.Options,
+		LatencyMS:          latencyMS,
+	}, nil
+}
+
+// downloadGeneratedVideo 下载生成的视频文件并返回字节数据。
+func (s *Service) downloadGeneratedVideo(ctx context.Context, url string) ([]byte, string, error) {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return nil, "", ErrUpstreamEmptyResponse
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	cfg := s.cfg.Snapshot()
+	client := security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 120*time.Second)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("download generated video failed: HTTP %d", resp.StatusCode)
+	}
+	mimeType := "video/mp4"
+	if contentType := strings.TrimSpace(resp.Header.Get("Content-Type")); strings.HasPrefix(strings.ToLower(contentType), "video/") {
+		mimeType = strings.Split(contentType, ";")[0]
+	}
+	limit := s.cfg.Snapshot().MaxUploadFileBytes * 10 // 视频文件可能较大
+	if limit <= 0 {
+		limit = 200 * 1024 * 1024
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, mimeType, err
+	}
+	if int64(len(data)) > limit {
+		return nil, mimeType, ErrFileTooLarge
+	}
+	return data, mimeType, nil
+}
+
+// generatedVideoFileName 构造视频文件名。
+func generatedVideoFileName(modelName string, capturedAt time.Time, mimeType string) string {
+	base := sanitizeGeneratedImageFileBase(modelName)
+	timestamp := fmt.Sprintf("%s-%03d", capturedAt.Format("20060102-150405"), capturedAt.Nanosecond()/int(time.Millisecond))
+	ext := ".mp4"
+	if strings.Contains(strings.ToLower(mimeType), "quicktime") || strings.Contains(strings.ToLower(mimeType), "mov") {
+		ext = ".mov"
+	}
+	return fmt.Sprintf("%s-video-%s%s", base, timestamp, ext)
 }
