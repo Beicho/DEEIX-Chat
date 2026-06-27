@@ -258,7 +258,7 @@ func (s *Service) UploadFile(ctx context.Context, input UploadFileInput) (*Uploa
 		logRemoveErr(relativePath, store.Delete(ctx, relativePath))
 		return nil, s.errDangerousMIMEType()
 	}
-	if !isAllowedMIME(detectedMIME, cfg) {
+	if !isAllowedMIMEForPurpose(detectedMIME, input.Purpose, cfg) {
 		logRemoveErr(relativePath, store.Delete(ctx, relativePath))
 		return nil, s.errMIMEBlocked()
 	}
@@ -780,6 +780,21 @@ func isAllowedMIME(mimeType string, cfg config.Config) bool {
 	}
 	_, ok := allowed[strings.ToLower(strings.TrimSpace(mimeType))]
 	return ok
+}
+
+func isAllowedMIMEForPurpose(mimeType string, purpose string, cfg config.Config) bool {
+	if isAllowedMIME(mimeType, cfg) {
+		return true
+	}
+	normalizedMIME := strings.ToLower(strings.TrimSpace(mimeType))
+	switch normalizePurpose(purpose) {
+	case "generated_image":
+		return strings.HasPrefix(normalizedMIME, "image/")
+	case "generated_video":
+		return strings.HasPrefix(normalizedMIME, "video/")
+	default:
+		return false
+	}
 }
 
 func maxBytesForCategory(category string, cfg config.Config) int64 {
