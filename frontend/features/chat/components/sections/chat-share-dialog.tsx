@@ -1,7 +1,6 @@
-import { generateLongImage, downloadDataUrl, type LongImageMessage } from "@/features/chat/model/generate-long-image";
 "use client";
-import * as React from "react";
 
+import * as React from "react";
 import { Copy, ExternalLink, ImageDown, Share2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
@@ -216,22 +215,7 @@ export function ConversationShareDialog({
       }
     }
     void loadShare();
-  
-  async function handleDownloadImage() {
-    try {
-      setGeneratingImage(true);
-      const messages: LongImageMessage[] = [];
-      const dataUrl = await generateLongImage(messages);
-      downloadDataUrl(dataUrl, "deeix-chat-" + Date.now() + ".png");
-      toast.success(t("share.imageGenerated"));
-    } catch {
-      toast.error(t("share.generating"));
-    } finally {
-      setGeneratingImage(false);
-    }
-  }
-
-  return () => {
+    return () => {
       cancelled = true;
     };
   }, [applyShare, conversationPublicID, open, resolveErrorMessage, t, tCommon]);
@@ -284,6 +268,27 @@ export function ConversationShareDialog({
     [applyShare, buildSharePayload, conversationPublicID, hasDefaultBranch, resolveErrorMessage, t, tCommon, working],
   );
 
+  const copyLink = React.useCallback(async (): Promise<boolean> => {
+    if (!currentURL) {
+      return false;
+    }
+    try {
+      await navigator.clipboard.writeText(currentURL);
+      toast.success(t("linkCopied"));
+      return true;
+    } catch {
+      toast.error(t("copyFailed"));
+      return false;
+    }
+  }, [currentURL, t]);
+
+  const copyLinkAndClose = React.useCallback(async () => {
+    const copied = await copyLink();
+    if (copied) {
+      onOpenChange(false);
+    }
+  }, [copyLink, onOpenChange]);
+
   const openLink = React.useCallback(() => {
     if (!currentURL) {
       return;
@@ -313,21 +318,6 @@ export function ConversationShareDialog({
     }
   }, [currentURL, headerDescription, normalizedTitle, t]);
 
-
-  async function handleDownloadImage() {
-    try {
-      setGeneratingImage(true);
-      const messages: LongImageMessage[] = [];
-      const dataUrl = await generateLongImage(messages);
-      downloadDataUrl(dataUrl, "deeix-chat-" + Date.now() + ".png");
-      toast.success(t("share.imageGenerated"));
-    } catch {
-      toast.error(t("share.generating"));
-    } finally {
-      setGeneratingImage(false);
-    }
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[540px]">
@@ -348,16 +338,16 @@ export function ConversationShareDialog({
                 value={currentURL || t("emptyLink")}
                 className={!currentURL ? "text-muted-foreground" : undefined}
               />
-              <CopyActionButton
+              <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 disabled={!active}
-                value={currentURL}
-                messages={{ copied: t("linkCopied"), failed: t("copyFailed") }}
-                iconClassName="size-4"
+                onClick={() => void copyLink()}
                 aria-label={t("copyLink")}
-              />
+              >
+                <Copy className="size-4" />
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -506,15 +496,13 @@ export function ConversationShareDialog({
               >
                 {working === "regenerate" ? <SpinnerLabel>{t("regenerating")}</SpinnerLabel> : t("regenerate")}
               </Button>
-              <CopyActionButton
+              <Button
                 type="button"
-                value={currentURL}
-                messages={{ copied: t("linkCopied"), failed: t("copyFailed") }}
-                onCopied={() => onOpenChange(false)}
+                onClick={() => void copyLinkAndClose()}
                 disabled={Boolean(working) || loading || !active}
               >
                 {t("copyAndClose")}
-              </CopyActionButton>
+              </Button>
             </>
           ) : (
             <>
@@ -530,16 +518,7 @@ export function ConversationShareDialog({
               </Button>
             </>
           )}
-                <Button
-          type="button"
-          variant="outline"
-          disabled={generatingImage}
-          onClick={() => void handleDownloadImage()}
-          className="min-h-11 sm:min-h-9"
-        >
-          {generatingImage ? t("share.generating") : t("share.downloadImage")}
-        </Button>
-      </DialogFooter>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
