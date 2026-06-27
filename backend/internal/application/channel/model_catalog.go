@@ -374,6 +374,11 @@ func isProtocolAllowedForKind(kind string, protocol string) bool {
 	}
 }
 
+func isExecutableRouteProtocol(protocol string) bool {
+	protocol = strings.TrimSpace(strings.ToLower(protocol))
+	return llm.IsImplementedAdapter(protocol) || protocol == protocolOpenAIVideoGenerations
+}
+
 // NormalizeTaskType 归一化模型路由任务类型。
 // 未传任务类型时按聊天处理，保留旧调用方的默认行为。
 func NormalizeTaskType(raw string) string {

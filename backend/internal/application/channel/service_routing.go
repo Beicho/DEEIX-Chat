@@ -61,7 +61,7 @@ func (s *Service) ResolveRoute(ctx context.Context, input ResolveRouteInput) (*R
 			if row.UpstreamModelID == 0 || strings.TrimSpace(row.BindingCode) == "" || strings.TrimSpace(row.UpstreamModelName) == "" {
 				continue
 			}
-			if !llm.IsImplementedAdapter(row.Protocol) {
+			if !isExecutableRouteProtocol(row.Protocol) {
 				continue
 			}
 			if err := s.validateUpstreamBaseURL(row.BaseURL); err != nil {
