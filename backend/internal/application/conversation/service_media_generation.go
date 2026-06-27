@@ -34,6 +34,19 @@ const (
 
 const maxMediaImageEditInputImages = 16
 
+const maxMediaVideoInputImages = 8
+
+const (
+	openAIVideoCreatePath = "/videos"
+	openAIVideoPollPath   = "/videos/"
+	legacyVideoCreatePath = "/videos/generations"
+	legacyVideoPollPath   = "/videos/generations/"
+	taskVideoCreatePath   = "/video/generations"
+	taskVideoPollPath     = "/video/generations/"
+	videoTaskPollAttempts = 120
+	videoTaskPollInterval = 5 * time.Second
+)
+
 type mediaImageCapabilities struct {
 	Image struct {
 		Stream *bool `json:"stream"`
@@ -153,8 +166,6 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 	if err != nil {
 		return nil, err
 	}
-	attachmentsJSON := marshalAttachmentSnapshots(resolvedAttachments)
-
 	run := &model.Run{
 		RunID:              runID,
 		RequestID:          strings.TrimSpace(input.RequestID),
@@ -197,6 +208,7 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		}
 	}()
 
+	attachmentsJSON := marshalAttachmentSnapshots(resolvedAttachments)
 	userMessage := &model.Message{
 		ConversationID:  input.ConversationID,
 		UserID:          input.UserID,
@@ -475,6 +487,32 @@ func (s *Service) resolveMediaImageEditInputs(ctx context.Context, input MediaIm
 		if len(attachments) == 0 {
 			return nil, nil, ErrMediaImageEditInputRequired
 		}
+		return nil, nil, ErrMediaImageEditTooManyInputs
+	}
+	parts := make([]llm.ContentPart, 0, len(attachments))
+	for _, attachment := range attachments {
+		if normalizeAttachmentKind(attachment.Kind, attachment.MimeType) != "image" {
+			return nil, nil, ErrMediaImageEditInputInvalid
+		}
+		part, readErr := s.readMediaImageEditFile(ctx, input.UserID, attachment.FileID)
+		if readErr != nil {
+			return nil, nil, readErr
+		}
+		part.FileName = mediaImageEditInputFileName(attachment.FileName, part.MimeType)
+		parts = append(parts, part)
+	}
+	return attachments, parts, nil
+}
+
+func (s *Service) resolveMediaVideoInputs(ctx context.Context, input MediaVideoInput) ([]AttachmentInput, []llm.ContentPart, error) {
+	if len(input.FileIDs) == 0 {
+		return nil, nil, nil
+	}
+	attachments, err := s.resolveAttachments(ctx, input.UserID, input.FileIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(attachments) > maxMediaVideoInputImages {
 		return nil, nil, ErrMediaImageEditTooManyInputs
 	}
 	parts := make([]llm.ContentPart, 0, len(attachments))
@@ -851,6 +889,12 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		return nil, err
 	}
 
+	resolvedAttachments, videoInputImages, err := s.resolveMediaVideoInputs(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	attachmentsJSON := marshalAttachmentSnapshots(resolvedAttachments)
+
 	run := &model.Run{
 		RunID:              runID,
 		RequestID:          strings.TrimSpace(input.RequestID),
@@ -907,7 +951,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		TokenUsage:      estimateTokens(input.Prompt),
 		InputTokens:     estimateTokens(input.Prompt),
 		Status:          "success",
-		Attachments:     "[]",
+		Attachments:     attachmentsJSON,
 	}
 
 	assistantMessage := &model.Message{
@@ -923,7 +967,28 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		Attachments:    "[]",
 	}
 
-	if err = s.repo.CreateMessagePairWithUserAttachments(ctx, userMessage, assistantMessage, nil); err != nil {
+	userAttachmentRows := make([]model.Attachment, 0, len(resolvedAttachments))
+	if len(resolvedAttachments) > 0 {
+		now := time.Now()
+		for _, item := range resolvedAttachments {
+			userAttachmentRows = append(userAttachmentRows, model.Attachment{
+				ConversationID: input.ConversationID,
+				UserID:         input.UserID,
+				FileID:         strings.TrimSpace(item.FileID),
+				Kind:           normalizeAttachmentKind(item.Kind, item.MimeType),
+				FileName:       strings.TrimSpace(item.FileName),
+				MimeType:       strings.TrimSpace(item.MimeType),
+				FileSize:       item.FileSize,
+				SHA256:         strings.TrimSpace(item.SHA256),
+				StoragePath:    strings.TrimSpace(item.StoragePath),
+				Status:         "active",
+				MetaJSON:       strings.TrimSpace(item.MetaJSON),
+				UploadedAt:     now,
+			})
+		}
+	}
+
+	if err = s.repo.CreateMessagePairWithUserAttachments(ctx, userMessage, assistantMessage, userAttachmentRows); err != nil {
 		retErr = err
 		return nil, err
 	}
@@ -939,67 +1004,18 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	}()
 	emitMediaEvent(input.OnEvent, "queued", "video task queued")
 
-	// 构造创建视频任务的请求
-	createBody := map[string]interface{}{
-		"model":      route.UpstreamModel,
-		"prompt":     input.Prompt,
-		"duration":   5,
-		"resolution": "720p",
-		"ratio":      "16:9",
-	}
-	if input.Options != nil {
-		if d, ok := input.Options["duration"]; ok {
-			createBody["duration"] = d
-		}
-		if r, ok := input.Options["resolution"]; ok {
-			createBody["resolution"] = r
-		}
-		if rt, ok := input.Options["ratio"]; ok {
-			createBody["ratio"] = rt
-		}
-	}
-
 	emitMediaEvent(input.OnEvent, "running", "generating video")
-	createJSON, _ := json.Marshal(createBody)
-	createURL := strings.TrimRight(route.BaseURL, "/") + "/videos/generations"
-	createReq, err := http.NewRequestWithContext(ctx, "POST", createURL, bytes.NewReader(createJSON))
-	if err != nil {
-		retErr = fmt.Errorf("创建视频请求失败: %w", err)
-		s.routeResolver.MarkRouteFailure(ctx, route, retErr)
-		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
-		return nil, retErr
-	}
-	createReq.Header.Set("Content-Type", "application/json")
-	createReq.Header.Set("Authorization", "Bearer "+route.APIKey)
-
 	cfg := s.cfg.Snapshot()
 	httpClient := security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
-	createResp, err := httpClient.Do(createReq)
+
+	createResult, createPath, err := createVideoGenerationTask(ctx, httpClient, route, input, videoInputImages)
 	if err != nil {
-		retErr = wrapUpstreamRequestError(err)
+		retErr = err
 		s.routeResolver.MarkRouteFailure(ctx, route, err)
 		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
 		return nil, retErr
 	}
-	defer createResp.Body.Close()
-	if createResp.StatusCode != http.StatusOK && createResp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(createResp.Body)
-		retErr = fmt.Errorf("视频生成失败(HTTP %d): %s", createResp.StatusCode, string(body))
-		s.routeResolver.MarkRouteFailure(ctx, route, fmt.Errorf("HTTP %d", createResp.StatusCode))
-		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
-		return nil, retErr
-	}
-
-	var createResult struct {
-		ID     string `json:"id"`
-		Status string `json:"status"`
-	}
-	if err := json.NewDecoder(createResp.Body).Decode(&createResult); err != nil {
-		retErr = fmt.Errorf("解析视频任务响应失败: %w", err)
-		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
-		return nil, retErr
-	}
-	if createResult.ID == "" {
+	if strings.TrimSpace(createResult.TaskID) == "" {
 		retErr = fmt.Errorf("视频任务创建失败：未返回任务ID")
 		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
 		return nil, retErr
@@ -1008,57 +1024,36 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	s.routeResolver.MarkRouteSuccess(ctx, route)
 
 	// 轮询任务状态
-	taskID := createResult.ID
+	taskID := createResult.TaskID
 	var videoURL string
-	maxAttempts := 120
-	for i := 0; i < maxAttempts; i++ {
+	for i := 0; i < videoTaskPollAttempts; i++ {
 		select {
 		case <-ctx.Done():
 			retErr = ctx.Err()
 			_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), "generation cancelled")
 			return nil, retErr
-		case <-time.After(5 * time.Second):
+		case <-time.After(videoTaskPollInterval):
 		}
 
-		pollURL := strings.TrimRight(route.BaseURL, "/") + "/videos/generations/" + taskID
-		pollReq, _ := http.NewRequestWithContext(ctx, "GET", pollURL, nil)
-		pollReq.Header.Set("Authorization", "Bearer "+route.APIKey)
-		pollResp, err := httpClient.Do(pollReq)
+		pollResult, err := pollVideoGenerationTask(ctx, httpClient, route, createPath, taskID)
 		if err != nil {
 			continue
 		}
-		var pollResult struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-			Video  struct {
-				URL        string  `json:"url"`
-				Duration   float64 `json:"duration"`
-				Resolution string  `json:"resolution"`
-			} `json:"video"`
-			Error map[string]interface{} `json:"error"`
-		}
-		json.NewDecoder(pollResp.Body).Decode(&pollResult)
-		pollResp.Body.Close()
 
 		if input.OnEvent != nil {
 			_ = input.OnEvent("media_status", map[string]interface{}{
 				"status":  pollResult.Status,
-				"message": fmt.Sprintf("视频生成中... (%d/%d)", i+1, maxAttempts),
+				"message": fmt.Sprintf("视频生成中... (%d/%d)", i+1, videoTaskPollAttempts),
 			})
 		}
 
-		if pollResult.Status == "succeeded" {
-			videoURL = pollResult.Video.URL
+		if isVideoTaskSuccessStatus(pollResult.Status) {
+			videoURL = pollResult.VideoURL
 			break
 		}
-		if pollResult.Status == "failed" {
-			errMsg := "视频生成失败"
-			if pollResult.Error != nil {
-				if m, ok := pollResult.Error["message"].(string); ok {
-					errMsg = m
-				}
-			}
-			retErr = fmt.Errorf(errMsg)
+		if isVideoTaskFailedStatus(pollResult.Status) {
+			errMsg := firstNonEmptyString(pollResult.ErrorMessage, "视频生成失败")
+			retErr = fmt.Errorf("%s", errMsg)
 			_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(errMsg, 255))
 			return nil, retErr
 		}
@@ -1111,7 +1106,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		UploadedAt:     now,
 	}
 
-	content := fmt.Sprintf("![Generated video](/api/v1/files/%s/content)", file.FileID)
+	content := ""
 	latencyMS := time.Since(startedAt).Milliseconds()
 	// 假设视频生成按次计费，这里可以根据实际情况调整 token 计算
 	outputTokens := estimateTokens(input.Prompt)
@@ -1149,17 +1144,390 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	s.maybeGenerateConversationMetadataAsync(*conversation, *userMessage, model.Message{})
 
 	return &SendMessageResult{
-		UserMessage:        *userMessage,
-		AssistantMessage:   *assistantMessage,
-		UpstreamID:         route.UpstreamID,
-		UpstreamName:       route.UpstreamName,
-		PlatformModelName:  route.PlatformModelName,
-		RoutedBindingCode:  route.BindingCode,
-		UpstreamModelName:  route.UpstreamModel,
-		UpstreamProtocol:   route.Protocol,
-		EffectiveOptions:   input.Options,
-		LatencyMS:          latencyMS,
+		UserMessage:       *userMessage,
+		AssistantMessage:  *assistantMessage,
+		UpstreamID:        route.UpstreamID,
+		UpstreamName:      route.UpstreamName,
+		PlatformModelName: route.PlatformModelName,
+		RoutedBindingCode: route.BindingCode,
+		UpstreamModelName: route.UpstreamModel,
+		UpstreamProtocol:  route.Protocol,
+		EffectiveOptions:  input.Options,
+		LatencyMS:         latencyMS,
 	}, nil
+}
+
+type videoTaskCreateResult struct {
+	TaskID string
+	Status string
+}
+
+type videoTaskPollResult struct {
+	Status       string
+	VideoURL     string
+	ErrorMessage string
+}
+
+func createVideoGenerationTask(ctx context.Context, httpClient *http.Client, route *channel.ResolvedRoute, input MediaVideoInput, inputImages []llm.ContentPart) (videoTaskCreateResult, string, error) {
+	createBody := buildVideoGenerationCreateBody(route.UpstreamModel, input.Prompt, input.Options, inputImages)
+	createJSON, _ := json.Marshal(createBody)
+	var lastErr error
+	for _, path := range videoCreatePathsForRoute(route.BaseURL) {
+		createURL := buildVideoEndpointURL(route.BaseURL, path)
+		createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, createURL, bytes.NewReader(createJSON))
+		if err != nil {
+			return videoTaskCreateResult{}, path, fmt.Errorf("创建视频请求失败: %w", err)
+		}
+		createReq.Header.Set("Content-Type", "application/json")
+		createReq.Header.Set("Accept", "application/json")
+		if apiKey := strings.TrimSpace(route.APIKey); apiKey != "" {
+			createReq.Header.Set("Authorization", "Bearer "+apiKey)
+		}
+		setVideoRouteHeaders(createReq, route.HeadersJSON)
+
+		createResp, err := httpClient.Do(createReq)
+		if err != nil {
+			return videoTaskCreateResult{}, path, wrapUpstreamRequestError(err)
+		}
+		body, readErr := io.ReadAll(createResp.Body)
+		_ = createResp.Body.Close()
+		if readErr != nil {
+			return videoTaskCreateResult{}, path, readErr
+		}
+		if createResp.StatusCode < 200 || createResp.StatusCode >= 300 {
+			lastErr = fmt.Errorf("视频生成失败(HTTP %d): %s", createResp.StatusCode, strings.TrimSpace(string(body)))
+			if shouldTryNextVideoEndpoint(createResp.StatusCode) {
+				continue
+			}
+			return videoTaskCreateResult{}, path, lastErr
+		}
+		result, err := parseVideoTaskCreateResult(body)
+		if err != nil {
+			return videoTaskCreateResult{}, path, err
+		}
+		if strings.TrimSpace(result.TaskID) == "" {
+			return videoTaskCreateResult{}, path, fmt.Errorf("视频任务创建失败：未返回任务ID")
+		}
+		return result, path, nil
+	}
+	if lastErr != nil {
+		return videoTaskCreateResult{}, "", lastErr
+	}
+	return videoTaskCreateResult{}, "", fmt.Errorf("视频生成失败：没有可用视频端点")
+}
+
+func pollVideoGenerationTask(ctx context.Context, httpClient *http.Client, route *channel.ResolvedRoute, createPath string, taskID string) (videoTaskPollResult, error) {
+	pollPath := videoPollPathForCreatePath(createPath)
+	pollURL := buildVideoEndpointURL(route.BaseURL, pollPath+taskID)
+	pollReq, err := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
+	if err != nil {
+		return videoTaskPollResult{}, err
+	}
+	pollReq.Header.Set("Accept", "application/json")
+	if apiKey := strings.TrimSpace(route.APIKey); apiKey != "" {
+		pollReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	setVideoRouteHeaders(pollReq, route.HeadersJSON)
+	pollResp, err := httpClient.Do(pollReq)
+	if err != nil {
+		return videoTaskPollResult{}, err
+	}
+	body, readErr := io.ReadAll(pollResp.Body)
+	_ = pollResp.Body.Close()
+	if readErr != nil {
+		return videoTaskPollResult{}, readErr
+	}
+	if pollResp.StatusCode < 200 || pollResp.StatusCode >= 300 {
+		return videoTaskPollResult{}, fmt.Errorf("视频任务查询失败(HTTP %d): %s", pollResp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return parseVideoTaskPollResult(body)
+}
+
+func buildVideoGenerationCreateBody(modelName string, prompt string, options map[string]interface{}, inputImages []llm.ContentPart) map[string]interface{} {
+	createBody := map[string]interface{}{
+		"model":      strings.TrimSpace(modelName),
+		"prompt":     strings.TrimSpace(prompt),
+		"duration":   5,
+		"seconds":    "5",
+		"resolution": "720p",
+		"ratio":      "16:9",
+		"size":       "1280x720",
+	}
+	_, hasDurationOption := options["duration"]
+	_, hasSecondsOption := options["seconds"]
+	for key, value := range options {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		createBody[key] = value
+	}
+	syncVideoDurationAliases(createBody, hasDurationOption, hasSecondsOption)
+	metadata := map[string]interface{}{}
+	if existing, ok := createBody["metadata"].(map[string]interface{}); ok {
+		for key, value := range existing {
+			metadata[key] = value
+		}
+	}
+	for _, key := range []string{"resolution", "ratio", "watermark", "seed", "frames", "camera_fixed", "service_tier", "generate_audio", "return_last_frame"} {
+		if value, ok := createBody[key]; ok {
+			metadata[key] = value
+		}
+	}
+	if len(metadata) > 0 {
+		createBody["metadata"] = metadata
+	}
+	if len(inputImages) > 0 {
+		images := make([]string, 0, len(inputImages))
+		for _, image := range inputImages {
+			if len(image.Data) == 0 {
+				continue
+			}
+			mimeType := strings.TrimSpace(image.MimeType)
+			if mimeType == "" {
+				mimeType = "image/png"
+			}
+			images = append(images, "data:"+mimeType+";base64,"+base64.StdEncoding.EncodeToString(image.Data))
+		}
+		if len(images) > 0 {
+			createBody["images"] = images
+		}
+	}
+	return createBody
+}
+
+func syncVideoDurationAliases(createBody map[string]interface{}, hasDurationOption bool, hasSecondsOption bool) {
+	if createBody == nil {
+		return
+	}
+	if hasSecondsOption && !hasDurationOption {
+		createBody["duration"] = createBody["seconds"]
+		return
+	}
+	if hasDurationOption && !hasSecondsOption {
+		createBody["seconds"] = fmt.Sprint(createBody["duration"])
+	}
+}
+
+func setVideoRouteHeaders(req *http.Request, headersJSON string) {
+	if req == nil {
+		return
+	}
+	raw := strings.TrimSpace(headersJSON)
+	if raw == "" {
+		return
+	}
+	var headers map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &headers); err != nil {
+		return
+	}
+	for key, value := range headers {
+		if value == nil {
+			continue
+		}
+		name := strings.TrimSpace(key)
+		if name == "" {
+			continue
+		}
+		text := strings.TrimSpace(fmt.Sprint(value))
+		if text == "" {
+			continue
+		}
+		req.Header.Set(name, text)
+	}
+}
+
+func videoCreatePathsForRoute(baseURL string) []string {
+	if createPath, ok := videoCreatePathFromEndpointBase(baseURL); ok {
+		result := []string{createPath}
+		for _, candidate := range []string{openAIVideoCreatePath, taskVideoCreatePath, legacyVideoCreatePath} {
+			if candidate != createPath {
+				result = append(result, candidate)
+			}
+		}
+		return result
+	}
+	return []string{openAIVideoCreatePath, taskVideoCreatePath, legacyVideoCreatePath}
+}
+
+func videoPollPathForCreatePath(createPath string) string {
+	switch strings.TrimSpace(createPath) {
+	case taskVideoCreatePath:
+		return taskVideoPollPath
+	case legacyVideoCreatePath:
+		return legacyVideoPollPath
+	default:
+		return openAIVideoPollPath
+	}
+}
+
+func buildVideoEndpointURL(baseURL string, endpointPath string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	path := "/" + strings.TrimLeft(strings.TrimSpace(endpointPath), "/")
+	if base == "" {
+		return path
+	}
+	if createPath, ok := videoCreatePathFromEndpointBase(base); ok {
+		if strings.EqualFold(path, createPath) {
+			return base
+		}
+		pollPath := videoPollPathForCreatePath(createPath)
+		if strings.HasPrefix(strings.ToLower(path), strings.ToLower(pollPath)) {
+			return base + strings.TrimPrefix(path, createPath)
+		}
+		base = strings.TrimRight(base[:len(base)-len(createPath)], "/")
+		if base == "" {
+			return path
+		}
+	}
+	if videoBaseEndsWithVersionSegment(base) && strings.HasPrefix(path, "/v1/") {
+		path = strings.TrimPrefix(path, "/v1")
+	}
+	if !videoBaseEndsWithVersionSegment(base) {
+		path = "/v1" + path
+	}
+	return base + path
+}
+
+func videoCreatePathFromEndpointBase(baseURL string) (string, bool) {
+	normalized := strings.TrimRight(strings.ToLower(strings.TrimSpace(baseURL)), "/")
+	for _, createPath := range []string{taskVideoCreatePath, legacyVideoCreatePath, openAIVideoCreatePath} {
+		if strings.HasSuffix(normalized, strings.ToLower(createPath)) {
+			return createPath, true
+		}
+	}
+	return "", false
+}
+
+func videoBaseEndsWithVersionSegment(baseURL string) bool {
+	value := strings.TrimRight(strings.ToLower(strings.TrimSpace(baseURL)), "/")
+	if value == "" {
+		return false
+	}
+	index := strings.LastIndex(value, "/")
+	if index >= 0 {
+		value = value[index+1:]
+	}
+	if len(value) < 2 || value[0] != 'v' {
+		return false
+	}
+	for index := 1; index < len(value); index++ {
+		if value[index] < '0' || value[index] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func shouldTryNextVideoEndpoint(statusCode int) bool {
+	return statusCode == http.StatusNotFound || statusCode == http.StatusMethodNotAllowed || statusCode == http.StatusBadRequest
+}
+
+func parseVideoTaskCreateResult(body []byte) (videoTaskCreateResult, error) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return videoTaskCreateResult{}, fmt.Errorf("解析视频任务响应失败: %w", err)
+	}
+	taskID := firstNonEmptyString(
+		jsonPathString(payload, "id"),
+		jsonPathString(payload, "task_id"),
+		jsonPathString(payload, "taskID"),
+		jsonPathString(payload, "task.id"),
+		jsonPathString(payload, "task.task_id"),
+		jsonPathString(payload, "data.id"),
+		jsonPathString(payload, "data.task_id"),
+		jsonPathString(payload, "data.taskID"),
+		jsonPathString(payload, "data.task.id"),
+		jsonPathString(payload, "data.task.task_id"),
+	)
+	return videoTaskCreateResult{
+		TaskID: taskID,
+		Status: firstNonEmptyString(jsonPathString(payload, "status"), jsonPathString(payload, "data.status")),
+	}, nil
+}
+
+func parseVideoTaskPollResult(body []byte) (videoTaskPollResult, error) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return videoTaskPollResult{}, fmt.Errorf("解析视频任务响应失败: %w", err)
+	}
+	status := firstNonEmptyString(
+		jsonPathString(payload, "status"),
+		jsonPathString(payload, "data.status"),
+		jsonPathString(payload, "state"),
+		jsonPathString(payload, "data.state"),
+	)
+	videoURL := firstNonEmptyString(
+		jsonPathString(payload, "video.url"),
+		jsonPathString(payload, "video.video_url"),
+		jsonPathString(payload, "data.video.url"),
+		jsonPathString(payload, "data.video.video_url"),
+		jsonPathString(payload, "video_url"),
+		jsonPathString(payload, "data.video_url"),
+		jsonPathString(payload, "url"),
+		jsonPathString(payload, "data.url"),
+		jsonPathString(payload, "metadata.url"),
+		jsonPathString(payload, "metadata.video_url"),
+		jsonPathString(payload, "data.metadata.url"),
+		jsonPathString(payload, "data.metadata.video_url"),
+		jsonPathString(payload, "content.video_url"),
+		jsonPathString(payload, "content.url"),
+		jsonPathString(payload, "data.content.video_url"),
+		jsonPathString(payload, "data.content.url"),
+		jsonPathString(payload, "output.video_url"),
+		jsonPathString(payload, "output.url"),
+		jsonPathString(payload, "data.output.video_url"),
+		jsonPathString(payload, "data.output.url"),
+	)
+	errorMessage := firstNonEmptyString(
+		jsonPathString(payload, "error.message"),
+		jsonPathString(payload, "data.error.message"),
+		jsonPathString(payload, "error"),
+		jsonPathString(payload, "message"),
+		jsonPathString(payload, "data.message"),
+	)
+	return videoTaskPollResult{Status: status, VideoURL: videoURL, ErrorMessage: errorMessage}, nil
+}
+
+func jsonPathString(payload map[string]interface{}, path string) string {
+	var current interface{} = payload
+	for _, part := range strings.Split(path, ".") {
+		item, ok := current.(map[string]interface{})
+		if !ok {
+			return ""
+		}
+		current, ok = item[part]
+		if !ok {
+			return ""
+		}
+	}
+	switch value := current.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case fmt.Stringer:
+		return strings.TrimSpace(value.String())
+	case float64, float32, int, int64, int32, uint, uint64, uint32, json.Number:
+		return strings.TrimSpace(fmt.Sprint(value))
+	default:
+		return ""
+	}
+}
+
+func isVideoTaskSuccessStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "succeeded", "success", "completed", "complete", "done":
+		return true
+	default:
+		return false
+	}
+}
+
+func isVideoTaskFailedStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "failure", "error", "cancelled", "canceled":
+		return true
+	default:
+		return false
+	}
 }
 
 // downloadGeneratedVideo 下载生成的视频文件并返回字节数据。

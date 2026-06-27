@@ -1174,7 +1174,6 @@ export async function streamImageGeneration(
   accessToken: string,
   conversationPublicID: string,
   payload: MediaImageRequest,
-  MediaVideoRequest,
   options: ConversationStreamOptions = {},
 ): Promise<SendMessageResult> {
   return postConversationStream(
@@ -1190,7 +1189,6 @@ export async function streamImageEdit(
   accessToken: string,
   conversationPublicID: string,
   payload: MediaImageRequest,
-  MediaVideoRequest,
   options: ConversationStreamOptions = {},
 ): Promise<SendMessageResult> {
   return postConversationStream(

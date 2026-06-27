@@ -1098,7 +1098,7 @@ export function applySettingsDefaults(next: Record<string, string>): Record<stri
     result["extract.image_ocr_enabled"] = "false";
   }
   if (!["true", "false"].includes(result["extract.pdf_ocr_fallback_enabled"] ?? "")) {
-    result["extract.pdf_ocr_fallback_enabled"] = "false";
+    result["extract.pdf_ocr_fallback_enabled"] = "true";
   }
   if (!["true", "false"].includes(result["file.embedding_enabled"] ?? "")) {
     result["file.embedding_enabled"] = EMBEDDING_MODES.OFF;

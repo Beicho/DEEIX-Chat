@@ -20,7 +20,7 @@ const (
 	DefaultExtractorVersion  = "file-pipeline-v1"
 	fileProcessingMaxRetries = 3
 	defaultProcessingPreview = 280
-	fixedExtractTimeout      = 60 * time.Second
+	fixedExtractTimeout      = 180 * time.Second
 	fixedEmbeddingTimeout    = 5 * time.Minute
 	failurePersistTimeout    = 5 * time.Second
 )

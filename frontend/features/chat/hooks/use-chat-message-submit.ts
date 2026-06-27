@@ -27,6 +27,7 @@ import {
 import {
   applyBranchSelectionPath,
   buildChildrenIndex,
+  parseMessageAttachments,
   resolveBranchSelectionPath,
   toBranchKey,
 } from "@/features/chat/model/chat-thread";
@@ -93,6 +94,16 @@ function resolveImageLoadingAspectRatio(options: ConversationOptions): ImageLoad
     return "portrait";
   }
   return "square";
+}
+
+function resolveAssistantPendingContentType(task: string): "markdown" | "image" | "video" {
+  if (task === "video_generation") {
+    return "video";
+  }
+  if (task === "chat") {
+    return "markdown";
+  }
+  return "image";
 }
 
 function streamEventErrorToApiError(
@@ -428,7 +439,9 @@ export function useChatMessageSubmit({
       const clientRunID = createClientRunID();
       const sanitizedOptions = sanitizeConversationOptions(options);
       const assistantImageAspectRatio =
-        submitTask === "chat" ? undefined : resolveImageLoadingAspectRatio(sanitizedOptions);
+        submitTask === "image_generation" || submitTask === "image_edit"
+          ? resolveImageLoadingAspectRatio(sanitizedOptions)
+          : undefined;
       let targetConversationID = conversationID;
       let targetConversation = activeConversation;
 
@@ -461,7 +474,7 @@ export function useChatMessageSubmit({
         assistantText: "",
         assistantPending: true,
         assistantStreaming: true,
-        assistantContentType: submitTask === "chat" ? "markdown" : "image",
+        assistantContentType: resolveAssistantPendingContentType(submitTask),
         assistantImageAspectRatio,
         assistantInlineAlert: undefined,
         assistantCreatedAt: createdAt,
@@ -687,6 +700,7 @@ export function useChatMessageSubmit({
         resetStreamBuffer();
         const assistantMessageStatus = completed.assistantMessage.status || "success";
         const assistantMessageSucceeded = assistantMessageStatus === "success";
+        const completedAssistantAttachments = parseMessageAttachments(completed.assistantMessage.attachments);
         setPendingExchange((prev) => {
           if (!prev || prev.key !== exchangeKey) {
             return prev;
@@ -723,6 +737,7 @@ export function useChatMessageSubmit({
             assistantCreatedAt: completed.assistantMessage.createdAt,
             assistantUpdatedAt: completed.assistantMessage.updatedAt,
             assistantContentType: completed.assistantMessage.contentType || prev.assistantContentType,
+            assistantAttachments: completedAssistantAttachments.length > 0 ? completedAssistantAttachments : prev.assistantAttachments,
             assistantInputTokens: resolveInputSideUsageValue(
               completed.assistantMessage.inputTokens,
               completed.userMessage.inputTokens,

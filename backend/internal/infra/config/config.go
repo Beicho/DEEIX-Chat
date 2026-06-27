@@ -606,7 +606,7 @@ func Load() Config {
 		ExtractEngine:                      "builtin",
 		ExtractOCREngine:                   "rapidocr",
 		ExtractImageOCREnabled:             false,
-		ExtractPDFOCRFallbackEnabled:       false,
+		ExtractPDFOCRFallbackEnabled:       true,
 		ExtractTikaSource:                  "external",
 		ExtractTikaBaseURL:                 "http://127.0.0.1:9998",
 		ExtractTikaTimeoutSeconds:          60,
