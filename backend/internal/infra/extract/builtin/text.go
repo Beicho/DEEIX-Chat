@@ -19,7 +19,7 @@ func decodeTextBytes(data []byte) string {
 	if utf8.Valid(data) {
 		return string(data)
 	}
-	if text, err := transform.String(simplifiedchinese.GB18030.NewDecoder(), string(data)); err == nil && strings.TrimSpace(text) != "" {
+	if text, _, err := transform.String(simplifiedchinese.GB18030.NewDecoder(), string(data)); err == nil && strings.TrimSpace(text) != "" {
 		return text
 	}
 	return string(data)
