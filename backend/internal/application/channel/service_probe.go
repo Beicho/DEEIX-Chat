@@ -301,7 +301,7 @@ func (s *Service) probeRoute(ctx context.Context, row repository.ChannelUpstream
 
 // prepareModelProbeRoute 执行不会触达上游的本地配置校验。
 func (s *Service) prepareModelProbeRoute(row repository.ChannelUpstreamRouteRow) (*ModelProbeResult, bool) {
-	if strings.TrimSpace(row.Protocol) == "" || !llm.IsImplementedAdapter(row.Protocol) {
+	if strings.TrimSpace(row.Protocol) == "" || !isExecutableRouteProtocol(row.Protocol) {
 		return failedModelProbeResult(row, "unsupported_protocol", "route protocol is not supported"), false
 	}
 	if strings.TrimSpace(row.UpstreamModelName) == "" {
