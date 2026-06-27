@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -360,6 +361,7 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 	attachmentRows := make([]model.Attachment, 0, len(output.GeneratedImages))
 	now := time.Now()
 	for i, image := range output.GeneratedImages {
+		image.URL = buildRouteMediaProxyURL(route.BaseURL, image.URL)
 		data, mimeType, readErr := s.readGeneratedImage(ctx, image)
 		if readErr != nil {
 			retErr = readErr
@@ -1048,7 +1050,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		}
 
 		if isVideoTaskSuccessStatus(pollResult.Status) {
-			videoURL = pollResult.VideoURL
+			videoURL = buildRouteMediaProxyURL(route.BaseURL, pollResult.VideoURL)
 			break
 		}
 		if isVideoTaskFailedStatus(pollResult.Status) {
@@ -1336,6 +1338,48 @@ func setVideoRouteHeaders(req *http.Request, headersJSON string) {
 	}
 }
 
+func buildRouteMediaProxyURL(baseURL string, mediaURL string) string {
+	raw := strings.TrimSpace(mediaURL)
+	if raw == "" || strings.HasPrefix(strings.ToLower(raw), "data:") {
+		return raw
+	}
+	targetURL, err := url.Parse(raw)
+	if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
+		return raw
+	}
+	if targetURL.Scheme != "http" && targetURL.Scheme != "https" {
+		return raw
+	}
+	base, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return raw
+	}
+	if !routeBaseSupportsMediaProxy(base) {
+		return raw
+	}
+	if strings.EqualFold(targetURL.Host, base.Host) && strings.HasPrefix(strings.TrimRight(targetURL.EscapedPath(), "/"), "/media") {
+		return raw
+	}
+	base.Path = strings.TrimRight(base.Path, "/")
+	if videoBaseEndsWithVersionSegment(base.Path) {
+		base.Path = strings.TrimRight(base.Path[:strings.LastIndex(base.Path, "/")], "/")
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + "/media"
+	values := url.Values{}
+	values.Set("url", raw)
+	base.RawQuery = values.Encode()
+	base.Fragment = ""
+	return base.String()
+}
+
+func routeBaseSupportsMediaProxy(base *url.URL) bool {
+	if base == nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(base.Hostname()))
+	return host == "volcengine-proxy.3677635979.workers.dev"
+}
+
 func videoCreatePathsForRoute(baseURL string) []string {
 	if createPath, ok := videoCreatePathFromEndpointBase(baseURL); ok {
 		result := []string{createPath}
@@ -1541,7 +1585,7 @@ func (s *Service) downloadGeneratedVideo(ctx context.Context, url string) ([]byt
 		return nil, "", err
 	}
 	cfg := s.cfg.Snapshot()
-	client := security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 120*time.Second)
+	client := security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", err
