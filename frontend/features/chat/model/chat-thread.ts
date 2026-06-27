@@ -1,7 +1,20 @@
 import type { ChatAreaMessage, MessageAttachment } from "@/features/chat/types/messages";
 import type { MessageDTO, UpstreamDebugInfo } from "@/shared/api/conversation.types";
 
-function parseAttachments(raw: string): MessageAttachment[] {
+function parseAttachmentKind(value: unknown): MessageAttachment["kind"] {
+  switch (String(value ?? "").trim().toLowerCase()) {
+    case "image":
+      return "image";
+    case "audio":
+      return "audio";
+    case "video":
+      return "video";
+    default:
+      return "file";
+  }
+}
+
+export function parseMessageAttachments(raw: string): MessageAttachment[] {
   if (!raw) return [];
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -14,7 +27,7 @@ function parseAttachments(raw: string): MessageAttachment[] {
         detectedMime: String(item.detected_mime ?? ""),
         fileCategory: String(item.file_category ?? ""),
         sizeBytes: Number(item.file_size ?? 0),
-        kind: item.kind === "image" ? ("image" as const) : ("file" as const),
+        kind: parseAttachmentKind(item.kind),
         processingStatus: String(item.processing_status ?? ""),
         processingReady: Boolean(item.processing_ready),
         processingErrorCode: String(item.processing_error_code ?? ""),
@@ -208,7 +221,7 @@ export function mapServerMessage(
     thumbsDownCount: item.thumbsDownCount ?? 0,
     bookmarked: Boolean(item.bookmarked),
   };
-  const parsedAttachments = parseAttachments(item.attachments);
+  const parsedAttachments = parseMessageAttachments(item.attachments);
   if (parsedAttachments.length > 0) {
     msg.attachments = parsedAttachments;
   }

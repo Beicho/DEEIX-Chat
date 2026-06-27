@@ -55,7 +55,7 @@ func buildChatCompletionsRequestBody(
 	if streamOptions := chatCompletionsStreamOptions(providerStreamOptions, stream); len(streamOptions) > 0 {
 		payload["stream_options"] = streamOptions
 	}
-	if effort := modelParamString(input.Options, "reasoning_effort"); effort != "" && shouldForwardReasoningEffort(model) {
+	if effort := modelParamString(input.Options, "reasoning_effort"); effort != "" && supportsReasoningEffort(model) {
 		payload["reasoning_effort"] = effort
 	}
 	if _, ok := input.Options["thinking"]; ok {
@@ -167,6 +167,17 @@ func buildChatCompletionsMessages(msg Message) []map[string]interface{} {
 			})
 		}
 		return result
+	}
+
+	// supportsReasoningEffort returns true if the model supports reasoning_effort parameter.
+	// GPT o1/o3/o4 series models do NOT support reasoning_effort.
+	func supportsReasoningEffort(model string) bool {
+		normalized := strings.ToLower(strings.TrimSpace(model))
+		// o1, o3, o4 series (including o1-mini, o1-preview, o3-mini, o4-mini) don't support reasoning_effort
+		if strings.Contains(normalized, "o1") || strings.Contains(normalized, "o3") || strings.Contains(normalized, "o4") {
+			return false
+		}
+		return true
 	}
 
 	payload := map[string]interface{}{
@@ -604,6 +615,13 @@ func parseChatToolCalls(raw interface{}) []ToolCall {
 	return result
 }
 
-func shouldForwardReasoningEffort(model string) bool {
-	return strings.TrimSpace(model) != ""
+// supportsReasoningEffort returns true if the model supports reasoning_effort parameter.
+// GPT o1/o3/o4 series models do NOT support reasoning_effort.
+func supportsReasoningEffort(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	// o1, o3, o4 series (including o1-mini, o1-preview, o3-mini, o4-mini) don't support reasoning_effort
+	if strings.Contains(normalized, "o1") || strings.Contains(normalized, "o3") || strings.Contains(normalized, "o4") {
+		return false
+	}
+	return true
 }

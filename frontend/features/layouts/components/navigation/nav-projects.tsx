@@ -83,7 +83,7 @@ import type {
   SidebarConversationRenameTarget,
 } from "@/features/layouts/types/navigation"
 import { useSidebarRecents } from "@/features/recent/context/sidebar-recents-context"
-import { sortByUpdatedAtDesc, upsertByPublicID, removeByPublicID } from "@/features/recent/utils/conversation-list"
+import { mergeUniqueByPublicID, sortByUpdatedAtDesc, upsertByPublicID, removeByPublicID } from "@/features/recent/utils/conversation-list"
 import { listConversations } from "@/shared/api/conversation"
 import type { ConversationDTO } from "@/shared/api/conversation.types"
 import { listFiles, uploadFile } from "@/shared/api/file"
@@ -471,7 +471,7 @@ export function NavProjects() {
       setProjectConversationState((prev) => ({
         ...prev,
         [projectID]: {
-          items: sortByUpdatedAtDesc(data.results ?? []),
+          items: mergeUniqueByPublicID(prev[projectID]?.items ?? [], data.results ?? [], sortByUpdatedAtDesc),
           loading: false,
           loaded: true,
           error: false,
@@ -553,7 +553,11 @@ export function NavProjects() {
     }
 
     setProjectConversationState((prev) => {
-      const projectIDs = Object.keys(prev)
+      const targetProjectID =
+        lastChange.type === "remove"
+          ? ""
+          : (lastChange.item?.projectID ?? lastChange.patch?.projectID ?? items.find((item) => item.publicID === lastChange.publicID)?.projectID ?? "")
+      const projectIDs = Array.from(new Set([...Object.keys(prev), targetProjectID].filter(Boolean)))
       if (projectIDs.length === 0) {
         return prev
       }
@@ -563,20 +567,22 @@ export function NavProjects() {
 
       for (const projectID of projectIDs) {
         const state = prev[projectID]
-        if (!state?.loaded) {
+        if (!state?.loaded && projectID !== targetProjectID) {
           continue
         }
 
         if (lastChange.type === "remove") {
-          const itemsNext = removeByPublicID(state.items, lastChange.publicID)
-          if (itemsNext.length !== state.items.length) {
-            next[projectID] = { ...state, items: itemsNext }
+          const current = state ?? { items: [], loading: false, loaded: true, error: false }
+          const itemsNext = removeByPublicID(current.items, lastChange.publicID)
+          if (itemsNext.length !== current.items.length) {
+            next[projectID] = { ...current, items: itemsNext }
             changed = true
           }
           continue
         }
 
-        const existing = state.items.find((item) => item.publicID === lastChange.publicID)
+        const current = state ?? { items: [], loading: false, loaded: true, error: false }
+        const existing = current.items.find((item) => item.publicID === lastChange.publicID)
         const base =
           lastChange.item ??
           (existing ? { ...existing, ...(lastChange.patch ?? {}) } : items.find((item) => item.publicID === lastChange.publicID))
@@ -589,16 +595,34 @@ export function NavProjects() {
         const belongsToProject = updated.projectID === projectID && updated.status !== "archived"
         const currentlyPresent = Boolean(existing)
         if (belongsToProject) {
-          next[projectID] = { ...state, items: upsertByPublicID(state.items, updated, sortByUpdatedAtDesc) }
+          next[projectID] = {
+            ...current,
+            items: upsertByPublicID(current.items, updated, sortByUpdatedAtDesc),
+            loaded: true,
+            error: false,
+          }
           changed = true
         } else if (currentlyPresent) {
-          next[projectID] = { ...state, items: removeByPublicID(state.items, updated.publicID) }
+          next[projectID] = { ...current, items: removeByPublicID(current.items, updated.publicID) }
           changed = true
         }
       }
 
       return changed ? next : prev
     })
+    if (lastChange.type !== "remove") {
+      const projectID = lastChange.item?.projectID ?? lastChange.patch?.projectID ?? ""
+      if (projectID) {
+        setExpandedProjectIDs((prev) => {
+          if (prev.has(projectID)) {
+            return prev
+          }
+          const next = new Set(prev)
+          next.add(projectID)
+          return next
+        })
+      }
+    }
   }, [items, lastChange])
 
   const commitDraft = React.useCallback(async () => {

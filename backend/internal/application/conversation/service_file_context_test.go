@@ -134,7 +134,7 @@ func TestPrependStableFileContextEscapesXMLFileContext(t *testing.T) {
 	}
 }
 
-func TestBuildConversationFileContextPlanSkipsOversizedFileWhenRAGUnavailable(t *testing.T) {
+func TestBuildConversationFileContextPlanUsesTruncatedFallbackWhenRAGUnavailable(t *testing.T) {
 	cfg := config.Config{FileFullContextMaxTokens: 10}
 	plan := buildConversationFileContextPlan([]AttachmentInput{{
 		FileID:        "file_large",
@@ -144,15 +144,18 @@ func TestBuildConversationFileContextPlanSkipsOversizedFileWhenRAGUnavailable(t 
 		EmbedStatus:   "pending",
 	}}, "auto", cfg, "gpt-5.5", "", false)
 
-	if len(plan.FullAttachments) != 0 || len(plan.RAGAttachments) != 0 || len(plan.Skipped) != 1 {
-		t.Fatalf("expected oversized unavailable file to be skipped, got %#v", plan)
+	if len(plan.FullAttachments) != 1 || len(plan.RAGAttachments) != 0 || len(plan.Skipped) != 0 {
+		t.Fatalf("expected oversized unavailable file to use truncated fallback, got %#v", plan)
 	}
-	if plan.Skipped[0].ContextMode != fileContextModeSkipped {
-		t.Fatalf("expected skipped context mode, got %#v", plan.Skipped[0])
+	if plan.FullAttachments[0].ContextMode != fileContextModeRAGFallback {
+		t.Fatalf("expected fallback context mode, got %#v", plan.FullAttachments[0])
+	}
+	if !strings.Contains(plan.FullAttachments[0].ExtractedText, "内容已截断") {
+		t.Fatalf("expected fallback text to be truncated, got %#v", plan.FullAttachments[0])
 	}
 }
 
-func TestSplitRetrievalFallbackAttachmentsRespectsFullContextBudget(t *testing.T) {
+func TestSplitRetrievalFallbackAttachmentsTruncatesWhenOverBudget(t *testing.T) {
 	cfg := config.Config{FileFullContextMaxTokens: 10}
 	fallbacks, skipped := splitRetrievalFallbackAttachments([]AttachmentInput{
 		{
@@ -169,11 +172,14 @@ func TestSplitRetrievalFallbackAttachmentsRespectsFullContextBudget(t *testing.T
 		},
 	}, cfg)
 
-	if len(fallbacks) != 1 || fallbacks[0].FileID != "small" || fallbacks[0].ContextMode != fileContextModeRAGFallback {
-		t.Fatalf("expected only small file to fallback, got %#v", fallbacks)
+	if len(fallbacks) != 2 || fallbacks[0].FileID != "small" || fallbacks[1].FileID != "large" {
+		t.Fatalf("expected small and truncated large files to fallback, got %#v", fallbacks)
 	}
-	if len(skipped) != 1 || skipped[0].FileID != "large" || skipped[0].ContextMode != fileContextModeSkipped {
-		t.Fatalf("expected large file to be skipped, got %#v", skipped)
+	if fallbacks[1].ContextMode != fileContextModeRAGFallback || !strings.Contains(fallbacks[1].ExtractedText, "内容已截断") {
+		t.Fatalf("expected large file to be truncated fallback, got %#v", fallbacks[1])
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("expected no files to be skipped, got %#v", skipped)
 	}
 }
 

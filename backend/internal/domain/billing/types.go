@@ -509,6 +509,7 @@ type AdminDashboardModelStats struct {
 
 // AdminCheckInStats summarizes daily check-in activity for admin pages.
 type AdminCheckInStats struct {
+	TodayCheckIns          int64
 	ActiveUsersLast7Days   int64
 	TotalClaims            int64
 	TotalRewardNanousd     int64

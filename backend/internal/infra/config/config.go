@@ -633,8 +633,8 @@ func Load() Config {
 		MaxMessageFiles:                    10,
 		ImageMaxDimension:                  1024,
 		FileFullContextLimitEnabled:        true,
-		FileFullContextMaxBytes:            51200, // 50KB
-		FileFullContextMaxTokens:           12000,
+		FileFullContextMaxBytes:            512000, // 500KB (放宽 10 倍以支持长文档)
+		FileFullContextMaxTokens:           100000, // 100k tokens (适配长上下文模型)
 		FileImageMaxBytes:                  0,
 		FileDocMaxBytes:                    0,
 		FileFullContextPDFMaxPages:         20,
@@ -642,7 +642,7 @@ func Load() Config {
 		ExtractEngine:                      "builtin",
 		ExtractOCREngine:                   "rapidocr",
 		ExtractImageOCREnabled:             false,
-		ExtractPDFOCRFallbackEnabled:       false,
+		ExtractPDFOCRFallbackEnabled:       true,
 		ExtractTikaSource:                  "external",
 		ExtractTikaBaseURL:                 "http://127.0.0.1:9998",
 		ExtractTikaTimeoutSeconds:          60,

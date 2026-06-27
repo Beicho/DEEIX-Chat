@@ -2,6 +2,7 @@ import type {
   ChatInlineAlert,
   ImageLoadingAspectRatio,
   ChatMessageProcessTrace,
+  MessageAttachment,
 } from "@/features/chat/types/messages";
 import type { ConversationOptions } from "@/shared/api/conversation.types";
 import type { PublicModelPricingDTO } from "@/shared/api/model.types";
@@ -43,6 +44,7 @@ export type PendingAttachment = {
   detectedMime?: string;
   fileCategory?: string;
   sizeBytes: number;
+  kind?: "file" | "image" | "audio" | "video";
   previewURL?: string;
   processingStatus?: string;
   processingReady?: boolean;
@@ -93,6 +95,7 @@ export type PendingExchange = {
   assistantCreatedAt: string;
   assistantUpdatedAt?: string;
   assistantContentType?: string;
+  assistantAttachments?: MessageAttachment[];
   assistantInputTokens?: number;
   assistantOutputTokens?: number;
   assistantCacheReadTokens?: number;

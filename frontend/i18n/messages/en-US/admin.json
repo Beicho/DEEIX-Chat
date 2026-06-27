@@ -65,6 +65,8 @@
     "systemInfo": "System Information",
     "info1": "Check-in records are permanently stored and never expire",
     "info2": "Consecutive days counter resets after a break",
-    "info3": "Reward amounts are directly added to user account balance"
+    "info3": "Reward amounts are directly added to user account balance",
+    "todayCheckIns": "Today's Check-ins",
+    "today": "Today"
   }
 }

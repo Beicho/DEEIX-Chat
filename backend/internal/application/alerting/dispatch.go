@@ -16,7 +16,11 @@ func (s *Service) Dispatch(event AlertEvent) {
 	if s == nil || s.store == nil {
 		return
 	}
-	go s.dispatchSync(context.Background(), event)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		s.dispatchSync(ctx, event)
+	}()
 }
 
 // dispatchSync 同步执行分发逻辑（供 Dispatch 与测试使用）。

@@ -20,6 +20,7 @@ export function toPendingAttachment(item: MessageAttachment): PendingAttachment 
     detectedMime: item.detectedMime,
     fileCategory: item.fileCategory,
     sizeBytes: item.sizeBytes,
+    kind: item.kind,
     previewURL: item.previewURL,
     processingStatus: item.processingStatus,
     processingReady: item.processingReady,

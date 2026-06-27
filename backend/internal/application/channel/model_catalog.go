@@ -150,6 +150,7 @@ func systemFallbackProtocols(compatible string) map[string]string {
 			modelKindAudio:     llm.AdapterOpenAIChatCompletions,
 			modelKindImageGen:  protocolOpenAIImageGenerations,
 			modelKindImageEdit: protocolOpenAIImageEdits,
+			modelKindVideoGen:  protocolOpenAIVideoGenerations,
 		}
 	default:
 		return map[string]string{}
@@ -452,7 +453,8 @@ func inferKindsJSON(platformModelName string) string {
 		return `["image_gen","image_edit"]`
 	case code == "dall-e-3", strings.HasPrefix(code, "imagen-"):
 		return `["image_gen"]`
-	case code == "sora", code == "veo-2", strings.HasPrefix(code, "kling"):
+	case code == "sora", code == "veo-2", strings.HasPrefix(code, "kling"),
+		strings.HasPrefix(code, "doubao-seedance"), strings.Contains(code, "seedance"):
 		return `["video_gen"]`
 	case strings.HasPrefix(code, "gpt-4o-audio"):
 		return `["audio"]`

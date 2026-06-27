@@ -78,7 +78,7 @@ func (s *Service) executeWebSearchTool(ctx context.Context, argumentsJSON string
 
 	timeout := cfg.WebSearchTimeoutSeconds
 	if timeout <= 0 {
-		timeout = 10
+		timeout = 30
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()

@@ -481,6 +481,7 @@ type CheckInClaimDataResponse struct {
 
 // AdminCheckInStatsResponse summarizes check-in activity for admins.
 type AdminCheckInStatsResponse struct {
+	TodayCheckIns          int64   `json:"todayCheckIns"`
 	ActiveUsersLast7Days   int64   `json:"activeUsersLast7Days"`
 	TotalClaims            int64   `json:"totalClaims"`
 	TotalRewardUSD         float64 `json:"totalRewardUSD"`
@@ -1192,6 +1193,7 @@ func toAdminCheckInDataResponse(item *appbilling.AdminCheckInView) AdminCheckInD
 	}
 	return AdminCheckInDataResponse{
 		Stats: AdminCheckInStatsResponse{
+			TodayCheckIns:          item.Stats.TodayCheckIns,
 			ActiveUsersLast7Days:   item.Stats.ActiveUsersLast7Days,
 			TotalClaims:            item.Stats.TotalClaims,
 			TotalRewardUSD:         nanousdToUSD(item.Stats.TotalRewardNanousd),

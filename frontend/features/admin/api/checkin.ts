@@ -2,6 +2,7 @@ import { authedRequest } from "@/shared/api/authed-client";
 import { readAccessToken } from "@/shared/auth/session";
 
 export type AdminCheckInStats = {
+  todayCheckIns: number;
   activeUsersLast7Days: number;
   totalClaims: number;
   totalRewardUSD: number;

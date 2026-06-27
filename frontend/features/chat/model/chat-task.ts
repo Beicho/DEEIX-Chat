@@ -65,9 +65,12 @@ export function resolveChatSubmitDecision(
 
   if (
     nonImageAttachmentCount > 0 &&
-    (supportsImageGeneration || supportsImageEdit) &&
+    (supportsImageGeneration || supportsImageEdit || supportsVideoGeneration) &&
     (imageAttachmentCount > 0 || !supportsChat)
   ) {
+    if (supportsVideoGeneration && !supportsImageGeneration && !supportsImageEdit) {
+      return buildDecision("video_generation", "image_task_rejects_non_image_attachments", baseDecision);
+    }
     if (imageAttachmentCount > 0 && supportsImageEdit) {
       return buildDecision("image_edit", "image_task_rejects_non_image_attachments", baseDecision);
     }
@@ -75,6 +78,10 @@ export function resolveChatSubmitDecision(
       return buildDecision("image_generation", "image_task_rejects_non_image_attachments", baseDecision);
     }
     return buildDecision("chat", "image_task_rejects_non_image_attachments", baseDecision);
+  }
+
+  if (supportsVideoGeneration && !supportsImageGeneration && !supportsImageEdit) {
+    return buildDecision("video_generation", null, baseDecision);
   }
 
   if (imageAttachmentCount > 0) {

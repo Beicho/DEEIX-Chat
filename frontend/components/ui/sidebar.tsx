@@ -99,7 +99,8 @@ function SidebarProvider({
   const open = openProp ?? _open
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value
+      const currentOpen = openProp ?? _open
+      const openState = typeof value === "function" ? value(currentOpen) : value
       autoCollapsedRef.current = false
       if (setOpenProp) {
         setOpenProp(openState)
@@ -110,7 +111,7 @@ function SidebarProvider({
       // This sets the cookie to keep the sidebar state.
       document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
     },
-    [setOpenProp, open]
+    [openProp, setOpenProp, _open]
   )
 
   React.useEffect(() => {

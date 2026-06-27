@@ -18,6 +18,11 @@ const (
 	fileContextModeSkipped     = "skipped"
 )
 
+const (
+	fallbackFileContextMaxTokens = 12000
+	fallbackFileContextMaxBytes  = 64 * 1024
+)
+
 type attachmentSnapshotRef struct {
 	FileID string `json:"file_id"`
 }
@@ -132,12 +137,24 @@ func buildConversationFileContextPlan(
 				plan.FullAttachments = append(plan.FullAttachments, item)
 				continue
 			}
+			if fallback, ok := truncateAttachmentForFullContextFallback(item, cfg); ok {
+				fallback.ContextMode = fileContextModeRAGFallback
+				plan.Attachments = append(plan.Attachments, fallback)
+				plan.FullAttachments = append(plan.FullAttachments, fallback)
+				continue
+			}
 			item.ContextMode = fileContextModeSkipped
 			plan.Attachments = append(plan.Attachments, item)
 			plan.Skipped = append(plan.Skipped, item)
 			continue
 		}
 		if !canUseFullContext {
+			if fallback, ok := truncateAttachmentForFullContextFallback(item, cfg); ok {
+				fallback.ContextMode = fileContextModeRAGFallback
+				plan.Attachments = append(plan.Attachments, fallback)
+				plan.FullAttachments = append(plan.FullAttachments, fallback)
+				continue
+			}
 			item.ContextMode = fileContextModeSkipped
 			plan.Attachments = append(plan.Attachments, item)
 			plan.Skipped = append(plan.Skipped, item)
@@ -205,10 +222,88 @@ func splitRetrievalFallbackAttachments(items []AttachmentInput, cfg config.Confi
 			fallbacks = append(fallbacks, item)
 			continue
 		}
+		if fallback, ok := truncateAttachmentForFullContextFallback(item, cfg); ok {
+			fallback.ContextMode = fileContextModeRAGFallback
+			fallbacks = append(fallbacks, fallback)
+			continue
+		}
 		item.ContextMode = fileContextModeSkipped
 		skipped = append(skipped, item)
 	}
 	return fallbacks, skipped
+}
+
+func truncateAttachmentForFullContextFallback(item AttachmentInput, cfg config.Config) (AttachmentInput, bool) {
+	if item.FileCategory == fileCategoryImage {
+		return AttachmentInput{}, false
+	}
+	text := strings.TrimSpace(item.ExtractedText)
+	if text == "" {
+		return AttachmentInput{}, false
+	}
+	tokenLimit := fallbackFileContextMaxTokens
+	if cfg.ContextMaxInputTokens > 0 {
+		quarterBudget := cfg.ContextMaxInputTokens / 4
+		if quarterBudget > 0 && quarterBudget < tokenLimit {
+			tokenLimit = quarterBudget
+		}
+	}
+	if cfg.FileFullContextMaxTokens > 0 && cfg.FileFullContextMaxTokens < tokenLimit {
+		tokenLimit = cfg.FileFullContextMaxTokens
+	}
+	byteLimit := int64(fallbackFileContextMaxBytes)
+	if cfg.FileFullContextMaxBytes > 0 && cfg.FileFullContextMaxBytes < byteLimit {
+		byteLimit = cfg.FileFullContextMaxBytes
+	}
+	truncated, changed := truncateTextForFallbackContext(text, tokenLimit, byteLimit)
+	truncated = strings.TrimSpace(truncated)
+	if truncated == "" {
+		return AttachmentInput{}, false
+	}
+	if changed {
+		truncated += "\n\n[内容已截断，仅纳入前段可读文本。]"
+	}
+	item.ExtractedText = truncated
+	return item, true
+}
+
+func truncateTextForFallbackContext(text string, maxTokens int, maxBytes int64) (string, bool) {
+	value := strings.TrimSpace(text)
+	if value == "" {
+		return "", false
+	}
+	maxRunes := maxTokens
+	if maxRunes <= 0 {
+		maxRunes = fallbackFileContextMaxTokens
+	}
+	var builder strings.Builder
+	if maxBytes > 0 && int64(len(value)) > maxBytes {
+		builder.Grow(int(maxBytes))
+	} else {
+		builder.Grow(len(value))
+	}
+	changed := false
+	runeCount := 0
+	for _, r := range value {
+		if maxRunes > 0 && runeCount >= maxRunes {
+			changed = true
+			break
+		}
+		if maxBytes > 0 && int64(builder.Len()+len(string(r))) > maxBytes {
+			changed = true
+			break
+		}
+		builder.WriteRune(r)
+		runeCount++
+	}
+	if builder.Len() == 0 {
+		return "", true
+	}
+	result := strings.TrimSpace(builder.String())
+	if result != value {
+		changed = true
+	}
+	return result, changed
 }
 
 func appendRAGFallbackSkippedTrace(traceRecorder *messageTraceRecorder, skipped []AttachmentInput, reason string) {
