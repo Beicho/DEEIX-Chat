@@ -149,3 +149,37 @@ func TestThinkingDeltaRouterFlushesUnclosedBlockAsThinking(t *testing.T) {
 		t.Fatalf("flushed unclosed block should not duplicate streamed thinking, got visible=%q think=%q", visible, think)
 	}
 }
+
+func TestSanitizeAssistantProtocolContentRemovesToolCallBlocks(t *testing.T) {
+	input := "Let me check.\n<tool_call>\n<tool_name>find_file</tool_name>\n</tool_call>\nFinal answer."
+	got := sanitizeAssistantProtocolContent(input)
+	if got != "Let me check.\n\nFinal answer." {
+		t.Fatalf("unexpected sanitized content: %q", got)
+	}
+}
+
+func TestSanitizeAssistantProtocolContentRemovesRawToolCallJSON(t *testing.T) {
+	input := `{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"web_search","arguments":"{}"}}]}`
+	if got := sanitizeAssistantProtocolContent(input); got != "" {
+		t.Fatalf("expected raw tool call JSON to be removed, got %q", got)
+	}
+}
+
+func TestSanitizeAssistantProtocolContentRemovesMiddleThinkingBlock(t *testing.T) {
+	input := "Visible <thinking>hidden</thinking> answer"
+	if got := sanitizeAssistantProtocolContent(input); got != "Visible  answer" {
+		t.Fatalf("unexpected sanitized content: %q", got)
+	}
+}
+
+func TestAssistantProtocolDeltaRouterHidesChunkedToolCallBlock(t *testing.T) {
+	router := &assistantProtocolDeltaRouter{}
+	var got string
+	got += router.consume("Visible <tool")
+	got += router.consume("_call><tool_name>find")
+	got += router.consume("_file</tool_name></tool_call> done")
+	got += router.flush()
+	if got != "Visible  done" {
+		t.Fatalf("unexpected visible stream: %q", got)
+	}
+}

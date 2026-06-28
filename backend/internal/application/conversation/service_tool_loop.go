@@ -16,6 +16,7 @@ func syncUpstreamOutputThinking(traceRecorder *messageTraceRecorder, output *llm
 	if assistantText == "" && strings.TrimSpace(extractedThink) == "" {
 		assistantText = strings.TrimSpace(output.Text)
 	}
+	assistantText = sanitizeAssistantProtocolContent(assistantText)
 	if traceRecorder != nil && output.Reasoning != nil {
 		traceRecorder.syncStructuredThink(
 			output.Reasoning.Text,

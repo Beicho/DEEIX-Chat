@@ -2551,17 +2551,22 @@ func (s *Service) GetBillingOverview(ctx context.Context, userID uint, now time.
 	}
 
 	overview := &BillingOverview{Mode: mode}
-	if mode == "usage" {
-		account, accountErr := s.repo.GetOrCreateBillingAccount(ctx, userID)
-		if accountErr != nil {
-			return nil, accountErr
-		}
-		overview.Account = toBillingAccountView(account)
-		return overview, nil
-	}
 	if mode != "period" {
+		if mode == "usage" {
+			account, accountErr := s.repo.GetOrCreateBillingAccount(ctx, userID)
+			if accountErr != nil {
+				return nil, accountErr
+			}
+			overview.Account = toBillingAccountView(account)
+		}
 		return overview, nil
 	}
+
+	account, accountErr := s.repo.GetOrCreateBillingAccount(ctx, userID)
+	if accountErr != nil {
+		return nil, accountErr
+	}
+	overview.Account = toBillingAccountView(account)
 
 	plan, startAt, endAt, err := s.currentPeriodPlan(ctx, userID, now)
 	if err != nil {
