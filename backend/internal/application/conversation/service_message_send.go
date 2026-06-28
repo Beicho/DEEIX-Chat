@@ -852,6 +852,7 @@ func (s *Service) sendMessageInternal(
 				return nil
 			}
 			cleanText, thinkText := splitAssistantOutputThinkingContent(output.Text)
+			cleanText = sanitizeAssistantProtocolContent(cleanText)
 			if traceRecorder != nil && output.Reasoning != nil {
 				traceRecorder.syncStructuredThink(
 					output.Reasoning.Text,
@@ -892,6 +893,7 @@ func (s *Service) sendMessageInternal(
 			return output, err
 		}
 		thinkingRouter := &thinkingDeltaRouter{}
+		protocolRouter := &assistantProtocolDeltaRouter{}
 		callStreamUsage := llm.Usage{}
 		output, streamErr := s.llmClient.GenerateStream(generationCtx, routeConfig, currentInput, func(event llm.GenerateStreamEvent) error {
 			if s.isMessageGenerationCanceled(generationCtx, runID) {
@@ -937,6 +939,10 @@ func (s *Service) sendMessageInternal(
 			if visibleDelta == "" {
 				return nil
 			}
+			visibleDelta = protocolRouter.consume(visibleDelta)
+			if visibleDelta == "" {
+				return nil
+			}
 			return emitCallVisibleDelta(visibleDelta)
 		})
 		generateErr = streamErr
@@ -961,6 +967,7 @@ func (s *Service) sendMessageInternal(
 			if traceRecorder != nil {
 				traceRecorder.completeUpstreamThink()
 			}
+			visibleTail = protocolRouter.consume(visibleTail) + protocolRouter.flush()
 			if visibleTail != "" {
 				if tailErr := emitCallVisibleDelta(visibleTail); tailErr != nil {
 					generateErr = tailErr

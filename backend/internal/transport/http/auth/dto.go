@@ -369,6 +369,10 @@ type UserResponse struct {
 	SubscriptionPlanName    string     `json:"subscriptionPlanName"`
 	SubscriptionStatus      string     `json:"subscriptionStatus"`
 	SubscriptionExpiresAt   *time.Time `json:"subscriptionExpiresAt"`
+	BillingAccountCurrency  string     `json:"billingAccountCurrency"`
+	BillingBalanceNanousd   int64      `json:"billingBalanceNanousd"`
+	BillingBalanceUSD       float64    `json:"billingBalanceUSD"`
+	BillingAccountStatus    string     `json:"billingAccountStatus"`
 }
 
 // LoginResponse 登录响应。
@@ -563,7 +567,15 @@ func toUserResponse(v userview.UserView) UserResponse {
 		SubscriptionPlanName:    v.SubscriptionPlanName,
 		SubscriptionStatus:      v.SubscriptionStatus,
 		SubscriptionExpiresAt:   v.SubscriptionExpiresAt,
+		BillingAccountCurrency:  v.BillingAccountCurrency,
+		BillingBalanceNanousd:   v.BillingBalanceNanousd,
+		BillingBalanceUSD:       nanousdToUSD(v.BillingBalanceNanousd),
+		BillingAccountStatus:    v.BillingAccountStatus,
 	}
+}
+
+func nanousdToUSD(value int64) float64 {
+	return float64(value) / 1000000000
 }
 
 // toLoginResponse 将 LoginResult 映射为响应 DTO。

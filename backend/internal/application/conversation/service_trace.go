@@ -1734,6 +1734,64 @@ type thinkingDeltaRouter struct {
 	resolved   bool
 }
 
+type assistantProtocolDeltaRouter struct {
+	buffer     string
+	tagName    string
+	inProtocol bool
+}
+
+func (r *assistantProtocolDeltaRouter) consume(delta string) string {
+	if delta == "" {
+		return ""
+	}
+	r.buffer += delta
+	var visible strings.Builder
+	for r.buffer != "" {
+		if r.inProtocol {
+			_, closeEnd, found := findAssistantProtocolCloseTag(r.buffer, 0, r.tagName)
+			if found {
+				r.buffer = r.buffer[closeEnd:]
+				r.tagName = ""
+				r.inProtocol = false
+				continue
+			}
+			r.buffer = assistantProtocolCloseCarry(r.buffer, r.tagName)
+			break
+		}
+
+		start, tagName, openEnd, ok := findAssistantProtocolOpenTag(r.buffer, 0)
+		if ok {
+			visible.WriteString(r.buffer[:start])
+			r.buffer = r.buffer[openEnd:]
+			r.tagName = tagName
+			r.inProtocol = true
+			continue
+		}
+
+		prefix, carry := splitAssistantProtocolOpenSafeRemainder(r.buffer)
+		visible.WriteString(prefix)
+		r.buffer = carry
+		break
+	}
+	return visible.String()
+}
+
+func (r *assistantProtocolDeltaRouter) flush() string {
+	if r.buffer == "" {
+		r.tagName = ""
+		r.inProtocol = false
+		return ""
+	}
+	value := r.buffer
+	r.buffer = ""
+	if r.inProtocol {
+		r.tagName = ""
+		r.inProtocol = false
+		return ""
+	}
+	return value
+}
+
 func (r *thinkingDeltaRouter) consume(delta string) (string, string) {
 	if delta == "" {
 		return "", ""
@@ -1822,6 +1880,218 @@ func splitAssistantOutputThinkingContent(content string) (string, string) {
 		return "", strings.TrimSpace(content[openEnd:])
 	}
 	return strings.TrimSpace(content[closeEnd:]), strings.TrimSpace(content[openEnd:closeStart])
+}
+
+// PublicAssistantContent removes upstream protocol fragments that should never be shown as assistant prose.
+func PublicAssistantContent(role string, content string) string {
+	if strings.TrimSpace(role) != "assistant" || content == "" {
+		return content
+	}
+	return sanitizeAssistantProtocolContent(content)
+}
+
+func sanitizeAssistantProtocolContent(content string) string {
+	visible, _ := splitAssistantOutputThinkingContent(content)
+	cleaned := stripAssistantProtocolBlocks(visible)
+	cleaned = stripAssistantToolCallJSON(cleaned)
+	if strings.TrimSpace(cleaned) == "" && strings.TrimSpace(content) != "" {
+		return ""
+	}
+	return strings.TrimSpace(cleaned)
+}
+
+func stripAssistantProtocolBlocks(content string) string {
+	if content == "" {
+		return ""
+	}
+	var builder strings.Builder
+	cursor := 0
+	for cursor < len(content) {
+		start, tagName, openEnd, ok := findAssistantProtocolOpenTag(content, cursor)
+		if !ok {
+			builder.WriteString(content[cursor:])
+			break
+		}
+		builder.WriteString(content[cursor:start])
+		_, closeEnd, found := findAssistantProtocolCloseTag(content, openEnd, tagName)
+		if !found {
+			break
+		}
+		cursor = closeEnd
+	}
+	return builder.String()
+}
+
+func findAssistantProtocolOpenTag(content string, start int) (int, string, int, bool) {
+	lower := strings.ToLower(content)
+	searchStart := start
+	for searchStart < len(content) {
+		relative := strings.IndexByte(lower[searchStart:], '<')
+		if relative < 0 {
+			return 0, "", 0, false
+		}
+		tagStart := searchStart + relative
+		closeAngle := strings.IndexByte(content[tagStart:], '>')
+		if closeAngle < 0 {
+			return 0, "", 0, false
+		}
+		openEnd := tagStart + closeAngle + 1
+		body := strings.TrimSpace(content[tagStart+1 : openEnd-1])
+		if body == "" || strings.HasPrefix(body, "/") || strings.HasSuffix(body, "/") {
+			searchStart = openEnd
+			continue
+		}
+		tagName := strings.ToLower(strings.Fields(body)[0])
+		if isAssistantProtocolTag(tagName) {
+			return tagStart, tagName, openEnd, true
+		}
+		searchStart = openEnd
+	}
+	return 0, "", 0, false
+}
+
+func findAssistantProtocolCloseTag(content string, start int, tagName string) (int, int, bool) {
+	lower := strings.ToLower(content)
+	target := "</" + strings.ToLower(strings.TrimSpace(tagName))
+	searchStart := start
+	for searchStart < len(content) {
+		relative := strings.Index(lower[searchStart:], target)
+		if relative < 0 {
+			return 0, 0, false
+		}
+		closeStart := searchStart + relative
+		closeEnd := closeStart + len(target)
+		for closeEnd < len(content) && isASCIIWhitespace(content[closeEnd]) {
+			closeEnd++
+		}
+		if closeEnd < len(content) && content[closeEnd] == '>' {
+			return closeStart, closeEnd + 1, true
+		}
+		searchStart = closeStart + len(target)
+	}
+	return 0, 0, false
+}
+
+func isAssistantProtocolTag(tagName string) bool {
+	switch strings.ToLower(strings.TrimSpace(tagName)) {
+	case "think", "thinking", "tool_call", "tool_calls", "tool_name", "tool_input", "tool_result", "function_call":
+		return true
+	default:
+		return false
+	}
+}
+
+func splitAssistantProtocolOpenSafeRemainder(value string) (string, string) {
+	lastLeft := strings.LastIndex(value, "<")
+	if lastLeft < 0 {
+		return value, ""
+	}
+	suffix := value[lastLeft:]
+	if isPotentialAssistantProtocolOpenTagPrefix(suffix) {
+		return value[:lastLeft], suffix
+	}
+	return value, ""
+}
+
+func isPotentialAssistantProtocolOpenTagPrefix(fragment string) bool {
+	lower := strings.ToLower(fragment)
+	for _, tagName := range []string{"think", "thinking", "tool_call", "tool_calls", "tool_name", "tool_input", "tool_result", "function_call"} {
+		candidate := "<" + tagName
+		if strings.HasPrefix(candidate, lower) {
+			return true
+		}
+		if strings.HasPrefix(lower, candidate) {
+			if len(lower) == len(candidate) {
+				return true
+			}
+			next := lower[len(candidate)]
+			if next == '/' || next == '>' || isASCIIWhitespace(next) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func assistantProtocolCloseCarry(value string, tagName string) string {
+	lastLeft := strings.LastIndex(value, "<")
+	if lastLeft < 0 {
+		return ""
+	}
+	suffix := value[lastLeft:]
+	if isPotentialAssistantProtocolCloseTagPrefix(suffix, tagName) {
+		return suffix
+	}
+	return ""
+}
+
+func isPotentialAssistantProtocolCloseTagPrefix(fragment string, tagName string) bool {
+	lower := strings.ToLower(fragment)
+	target := "</" + strings.ToLower(strings.TrimSpace(tagName))
+	if target == "</" {
+		return false
+	}
+	if strings.HasPrefix(target, lower) {
+		return true
+	}
+	if !strings.HasPrefix(lower, target) {
+		return false
+	}
+	for index := len(target); index < len(lower); index++ {
+		next := lower[index]
+		if next == '>' {
+			return true
+		}
+		if !isASCIIWhitespace(next) {
+			return false
+		}
+	}
+	return true
+}
+
+func stripAssistantToolCallJSON(content string) string {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return ""
+	}
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+		return content
+	}
+	var decoded interface{}
+	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		return content
+	}
+	if assistantProtocolJSON(decoded) {
+		return ""
+	}
+	return content
+}
+
+func assistantProtocolJSON(value interface{}) bool {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		if _, ok := typed["tool_calls"]; ok {
+			return true
+		}
+		if _, ok := typed["tool_call"]; ok {
+			return true
+		}
+		switch strings.ToLower(strings.TrimSpace(firstTraceString(typed, "type"))) {
+		case "tool_call", "function_call", "custom_tool_call", "tool_result", "function_call_output":
+			return true
+		}
+	case []interface{}:
+		if len(typed) == 0 {
+			return false
+		}
+		for _, item := range typed {
+			if !assistantProtocolJSON(item) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func splitLeadingThinkingBlock(content string, flush bool) (visible string, think string, pending bool) {
