@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -46,6 +48,9 @@ const (
 	taskVideoPollPath     = "/video/generations/"
 	videoTaskPollAttempts = 120
 	videoTaskPollInterval = 5 * time.Second
+
+	generatedVideoDownloadAttempts = 3
+	generatedVideoDownloadRetryGap = 2 * time.Second
 )
 
 type mediaImageCapabilities struct {
@@ -1580,27 +1585,59 @@ func (s *Service) downloadGeneratedVideo(ctx context.Context, url string) ([]byt
 	if url == "" {
 		return nil, "", ErrUpstreamEmptyResponse
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	cfg := s.cfg.Snapshot()
+	client := security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
+	limit := s.cfg.Snapshot().MaxUploadFileBytes * 10 // 视频文件可能较大
+	if limit <= 0 {
+		limit = 200 * 1024 * 1024
+	}
+
+	var lastErr error
+	var lastMimeType string
+	for attempt := 1; attempt <= generatedVideoDownloadAttempts; attempt++ {
+		data, mimeType, err := downloadGeneratedVideoOnce(ctx, client, url, limit)
+		if err == nil {
+			return data, mimeType, nil
+		}
+		lastErr = err
+		lastMimeType = mimeType
+		if !shouldRetryGeneratedVideoDownload(err) || attempt == generatedVideoDownloadAttempts {
+			break
+		}
+		if s.logger != nil {
+			s.logger.Warn("generated_video_download_retry",
+				zap.Int("attempt", attempt),
+				zap.Int("max_attempts", generatedVideoDownloadAttempts),
+				zap.String("url_host", generatedVideoURLHost(url)),
+				zap.Error(err),
+			)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, lastMimeType, ctx.Err()
+		case <-time.After(time.Duration(attempt) * generatedVideoDownloadRetryGap):
+		}
+	}
+	if lastErr == nil {
+		lastErr = ErrUpstreamEmptyResponse
+	}
+	return nil, lastMimeType, lastErr
+}
+
+func downloadGeneratedVideoOnce(ctx context.Context, client *http.Client, rawURL string, limit int64) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, "", err
 	}
-	cfg := s.cfg.Snapshot()
-	client := security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", err
 	}
 	defer resp.Body.Close()
+
+	mimeType := generatedVideoMimeType(resp.Header.Get("Content-Type"))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, "", fmt.Errorf("download generated video failed: HTTP %d", resp.StatusCode)
-	}
-	mimeType := "video/mp4"
-	if contentType := strings.TrimSpace(resp.Header.Get("Content-Type")); strings.HasPrefix(strings.ToLower(contentType), "video/") {
-		mimeType = strings.Split(contentType, ";")[0]
-	}
-	limit := s.cfg.Snapshot().MaxUploadFileBytes * 10 // 视频文件可能较大
-	if limit <= 0 {
-		limit = 200 * 1024 * 1024
+		return nil, mimeType, generatedVideoDownloadHTTPError{StatusCode: resp.StatusCode}
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
@@ -1610,6 +1647,53 @@ func (s *Service) downloadGeneratedVideo(ctx context.Context, url string) ([]byt
 		return nil, mimeType, ErrFileTooLarge
 	}
 	return data, mimeType, nil
+}
+
+func generatedVideoMimeType(contentType string) string {
+	mimeType := "video/mp4"
+	if contentType = strings.TrimSpace(contentType); strings.HasPrefix(strings.ToLower(contentType), "video/") {
+		mimeType = strings.Split(contentType, ";")[0]
+	}
+	return mimeType
+}
+
+type generatedVideoDownloadHTTPError struct {
+	StatusCode int
+}
+
+func (e generatedVideoDownloadHTTPError) Error() string {
+	return fmt.Sprintf("download generated video failed: HTTP %d", e.StatusCode)
+}
+
+func shouldRetryGeneratedVideoDownload(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrFileTooLarge) {
+		return false
+	}
+	var httpErr generatedVideoDownloadHTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.StatusCode == http.StatusTooManyRequests || httpErr.StatusCode >= 500
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout() || netErr.Temporary()
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "stream error") ||
+		strings.Contains(text, "internal_error") ||
+		strings.Contains(text, "connection reset") ||
+		strings.Contains(text, "unexpected eof") ||
+		strings.Contains(text, "reading body")
+}
+
+func generatedVideoURLHost(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	return parsed.Hostname()
 }
 
 // generatedVideoFileName 构造视频文件名。
