@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"golang.org/x/net/proxy"
 )
 
 // MediaImageTaskType 表示媒体图片任务类型。
@@ -1013,7 +1015,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 
 	emitMediaEvent(input.OnEvent, "running", "generating video")
 	cfg := s.cfg.Snapshot()
-	httpClient := security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
+	httpClient := newVideoGenerationHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
 
 	createResult, createPath, err := createVideoGenerationTask(ctx, httpClient, route, input, videoInputImages)
 	if err != nil {
@@ -1055,7 +1057,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		}
 
 		if isVideoTaskSuccessStatus(pollResult.Status) {
-			videoURL = buildRouteMediaProxyURL(route.BaseURL, pollResult.VideoURL)
+			videoURL = strings.TrimSpace(pollResult.VideoURL)
 			break
 		}
 		if isVideoTaskFailedStatus(pollResult.Status) {
@@ -1586,7 +1588,7 @@ func (s *Service) downloadGeneratedVideo(ctx context.Context, url string) ([]byt
 		return nil, "", ErrUpstreamEmptyResponse
 	}
 	cfg := s.cfg.Snapshot()
-	client := security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
+	client := newVideoGenerationHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
 	limit := s.cfg.Snapshot().MaxUploadFileBytes * 10 // 视频文件可能较大
 	if limit <= 0 {
 		limit = 200 * 1024 * 1024
@@ -1622,6 +1624,76 @@ func (s *Service) downloadGeneratedVideo(ctx context.Context, url string) ([]byt
 		lastErr = ErrUpstreamEmptyResponse
 	}
 	return nil, lastMimeType, lastErr
+}
+
+func newVideoGenerationHTTPClient(env string, ssrfProtectionEnabled bool, timeout time.Duration) *http.Client {
+	transport := security.NewOutboundHTTPTransport(env, ssrfProtectionEnabled, 30*time.Second)
+	if proxyURL := videoGenerationSocks5ProxyURL(); proxyURL != "" {
+		if dialContext, err := socks5DialContext(proxyURL); err == nil {
+			transport.Proxy = nil
+			transport.DialContext = dialContext
+		}
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+	}
+}
+
+func videoGenerationSocks5ProxyURL() string {
+	for _, key := range []string{"MEDIA_VIDEO_SOCKS5_PROXY", "VIDEO_GENERATION_SOCKS5_PROXY", "WARP_SOCKS5_PROXY"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func socks5DialContext(rawProxyURL string) (func(context.Context, string, string) (net.Conn, error), error) {
+	proxyURL, err := url.Parse(strings.TrimSpace(rawProxyURL))
+	if err != nil {
+		return nil, err
+	}
+	scheme := strings.ToLower(strings.TrimSpace(proxyURL.Scheme))
+	if scheme != "socks5" && scheme != "socks5h" {
+		return nil, fmt.Errorf("unsupported SOCKS5 proxy scheme %q", proxyURL.Scheme)
+	}
+	address := strings.TrimSpace(proxyURL.Host)
+	if address == "" {
+		return nil, fmt.Errorf("empty SOCKS5 proxy host")
+	}
+	var auth *proxy.Auth
+	if proxyURL.User != nil {
+		auth = &proxy.Auth{User: proxyURL.User.Username()}
+		auth.Password, _ = proxyURL.User.Password()
+	}
+	dialer, err := proxy.SOCKS5("tcp", address, auth, proxy.Direct)
+	if err != nil {
+		return nil, err
+	}
+	contextDialer, ok := dialer.(proxy.ContextDialer)
+	if ok {
+		return contextDialer.DialContext, nil
+	}
+	return func(ctx context.Context, network string, address string) (net.Conn, error) {
+		result := make(chan struct {
+			conn net.Conn
+			err  error
+		}, 1)
+		go func() {
+			conn, err := dialer.Dial(network, address)
+			result <- struct {
+				conn net.Conn
+				err  error
+			}{conn: conn, err: err}
+		}()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case item := <-result:
+			return item.conn, item.err
+		}
+	}, nil
 }
 
 func downloadGeneratedVideoOnce(ctx context.Context, client *http.Client, rawURL string, limit int64) ([]byte, string, error) {
