@@ -174,6 +174,12 @@ func (r *Repo) ListMultiAccountCandidates(ctx context.Context, limit int) ([]dom
 	if strings.TrimSpace(tableName) == "" {
 		return []domainuser.MultiAccountCandidate{}, nil
 	}
+	if err := r.db.WithContext(ctx).Raw(`SELECT COALESCE(to_regclass('public.device_fingerprints')::text, '')`).Scan(&tableName).Error; err != nil {
+		return nil, translateError(err)
+	}
+	if strings.TrimSpace(tableName) == "" {
+		return []domainuser.MultiAccountCandidate{}, nil
+	}
 
 	type row struct {
 		AssociationID   uint
@@ -188,6 +194,55 @@ func (r *Repo) ListMultiAccountCandidates(ctx context.Context, limit int) ([]dom
 	}
 	rows := []row{}
 	query := `
+		WITH association_users AS (
+			SELECT
+				fa.id AS association_id,
+				u.id AS user_id
+			FROM fingerprint_associations fa
+			LEFT JOIN LATERAL jsonb_array_elements_text(
+				CASE
+					WHEN jsonb_typeof(fa.user_ids_json::jsonb) = 'array' THEN fa.user_ids_json::jsonb
+					ELSE '[]'::jsonb
+				END
+			) AS user_ids(user_id_text) ON true
+			JOIN identity_users u
+				ON u.id = CASE
+					WHEN user_ids.user_id_text ~ '^[0-9]+$' THEN user_ids.user_id_text::bigint
+					ELSE NULL
+				END
+				AND u.deleted_at IS NULL
+		),
+		corroborated_associations AS (
+			SELECT DISTINCT au.association_id
+			FROM association_users au
+			JOIN fingerprint_associations fa ON fa.id = au.association_id
+			JOIN device_fingerprints df
+				ON df.fingerprint_id = fa.fingerprint_id
+				AND df.user_id = au.user_id
+				AND df.deleted_at IS NULL
+				AND COALESCE(df.ip_address, '') <> ''
+			GROUP BY au.association_id, df.ip_address
+			HAVING count(DISTINCT df.user_id) = (
+				SELECT count(DISTINCT inner_au.user_id)
+				FROM association_users inner_au
+				WHERE inner_au.association_id = au.association_id
+			)
+			UNION
+			SELECT DISTINCT au.association_id
+			FROM association_users au
+			JOIN fingerprint_associations fa ON fa.id = au.association_id
+			JOIN device_fingerprints df
+				ON df.fingerprint_id = fa.fingerprint_id
+				AND df.user_id = au.user_id
+				AND df.deleted_at IS NULL
+				AND COALESCE(df.tls_fingerprint, '') <> ''
+			GROUP BY au.association_id, df.tls_fingerprint
+			HAVING count(DISTINCT df.user_id) = (
+				SELECT count(DISTINCT inner_au.user_id)
+				FROM association_users inner_au
+				WHERE inner_au.association_id = au.association_id
+			)
+		)
 		SELECT
 			fa.id AS association_id,
 			fa.fingerprint_id,
@@ -225,6 +280,7 @@ func (r *Repo) ListMultiAccountCandidates(ctx context.Context, limit int) ([]dom
 			AND u.deleted_at IS NULL
 		WHERE fa.deleted_at IS NULL
 			AND fa.ignored_at IS NULL
+			AND fa.id IN (SELECT association_id FROM corroborated_associations)
 		GROUP BY fa.id, fa.fingerprint_id, fa.user_ids_json, fa.confidence_score, fa.risk_level, fa.detected_at, fa.ignored_at, fa.reason
 		HAVING count(u.id) >= 2
 		ORDER BY fa.confidence_score DESC, count(u.id) DESC, fa.detected_at DESC

@@ -2269,14 +2269,73 @@ func (r *Repo) GetBillingRiskSummary(ctx context.Context) (*domainbilling.RiskSu
 		return nil, translateError(err)
 	}
 	if strings.TrimSpace(tableName) != "" {
+		if err := r.db.WithContext(ctx).Raw(`SELECT COALESCE(to_regclass('public.device_fingerprints')::text, '')`).Scan(&tableName).Error; err != nil {
+			return nil, translateError(err)
+		}
+	}
+	if strings.TrimSpace(tableName) != "" {
 		clusterSQL := `
+			WITH association_users AS (
+				SELECT
+					fa.id AS association_id,
+					u.id AS user_id
+				FROM fingerprint_associations fa
+				LEFT JOIN LATERAL jsonb_array_elements_text(
+					CASE
+						WHEN jsonb_typeof(fa.user_ids_json::jsonb) = 'array' THEN fa.user_ids_json::jsonb
+						ELSE '[]'::jsonb
+					END
+				) AS user_ids(user_id_text) ON true
+				JOIN identity_users u
+					ON u.id = CASE
+						WHEN user_ids.user_id_text ~ '^[0-9]+$' THEN user_ids.user_id_text::bigint
+						ELSE NULL
+					END
+					AND u.deleted_at IS NULL
+			),
+			corroborated_associations AS (
+				SELECT DISTINCT au.association_id
+				FROM association_users au
+				JOIN fingerprint_associations fa ON fa.id = au.association_id
+				JOIN device_fingerprints df
+					ON df.fingerprint_id = fa.fingerprint_id
+					AND df.user_id = au.user_id
+					AND df.deleted_at IS NULL
+					AND COALESCE(df.ip_address, '') <> ''
+				GROUP BY au.association_id, df.ip_address
+				HAVING count(DISTINCT df.user_id) = (
+					SELECT count(DISTINCT inner_au.user_id)
+					FROM association_users inner_au
+					WHERE inner_au.association_id = au.association_id
+				)
+				UNION
+				SELECT DISTINCT au.association_id
+				FROM association_users au
+				JOIN fingerprint_associations fa ON fa.id = au.association_id
+				JOIN device_fingerprints df
+					ON df.fingerprint_id = fa.fingerprint_id
+					AND df.user_id = au.user_id
+					AND df.deleted_at IS NULL
+					AND COALESCE(df.tls_fingerprint, '') <> ''
+				GROUP BY au.association_id, df.tls_fingerprint
+				HAVING count(DISTINCT df.user_id) = (
+					SELECT count(DISTINCT inner_au.user_id)
+					FROM association_users inner_au
+					WHERE inner_au.association_id = au.association_id
+				)
+			),
+			corroborated AS (
+				SELECT fa.*
+				FROM fingerprint_associations fa
+				WHERE fa.deleted_at IS NULL
+					AND fa.id IN (SELECT association_id FROM corroborated_associations)
+			)
 			SELECT
 				COALESCE(count(*) FILTER (WHERE ignored_at IS NULL), 0) AS multi_account_cluster_count,
 				COALESCE(count(*) FILTER (WHERE ignored_at IS NULL AND (risk_level = 'high' OR confidence_score >= 0.9)), 0) AS high_risk_cluster_count,
 				COALESCE(count(*) FILTER (WHERE ignored_at IS NOT NULL), 0) AS ignored_cluster_count,
 				COALESCE(count(DISTINCT fingerprint_id), 0) AS unique_fingerprint_count
-			FROM fingerprint_associations
-			WHERE deleted_at IS NULL`
+			FROM corroborated`
 		if err := r.db.WithContext(ctx).Raw(clusterSQL).Scan(stats).Error; err != nil {
 			return nil, translateError(err)
 		}
