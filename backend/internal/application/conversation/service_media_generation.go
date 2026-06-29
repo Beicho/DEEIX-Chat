@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,11 +49,17 @@ const (
 	legacyVideoPollPath   = "/videos/generations/"
 	taskVideoCreatePath   = "/video/generations"
 	taskVideoPollPath     = "/video/generations/"
+	seedanceCreatePath    = "/contents/generations/tasks"
+	seedancePollPath      = "/contents/generations/tasks/"
 	videoTaskPollAttempts = 120
 	videoTaskPollInterval = 5 * time.Second
+	videoCreateAttempts   = 3
+	videoCreateRetryGap   = 2 * time.Second
 
 	generatedVideoDownloadAttempts = 3
 	generatedVideoDownloadRetryGap = 2 * time.Second
+
+	defaultVolcengineArkBaseURL = "https://ark.cn-beijing.volces.com/api/v3"
 )
 
 type mediaImageCapabilities struct {
@@ -1016,8 +1023,9 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 	emitMediaEvent(input.OnEvent, "running", "generating video")
 	cfg := s.cfg.Snapshot()
 	httpClient := newVideoGenerationHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
+	videoBaseURL := videoGenerationBaseURL(route)
 
-	createResult, createPath, err := createVideoGenerationTask(ctx, httpClient, route, input, videoInputImages)
+	createResult, createPath, err := createVideoGenerationTask(ctx, httpClient, route, videoBaseURL, input, videoInputImages)
 	if err != nil {
 		retErr = err
 		s.routeResolver.MarkRouteFailure(ctx, route, err)
@@ -1044,7 +1052,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 		case <-time.After(videoTaskPollInterval):
 		}
 
-		pollResult, err := pollVideoGenerationTask(ctx, httpClient, route, createPath, taskID)
+		pollResult, err := pollVideoGenerationTask(ctx, httpClient, route, videoBaseURL, createPath, taskID)
 		if err != nil {
 			continue
 		}
@@ -1177,26 +1185,44 @@ type videoTaskPollResult struct {
 	ErrorMessage string
 }
 
-func createVideoGenerationTask(ctx context.Context, httpClient *http.Client, route *channel.ResolvedRoute, input MediaVideoInput, inputImages []llm.ContentPart) (videoTaskCreateResult, string, error) {
-	createBody := buildVideoGenerationCreateBody(route.UpstreamModel, input.Prompt, input.Options, inputImages)
-	createJSON, _ := json.Marshal(createBody)
+func createVideoGenerationTask(ctx context.Context, httpClient *http.Client, route *channel.ResolvedRoute, baseURL string, input MediaVideoInput, inputImages []llm.ContentPart) (videoTaskCreateResult, string, error) {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(route.BaseURL)
+	}
 	var lastErr error
-	for _, path := range videoCreatePathsForRoute(route.BaseURL) {
-		createURL := buildVideoEndpointURL(route.BaseURL, path)
-		createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, createURL, bytes.NewReader(createJSON))
-		if err != nil {
-			return videoTaskCreateResult{}, path, fmt.Errorf("创建视频请求失败: %w", err)
+	for _, path := range videoCreatePathsForRoute(baseURL) {
+		createBody := buildVideoGenerationCreateBody(route.UpstreamModel, input.Prompt, input.Options, inputImages)
+		if path == seedanceCreatePath {
+			createBody = buildSeedanceVideoGenerationCreateBody(route.UpstreamModel, input.Prompt, input.Options, inputImages)
 		}
-		createReq.Header.Set("Content-Type", "application/json")
-		createReq.Header.Set("Accept", "application/json")
-		if apiKey := strings.TrimSpace(route.APIKey); apiKey != "" {
-			createReq.Header.Set("Authorization", "Bearer "+apiKey)
-		}
-		setVideoRouteHeaders(createReq, route.HeadersJSON)
+		createJSON, _ := json.Marshal(createBody)
+		createURL := buildVideoEndpointURL(baseURL, path)
+		var createResp *http.Response
+		var err error
+		for attempt := 1; attempt <= videoCreateAttempts; attempt++ {
+			createReq, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, createURL, bytes.NewReader(createJSON))
+			if reqErr != nil {
+				return videoTaskCreateResult{}, path, fmt.Errorf("创建视频请求失败: %w", reqErr)
+			}
+			createReq.Header.Set("Content-Type", "application/json")
+			createReq.Header.Set("Accept", "application/json")
+			if apiKey := strings.TrimSpace(route.APIKey); apiKey != "" {
+				createReq.Header.Set("Authorization", "Bearer "+apiKey)
+			}
+			setVideoRouteHeaders(createReq, route.HeadersJSON)
 
-		createResp, err := httpClient.Do(createReq)
-		if err != nil {
-			return videoTaskCreateResult{}, path, wrapUpstreamRequestError(err)
+			createResp, err = httpClient.Do(createReq)
+			if err == nil {
+				break
+			}
+			lastErr = wrapUpstreamRequestError(err)
+			if attempt >= videoCreateAttempts || !shouldRetryVideoCreateError(err) {
+				return videoTaskCreateResult{}, path, lastErr
+			}
+			if waitErr := waitVideoCreateRetry(ctx, attempt); waitErr != nil {
+				return videoTaskCreateResult{}, path, waitErr
+			}
 		}
 		body, readErr := io.ReadAll(createResp.Body)
 		_ = createResp.Body.Close()
@@ -1205,7 +1231,7 @@ func createVideoGenerationTask(ctx context.Context, httpClient *http.Client, rou
 		}
 		if createResp.StatusCode < 200 || createResp.StatusCode >= 300 {
 			lastErr = fmt.Errorf("视频生成失败(HTTP %d): %s", createResp.StatusCode, strings.TrimSpace(string(body)))
-			if shouldTryNextVideoEndpoint(createResp.StatusCode) {
+			if path != seedanceCreatePath && shouldTryNextVideoEndpoint(createResp.StatusCode) {
 				continue
 			}
 			return videoTaskCreateResult{}, path, lastErr
@@ -1225,9 +1251,13 @@ func createVideoGenerationTask(ctx context.Context, httpClient *http.Client, rou
 	return videoTaskCreateResult{}, "", fmt.Errorf("视频生成失败：没有可用视频端点")
 }
 
-func pollVideoGenerationTask(ctx context.Context, httpClient *http.Client, route *channel.ResolvedRoute, createPath string, taskID string) (videoTaskPollResult, error) {
+func pollVideoGenerationTask(ctx context.Context, httpClient *http.Client, route *channel.ResolvedRoute, baseURL string, createPath string, taskID string) (videoTaskPollResult, error) {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(route.BaseURL)
+	}
 	pollPath := videoPollPathForCreatePath(createPath)
-	pollURL := buildVideoEndpointURL(route.BaseURL, pollPath+taskID)
+	pollURL := buildVideoEndpointURL(baseURL, pollPath+taskID)
 	pollReq, err := http.NewRequestWithContext(ctx, http.MethodGet, pollURL, nil)
 	if err != nil {
 		return videoTaskPollResult{}, err
@@ -1302,6 +1332,134 @@ func buildVideoGenerationCreateBody(modelName string, prompt string, options map
 		}
 	}
 	return createBody
+}
+
+func buildSeedanceVideoGenerationCreateBody(modelName string, prompt string, options map[string]interface{}, inputImages []llm.ContentPart) map[string]interface{} {
+	content := []map[string]interface{}{
+		{
+			"type": "text",
+			"text": strings.TrimSpace(prompt),
+		},
+	}
+	for index, image := range inputImages {
+		if len(image.Data) == 0 {
+			continue
+		}
+		mimeType := strings.TrimSpace(image.MimeType)
+		if mimeType == "" {
+			mimeType = "image/png"
+		}
+		role := "reference_image"
+		if index == 0 {
+			role = "first_frame"
+		}
+		content = append(content, map[string]interface{}{
+			"type": "image_url",
+			"image_url": map[string]interface{}{
+				"url": "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(image.Data),
+			},
+			"role": role,
+		})
+	}
+
+	createBody := map[string]interface{}{
+		"model":      strings.TrimSpace(modelName),
+		"content":    content,
+		"duration":   int64(5),
+		"ratio":      "16:9",
+		"resolution": "720p",
+	}
+	if len(options) == 0 {
+		return createBody
+	}
+	hasDurationOption := false
+	if _, ok := options["duration"]; ok {
+		hasDurationOption = true
+	}
+	for key, value := range options {
+		normalizedKey := strings.TrimSpace(key)
+		if normalizedKey == "" {
+			continue
+		}
+		switch normalizedKey {
+		case "duration":
+			setSeedanceVideoOption(createBody, "duration", value)
+		case "seconds":
+			if !hasDurationOption {
+				setSeedanceVideoOption(createBody, "duration", value)
+			}
+		case "ratio", "resolution", "frames", "seed", "generate_audio", "camera_fixed", "watermark", "draft", "service_tier", "execution_expires_after":
+			setSeedanceVideoOption(createBody, normalizedKey, value)
+		case "size":
+			applySeedanceSizeOption(createBody, value)
+		}
+	}
+	return createBody
+}
+
+func setSeedanceVideoOption(createBody map[string]interface{}, key string, value interface{}) {
+	if createBody == nil {
+		return
+	}
+	if value == nil {
+		return
+	}
+	if text, ok := value.(string); ok {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			return
+		}
+		createBody[key] = normalizeSeedanceNumericOption(key, text)
+		return
+	}
+	createBody[key] = normalizeSeedanceNumericOption(key, value)
+}
+
+func normalizeSeedanceNumericOption(key string, value interface{}) interface{} {
+	switch strings.TrimSpace(key) {
+	case "duration", "frames", "seed":
+		switch item := value.(type) {
+		case string:
+			if parsed, err := strconv.ParseInt(strings.TrimSpace(item), 10, 64); err == nil {
+				return parsed
+			}
+		case json.Number:
+			if parsed, err := item.Int64(); err == nil {
+				return parsed
+			}
+		case float64:
+			if item == float64(int64(item)) {
+				return int64(item)
+			}
+		case float32:
+			if item == float32(int64(item)) {
+				return int64(item)
+			}
+		}
+	}
+	return value
+}
+
+func applySeedanceSizeOption(createBody map[string]interface{}, value interface{}) {
+	if createBody == nil || value == nil {
+		return
+	}
+	size := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(fmt.Sprint(value)), " ", ""))
+	switch size {
+	case "1280x720", "1920x1080":
+		createBody["ratio"] = "16:9"
+	case "720x1280", "1080x1920":
+		createBody["ratio"] = "9:16"
+	case "1024x1024", "1080x1080":
+		createBody["ratio"] = "1:1"
+	}
+	if strings.Contains(size, "1080") || strings.Contains(size, "1920") {
+		createBody["resolution"] = "1080p"
+		return
+	}
+	if strings.Contains(size, "720") || strings.Contains(size, "1280") {
+		createBody["resolution"] = "720p"
+	}
 }
 
 func syncVideoDurationAliases(createBody map[string]interface{}, hasDurationOption bool, hasSecondsOption bool) {
@@ -1387,10 +1545,64 @@ func routeBaseSupportsMediaProxy(base *url.URL) bool {
 	return host == "volcengine-proxy.3677635979.workers.dev"
 }
 
+func videoGenerationBaseURL(route *channel.ResolvedRoute) string {
+	if route == nil {
+		return ""
+	}
+	baseURL := strings.TrimSpace(route.BaseURL)
+	if routeUsesVolcengineWorker(baseURL) && routeIsSeedanceVideo(route) {
+		return defaultVolcengineArkBaseURL
+	}
+	return baseURL
+}
+
+func routeUsesVolcengineWorker(baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	return host == "volcengine-proxy.3677635979.workers.dev"
+}
+
+func routeIsSeedanceVideo(route *channel.ResolvedRoute) bool {
+	if route == nil {
+		return false
+	}
+	for _, value := range []string{
+		route.PlatformModelName,
+		route.UpstreamModel,
+		route.BindingCode,
+		route.ModelVendor,
+		route.UpstreamName,
+	} {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if strings.Contains(normalized, "seedance") || strings.Contains(normalized, "doubao-seedance") {
+			return true
+		}
+	}
+	return false
+}
+
+func routeBaseSupportsSeedanceNative(baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	if host == "ark.cn-beijing.volces.com" {
+		return true
+	}
+	return strings.Contains(host, "volces.com") && strings.Contains(strings.ToLower(parsed.Path), "/api/v3")
+}
+
 func videoCreatePathsForRoute(baseURL string) []string {
+	if routeBaseSupportsSeedanceNative(baseURL) {
+		return []string{seedanceCreatePath}
+	}
 	if createPath, ok := videoCreatePathFromEndpointBase(baseURL); ok {
 		result := []string{createPath}
-		for _, candidate := range []string{openAIVideoCreatePath, taskVideoCreatePath, legacyVideoCreatePath} {
+		for _, candidate := range []string{openAIVideoCreatePath, taskVideoCreatePath, legacyVideoCreatePath, seedanceCreatePath} {
 			if candidate != createPath {
 				result = append(result, candidate)
 			}
@@ -1406,6 +1618,8 @@ func videoPollPathForCreatePath(createPath string) string {
 		return taskVideoPollPath
 	case legacyVideoCreatePath:
 		return legacyVideoPollPath
+	case seedanceCreatePath:
+		return seedancePollPath
 	default:
 		return openAIVideoPollPath
 	}
@@ -1441,7 +1655,7 @@ func buildVideoEndpointURL(baseURL string, endpointPath string) string {
 
 func videoCreatePathFromEndpointBase(baseURL string) (string, bool) {
 	normalized := strings.TrimRight(strings.ToLower(strings.TrimSpace(baseURL)), "/")
-	for _, createPath := range []string{taskVideoCreatePath, legacyVideoCreatePath, openAIVideoCreatePath} {
+	for _, createPath := range []string{seedanceCreatePath, taskVideoCreatePath, legacyVideoCreatePath, openAIVideoCreatePath} {
 		if strings.HasSuffix(normalized, strings.ToLower(createPath)) {
 			return createPath, true
 		}
@@ -1471,6 +1685,39 @@ func videoBaseEndsWithVersionSegment(baseURL string) bool {
 
 func shouldTryNextVideoEndpoint(statusCode int) bool {
 	return statusCode == http.StatusNotFound || statusCode == http.StatusMethodNotAllowed || statusCode == http.StatusBadRequest
+}
+
+func shouldRetryVideoCreateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout() || netErr.Temporary()
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "socks connect") ||
+		strings.Contains(text, "connection reset") ||
+		strings.Contains(text, "connection refused") ||
+		strings.Contains(text, "i/o timeout") ||
+		strings.Contains(text, "timeout") ||
+		strings.Contains(text, "temporary") ||
+		strings.Contains(text, "unexpected eof")
+}
+
+func waitVideoCreateRetry(ctx context.Context, attempt int) error {
+	if attempt < 1 {
+		attempt = 1
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(time.Duration(attempt) * videoCreateRetryGap):
+		return nil
+	}
 }
 
 func parseVideoTaskCreateResult(body []byte) (videoTaskCreateResult, error) {
