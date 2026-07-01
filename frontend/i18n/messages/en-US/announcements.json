@@ -34,5 +34,8 @@
   "dismissAllToday": "Don't show today",
   "dismissFailed": "Failed to save announcement state",
   "closeFailed": "Failed to save announcement close state",
-  "close": "Close"
+  "close": "Close",
+  "loading": "Loading announcements...",
+  "empty": "No current announcements",
+  "openFailed": "Failed to load announcements"
 }

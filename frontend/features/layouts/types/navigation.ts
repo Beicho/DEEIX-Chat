@@ -11,7 +11,7 @@ export type NavigationIconProps = {
 }
 
 export type NavigationItem = {
-  id: "newChat" | "search" | "recent" | "files" | "announcements" | "bookmarks" | "checkin" | "arena"
+  id: "newChat" | "search" | "recent" | "files" | "skillsPrompt" | "announcements" | "bookmarks" | "checkin" | "arena"
   title: string
   url: string
   icon: React.ComponentType<NavigationIconProps>

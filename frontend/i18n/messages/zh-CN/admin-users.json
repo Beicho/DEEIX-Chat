@@ -18,7 +18,8 @@
     "loginSettings": "登录认证",
     "conversationSettings": "会话配置",
     "chatFiles": "文件与检索",
-    "about": "关于"
+    "about": "关于",
+    "upstreams": "上游"
   },
   "dashboardPage": {
     "title": "运营看板",
@@ -135,7 +136,8 @@
     "subscription": "订阅",
     "balance": "余额",
     "timezone": "时区",
-    "lastLogin": "最近登录"
+    "lastLogin": "最近登录",
+    "lastActive": "最近活跃"
   },
   "actions": {
     "apply": "应用",
@@ -151,7 +153,8 @@
     "idAsc": "ID 从旧到新",
     "lastLoginDesc": "最近登录",
     "updatedDesc": "最近更新",
-    "displayNameAsc": "昵称 A-Z"
+    "displayNameAsc": "昵称 A-Z",
+    "lastActiveDesc": "最近活跃"
   },
   "status": {
     "pendingActivation": "待激活",
@@ -327,6 +330,33 @@
     "bulkBalancePartialFailed": "批量设置余额部分失败",
     "bulkBalanceFailed": "批量设置余额失败",
     "bulkBalanceUpdated": "已为 {count} 个用户更新余额",
-    "bulkBalanceAdjustmentDescription": "管理员在用户管理中批量设置余额"
+    "bulkBalanceAdjustmentDescription": "管理员在用户管理中批量设置余额",
+    "bulkDeleting": "正在批量删除用户"
+  },
+  "importOpenWebUI": {
+    "import": "导入",
+    "title": "导入 OpenWebUI 用户",
+    "description": "连接 OpenWebUI 数据库并导入用户与余额。",
+    "dedupeTitle": "去重规则",
+    "dedupeDescription": "按 email 去重；已存在用户不会修改或覆盖。",
+    "dsnLabel": "DB 连接地址",
+    "dsnPlaceholder": "postgres://... 或 /data/openwebui.db",
+    "creditMultiplierLabel": "积分转换比例",
+    "cancel": "取消",
+    "preview": "预览",
+    "submit": "导入",
+    "previewing": "预览中",
+    "importing": "导入中",
+    "toastPreviewSucceeded": "OpenWebUI 预览完成：可导入 {imported} 个，跳过 {skipped} 个",
+    "toastSucceeded": "OpenWebUI 导入完成：新增 {imported} 个，跳过 {skipped} 个",
+    "toastFailed": "OpenWebUI 导入失败",
+    "summary": {
+      "scanned": "扫描 {count}",
+      "imported": "可导入 {count}",
+      "skippedExistingEmail": "已存在邮箱 {count}",
+      "skippedDuplicateSourceEmail": "源库重复邮箱 {count}",
+      "skippedInvalidEmail": "无效邮箱 {count}",
+      "skippedInvalidRow": "无效行 {count}"
+    }
   }
 }

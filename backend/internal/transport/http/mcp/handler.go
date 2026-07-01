@@ -386,6 +386,38 @@ func (h *Handler) PutToolPreference(c *gin.Context) {
 	response.Success(c, toToolPreferenceResponse(*item))
 }
 
+func (h *Handler) ReorderServers(c *gin.Context) {
+	var req ReorderServersRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	input := make([]appmcp.ReorderServerInput, 0, len(req.Servers))
+	for _, item := range req.Servers {
+		input = append(input, appmcp.ReorderServerInput{
+			ServerID: item.ServerID,
+			ToolIDs:  item.ToolIDs,
+		})
+	}
+	items, err := h.service.ReorderServersWithTools(c.Request.Context(), input)
+	if err != nil {
+		writeServiceError(c, err)
+		return
+	}
+	results := make([]ServerToolOrderResponse, 0, len(items))
+	for _, item := range items {
+		tools := make([]ToolResponse, 0, len(item.Tools))
+		for _, tool := range item.Tools {
+			tools = append(tools, toToolResponse(tool))
+		}
+		results = append(results, ServerToolOrderResponse{
+			Server: toServerResponse(item.Server),
+			Tools:  tools,
+		})
+	}
+	response.Success(c, ServerToolOrderListResponse{Results: results})
+}
+
 func (h *Handler) StartOAuth(c *gin.Context) {
 	userID := middleware.MustUserID(c)
 	serverID, ok := parseIDParam(c, "id", "connector server")
@@ -452,7 +484,7 @@ func (h *Handler) TTS(c *gin.Context) {
 
 func parseIDParam(c *gin.Context, key string, resource string) (uint, bool) {
 	raw := c.Param(key)
-	parsed, err := strconv.ParseUint(raw, 10, 64)
+	parsed, err := strconv.ParseUint(raw, 10, strconv.IntSize)
 	if err != nil || parsed == 0 {
 		response.Error(c, http.StatusBadRequest, "invalid "+resource+" id")
 		return 0, false
@@ -492,6 +524,7 @@ func toServerResponse(item domainmcp.Server) ServerResponse {
 		BaseURL:         item.BaseURL,
 		HeadersJSON:     security.RedactHeadersJSON(item.HeadersJSON),
 		Status:          item.Status,
+		SortOrder:       item.SortOrder,
 		TimeoutSeconds:  item.TimeoutSeconds,
 		OAuthClientID:   item.OAuthClientID,
 		OAuthAuthURL:    item.OAuthAuthURL,
@@ -517,6 +550,7 @@ func toToolResponse(item domainmcp.Tool) ToolResponse {
 		Description:     item.Description,
 		InputSchemaJSON: item.InputSchemaJSON,
 		Status:          item.Status,
+		SortOrder:       item.SortOrder,
 		DefaultEnabled:  item.DefaultEnabled,
 		RequiresConfirm: item.RequiresConfirm,
 		ToolKind:        item.ToolKind,

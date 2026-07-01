@@ -10,6 +10,7 @@ type ServerResponse struct {
 	BaseURL         string     `json:"baseURL"`
 	HeadersJSON     string     `json:"headersJSON"`
 	Status          string     `json:"status"`
+	SortOrder       int        `json:"sortOrder"`
 	TimeoutSeconds  int        `json:"timeoutSeconds"`
 	OAuthClientID   string     `json:"oauthClientID"`
 	OAuthAuthURL    string     `json:"oauthAuthURL"`
@@ -33,6 +34,7 @@ type ToolResponse struct {
 	Description     string    `json:"description"`
 	InputSchemaJSON string    `json:"inputSchemaJSON"`
 	Status          string    `json:"status"`
+	SortOrder       int       `json:"sortOrder"`
 	DefaultEnabled  bool      `json:"defaultEnabled"`
 	RequiresConfirm bool      `json:"requiresConfirmation"`
 	ToolKind        string    `json:"toolKind"`
@@ -67,6 +69,15 @@ type UpdateToolRequest struct {
 type UpdateServerToolsStatusRequest struct {
 	ToolIDs []uint `json:"toolIDs"`
 	Status  string `json:"status"`
+}
+
+type ReorderServerOrderItem struct {
+	ServerID uint   `json:"serverID"`
+	ToolIDs  []uint `json:"toolIDs"`
+}
+
+type ReorderServersRequest struct {
+	Servers []ReorderServerOrderItem `json:"servers"`
 }
 
 type ServerDataResponse struct {
@@ -141,4 +152,13 @@ type VoiceConfigResponse struct {
 	TTSProvider string `json:"ttsProvider"`
 	TTSModel    string `json:"ttsModel"`
 	TTSVoice    string `json:"ttsVoice"`
+}
+
+type ServerToolOrderResponse struct {
+	Server ServerResponse `json:"server"`
+	Tools  []ToolResponse `json:"tools"`
+}
+
+type ServerToolOrderListResponse struct {
+	Results []ServerToolOrderResponse `json:"results"`
 }

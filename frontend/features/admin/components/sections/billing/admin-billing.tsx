@@ -35,7 +35,7 @@ import { AdminDateTimePicker, adminDateTimeFormValue, adminDateTimeValueToISOStr
 import { AdminBulkConfirmDialog } from "@/features/admin/components/bulk-confirm-dialog";
 import { PlanBillingDialog, PricingBillingDialog } from "@/features/admin/components/sections/billing/billing-dialogs";
 import { PeriodBillingTable, PricingUnitCell } from "@/features/admin/components/sections/billing/billing-tables";
-import { SettingsCollapsibleContent } from "@/features/admin/components/sections/shared/settings-collapsible-content";
+import { CollapsibleMotionContent } from "@/shared/components/collapsible-motion-content";
 import {
   Table,
   TableBody,
@@ -43,9 +43,10 @@ import {
   TableEmptyRow,
   TableHead,
   TableHeader,
+  TableLoadingRow,
   TableRow,
-  TableSkeletonRows,
 } from "@/components/ui/table";
+import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
 import {
   SettingsFieldItem,
@@ -53,6 +54,7 @@ import {
   SettingsFieldRow,
   SettingsSection,
 } from "@/shared/components/settings-layout";
+import { CopyActionButton, useCopyAction } from "@/shared/components/copy-action";
 import {
   getAdminReferenceData,
   adjustAdminBillingAccountBalance,
@@ -80,11 +82,14 @@ import {
 import { listAllAdminPages } from "@/features/admin/api/shared";
 import type { AdminBalanceTransactionDTO, AdminBillingMode, AdminBillingPlanDTO, AdminBillingRiskSummaryDTO, AdminModelPricingDTO, AdminPaymentOrderDTO, AdminRedemptionCodeDTO, NativeToolPricingDTO } from "@/features/admin/api/billing.types";
 import type { AdminLLMModelDTO } from "@/features/admin/api/llm.types";
-import { resolveErrorMessage } from "@/features/admin/types/llm";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
+import {
+  mergeBatchResultData,
+  runBulkActionInChunks,
+} from "@/shared/lib/bulk-action";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_PAGE_SIZE,
-  PAGE_SIZE_OPTIONS,
   PAYMENT_DEFAULTS,
   buildModelPricingExportObject,
   buildPricingRows,
@@ -112,7 +117,7 @@ import {
   type PlanFormState,
   type PricingFormState,
   type TieredPricingTierForm,
-} from "@/features/admin/model/billing-page";
+} from "@/features/admin/model/billing-settings";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { resolveApiBaseURL } from "@/shared/api/http-client";
 import { LobeHubIcon } from "@/shared/components/lobehub-icon";
@@ -320,6 +325,12 @@ export function AdminBillingPage() {
   const tActions = useTranslations("common.actions");
   const tCommonErrors = useTranslations("common.errors");
   const tInput = useTranslations("common.input");
+  const { copy, isCopied } = useCopyAction({
+    messages: {
+      copied: tActions("copied"),
+      failed: tCommonErrors("copyFailed"),
+    },
+  });
   const importPricingInputRef = React.useRef<HTMLInputElement | null>(null);
   const [plans, setPlans] = React.useState<AdminBillingPlanDTO[]>([]);
   const [models, setModels] = React.useState<AdminLLMModelDTO[]>([]);
@@ -363,6 +374,9 @@ export function AdminBillingPage() {
   const [redemptionPageSize, setRedemptionPageSize] = React.useState(DEFAULT_PAGE_SIZE);
   const [redemptionTotal, setRedemptionTotal] = React.useState(0);
   const [billingMode, setBillingMode] = React.useState<AdminBillingMode>("self");
+  const [billingDisplayCurrency, setBillingDisplayCurrency] = React.useState<"USD" | "CNY">("USD");
+  const [billingUsdToCnyRate, setBillingUsdToCnyRate] = React.useState("7.2");
+  const [savedBillingUsdToCnyRate, setSavedBillingUsdToCnyRate] = React.useState("7.2");
   const [prepaidAmount, setPrepaidAmount] = React.useState("0");
   const [savedPrepaidAmount, setSavedPrepaidAmount] = React.useState("0");
   const [nativeToolBillingEnabled, setNativeToolBillingEnabled] = React.useState(true);
@@ -390,18 +404,8 @@ export function AdminBillingPage() {
   const [redemptionBulkPending, setRedemptionBulkPending] = React.useState(false);
   const [redemptionDeleteTarget, setRedemptionDeleteTarget] = React.useState<AdminRedemptionCodeDTO | null>(null);
   const [createdRedemptionCodes, setCreatedRedemptionCodes] = React.useState<string[]>([]);
-  const [redemptionCopyingID, setRedemptionCopyingID] = React.useState<number | null>(null);
   const [redemptionStatusPendingID, setRedemptionStatusPendingID] = React.useState<number | null>(null);
   const stripeWebhookEndpoint = React.useMemo(() => `${resolveApiBaseURL()}/api/v1/billing/payments/stripe/webhook`, []);
-
-  const copyStripeWebhookEndpoint = React.useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(stripeWebhookEndpoint);
-      toast.success(tActions("copied"));
-    } catch {
-      toast.error(tCommonErrors("copyFailed"));
-    }
-  }, [stripeWebhookEndpoint, tActions, tCommonErrors]);
 
   const loadData = React.useCallback(async () => {
     setLoading(true);
@@ -418,7 +422,11 @@ export function AdminBillingPage() {
       const nextPaymentSettings = flattenPaymentSettings(billingSettings);
       const nextPaymentConfiguredMap = configuredSettingsMap({ billing: billingSettings });
       const nextPrepaidAmount = formatBillingAmountInput(referenceData.billingConfig.config.prepaidAmountUSD);
+      const nextUsdToCnyRate = formatBillingAmountInput(referenceData.billingConfig.config.usdToCNYRate);
       setBillingMode(referenceData.billingConfig.config.mode);
+      setBillingDisplayCurrency(referenceData.billingConfig.config.displayCurrency === "CNY" ? "CNY" : "USD");
+      setBillingUsdToCnyRate(nextUsdToCnyRate);
+      setSavedBillingUsdToCnyRate(nextUsdToCnyRate);
       setNativeToolBillingEnabled(Boolean(referenceData.billingConfig.config.nativeToolBillingEnabled));
       setSavedNativeToolBillingEnabled(Boolean(referenceData.billingConfig.config.nativeToolBillingEnabled));
       setNativeToolPricing(referenceData.billingConfig.config.nativeToolPricing ?? []);
@@ -433,7 +441,7 @@ export function AdminBillingPage() {
       setSavedPaymentSettings(nextPaymentSettings);
       setPaymentConfiguredMap(nextPaymentConfiguredMap);
     } catch (error) {
-      toast.error(t("toast.loadFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.loadFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setLoading(false);
     }
@@ -470,7 +478,7 @@ export function AdminBillingPage() {
       setRedemptionTotal(result.total ?? 0);
     } catch (error) {
       if (showError) {
-        toast.error(t("toast.redemptionLoadFailed"), { description: resolveErrorMessage(error) });
+        toast.error(t("toast.redemptionLoadFailed"), { description: resolveAdminErrorMessage(error) });
       }
     } finally {
       if (showLoading) {
@@ -491,7 +499,7 @@ export function AdminBillingPage() {
       setPricingItems(items);
       invalidateAdminReferenceDataCache();
     } catch (error) {
-      toast.error(t("toast.loadFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.loadFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setModelPricingRefreshing(false);
     }
@@ -662,25 +670,38 @@ export function AdminBillingPage() {
   }, [filteredRows, page, pageSize]);
   const redemptionPageCount = Math.max(1, Math.ceil(redemptionTotal / redemptionPageSize));
   const redemptionTableLoading = loading || redemptionLoading;
+  const redemptionVirtualRows = useVirtualTableRows(redemptionCodes, {
+    enabled: redemptionCodes.length > 100,
+    estimateSize: 40,
+  });
+  const modelPricingVirtualRows = useVirtualTableRows(pageRows, {
+    enabled: pageRows.length > 100,
+    estimateSize: 40,
+  });
+  const redemptionInitialLoading = redemptionTableLoading && redemptionCodes.length === 0;
+  const showRedemptionRows = redemptionCodes.length > 0;
+  const modelPricingInitialLoading = loading && pageRows.length === 0;
+  const showModelPricingRows = pageRows.length > 0;
   const isPaymentDirty = React.useMemo(
     () => paymentSettingsChanged(paymentSettings, savedPaymentSettings),
     [paymentSettings, savedPaymentSettings],
   );
   const paymentProviders = React.useMemo(() => normalizePaymentProviders(paymentSettings.payment_providers), [paymentSettings.payment_providers]);
   const prepaidAmountChanged = prepaidAmount.trim() !== savedPrepaidAmount.trim();
+  const billingRateChanged = billingUsdToCnyRate.trim() !== savedBillingUsdToCnyRate.trim();
   const nativeToolBillingChanged = nativeToolBillingEnabled !== savedNativeToolBillingEnabled;
   const nativeToolPricingChanged = React.useMemo(
     () => nativeToolPricingSignature(nativeToolPricing) !== nativeToolPricingSignature(savedNativeToolPricing),
     [nativeToolPricing, savedNativeToolPricing],
   );
-  const billingConfigActions = billingMode !== "self" && prepaidAmountChanged ? (
+  const billingConfigActions = ((billingMode !== "self" && prepaidAmountChanged) || billingRateChanged) ? (
     <Button
       type="button"
       size="sm"
       disabled={loading || saving}
-      onClick={() => void handlePrepaidAmountSave()}
+      onClick={() => void handleBillingConfigSave()}
     >
-            {saving ? <SpinnerLabel>{tActions("saving")}</SpinnerLabel> : (
+      {saving ? <SpinnerLabel>{tActions("saving")}</SpinnerLabel> : (
         <>
           <Save className="size-3.5" />
           {tActions("save")}
@@ -794,21 +815,6 @@ export function AdminBillingPage() {
     });
   }
 
-  async function copyCreatedRedemptionCodes() {
-    if (createdRedemptionCodes.length === 0) return;
-    await copyRedemptionText(createdRedemptionCodes.join("\n"));
-  }
-
-  async function copyRedemptionText(value: string) {
-    if (!value.trim()) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      toast.success(tActions("copied"));
-    } catch {
-      toast.error(tCommonErrors("copyFailed"));
-    }
-  }
-
   async function fetchRedemptionCodePlaintext(item: AdminRedemptionCodeDTO): Promise<string> {
     const token = await resolveAccessToken();
     if (!token) {
@@ -854,29 +860,22 @@ export function AdminBillingPage() {
     return { results, failedCount };
   }
 
-  async function copyStoredRedemptionCode(item: AdminRedemptionCodeDTO) {
-    setRedemptionCopyingID(item.id);
-    try {
-      const code = await fetchRedemptionCodePlaintext(item);
-      await copyRedemptionText(code);
-    } catch (error) {
-      toast.error(t("toast.redemptionCopyFailed"), { description: resolveErrorMessage(error) });
-    } finally {
-      setRedemptionCopyingID(null);
-    }
-  }
-
   async function copySelectedRedemptionCodes() {
     setRedemptionBulkPending(true);
     try {
       const { results, failedCount } = await revealSelectedRedemptionCodes();
       if (results.length === 0) return;
-      await navigator.clipboard.writeText(results.map((result) => result.code).join("\n"));
-      toast.success(t("toast.redemptionBulkCopied", { count: results.length }), {
-        description: failedCount > 0 ? t("toast.redemptionBulkRevealSkipped", { count: failedCount }) : undefined,
+      const copied = await copy(results.map((result) => result.code).join("\n"), {
+        key: "selected-redemption-codes",
+        copied: t("toast.redemptionBulkCopied", { count: results.length }),
+        copiedDescription: failedCount > 0 ? t("toast.redemptionBulkRevealSkipped", { count: failedCount }) : undefined,
+        failed: t("toast.redemptionBulkCopyFailed"),
       });
+      if (!copied) {
+        return;
+      }
     } catch (error) {
-      toast.error(t("toast.redemptionBulkCopyFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.redemptionBulkCopyFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setRedemptionBulkPending(false);
     }
@@ -914,7 +913,7 @@ export function AdminBillingPage() {
         description: failedCount > 0 ? t("toast.redemptionBulkRevealSkipped", { count: failedCount }) : undefined,
       });
     } catch (error) {
-      toast.error(t("toast.redemptionBulkExportFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.redemptionBulkExportFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setRedemptionBulkPending(false);
     }
@@ -937,15 +936,27 @@ export function AdminBillingPage() {
         toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
         return;
       }
-      const updatedCodes = await Promise.all(ids.map((id) => updateAdminRedemptionCode(token, id, { status })));
-      setRedemptionCodes((current) => current.map((item) => updatedCodes.find((data) => data.code.id === item.id)?.code ?? item));
+      const updatedCodes = (await runBulkActionInChunks({
+        chunkSize: 10,
+        items: ids,
+        title: t("redemption.bulkPending"),
+        runChunk: async (chunk) => {
+          const codes: AdminRedemptionCodeDTO[] = [];
+          for (const id of chunk) {
+            const data = await updateAdminRedemptionCode(token, id, { status });
+            codes.push(data.code);
+          }
+          return codes;
+        },
+      })).flat();
+      setRedemptionCodes((current) => current.map((item) => updatedCodes.find((code) => code.id === item.id) ?? item));
       setSelectedRedemptionIDs(new Set());
       setRedemptionBulkAction(null);
       toast.success(status === "active" ? t("toast.redemptionBulkEnabled", { count: ids.length }) : t("toast.redemptionBulkDisabled", { count: ids.length }));
       void loadRedemptionCodes({}, { showLoading: false });
     } catch (error) {
       setRedemptionCodes(previousRedemptionCodes);
-      toast.error(t("toast.redemptionBulkFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.redemptionBulkFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setRedemptionBulkPending(false);
     }
@@ -973,7 +984,7 @@ export function AdminBillingPage() {
       void loadRedemptionCodes({}, { showLoading: false });
     } catch (error) {
       setRedemptionCodes(previousRedemptionCodes);
-      toast.error(t("toast.redemptionUpdateFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.redemptionUpdateFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setRedemptionStatusPendingID(null);
     }
@@ -997,7 +1008,11 @@ export function AdminBillingPage() {
         toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
         return;
       }
-      const result = await batchDeleteAdminRedemptionCodes(token, { ids });
+      const result = mergeBatchResultData(await runBulkActionInChunks({
+        items: ids,
+        title: t("redemption.bulkDeleteTitle"),
+        runChunk: (chunk) => batchDeleteAdminRedemptionCodes(token, { ids: chunk }),
+      }));
       setSelectedRedemptionIDs(new Set());
       setRedemptionBulkAction(null);
       if (result.failedCount > 0) {
@@ -1023,7 +1038,7 @@ export function AdminBillingPage() {
     } catch (error) {
       setRedemptionCodes(previousRedemptionCodes);
       setRedemptionTotal(previousRedemptionTotal);
-      toast.error(t("toast.redemptionDeleteFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.redemptionDeleteFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setRedemptionBulkPending(false);
     }
@@ -1058,7 +1073,7 @@ export function AdminBillingPage() {
     } catch (error) {
       setRedemptionCodes(previousRedemptionCodes);
       setRedemptionTotal(previousRedemptionTotal);
-      toast.error(t("toast.redemptionDeleteFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.redemptionDeleteFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setRedemptionBulkPending(false);
     }
@@ -1183,7 +1198,7 @@ export function AdminBillingPage() {
       toast.success(t("toast.redemptionCreated", { count: created.length }));
       void loadRedemptionCodes({}, { showLoading: false });
     } catch (error) {
-      toast.error(redemptionForm.id ? t("toast.redemptionUpdateFailed") : t("toast.redemptionCreateFailed"), { description: resolveErrorMessage(error) });
+      toast.error(redemptionForm.id ? t("toast.redemptionUpdateFailed") : t("toast.redemptionCreateFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setRedemptionSaving(false);
     }
@@ -1205,11 +1220,6 @@ export function AdminBillingPage() {
 
   async function savePaymentSettings() {
     const providers = normalizePaymentProviders(paymentSettings.payment_providers);
-    const usdToCnyRate = Number(paymentSettings.usd_to_cny_rate);
-    if (providers.includes("epay") && (!Number.isFinite(usdToCnyRate) || usdToCnyRate <= 0)) {
-      toast.error(t("toast.paymentIncomplete"), { description: t("toast.paymentRateRequired") });
-      return;
-    }
     if (providers.includes("stripe") && ((!paymentSettings.stripe_secret_key.trim() && !paymentConfiguredMap["billing.stripe_secret_key"]) || (!paymentSettings.stripe_webhook_secret.trim() && !paymentConfiguredMap["billing.stripe_webhook_secret"]))) {
       toast.error(t("toast.paymentIncomplete"), { description: t("toast.stripeRequired") });
       return;
@@ -1237,7 +1247,7 @@ export function AdminBillingPage() {
       setSavedPaymentSettings(next);
       toast.success(t("toast.paymentSaved"));
     } catch (error) {
-      toast.error(t("toast.paymentSaveFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.paymentSaveFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -1264,7 +1274,33 @@ export function AdminBillingPage() {
       }
     } catch (error) {
       setBillingMode(previous);
-      toast.error(t("toast.billingModeFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.billingModeFailed"), { description: resolveAdminErrorMessage(error) });
+    }
+  }
+
+  async function handleBillingDisplayCurrencyChange(nextCurrency: "USD" | "CNY") {
+    if (nextCurrency === billingDisplayCurrency) {
+      return;
+    }
+    const previous = billingDisplayCurrency;
+    setBillingDisplayCurrency(nextCurrency);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) {
+        toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
+        setBillingDisplayCurrency(previous);
+        return;
+      }
+      const result = await patchAdminBillingConfig(token, {
+        mode: billingMode,
+        displayCurrency: nextCurrency,
+      });
+      setBillingDisplayCurrency(result.config.displayCurrency === "CNY" ? "CNY" : "USD");
+      invalidateAdminReferenceDataCache();
+      toast.success(t("toast.displayCurrencySaved"));
+    } catch (error) {
+      setBillingDisplayCurrency(previous);
+      toast.error(t("toast.displayCurrencySaveFailed"), { description: resolveAdminErrorMessage(error) });
     }
   }
 
@@ -1292,16 +1328,21 @@ export function AdminBillingPage() {
       invalidateAdminReferenceDataCache();
       toast.success(t("toast.nativeToolBillingSaved"));
     } catch (error) {
-      toast.error(t("toast.nativeToolBillingSaveFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.nativeToolBillingSaveFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setNativeToolBillingSaving(false);
     }
   }
 
-  async function handlePrepaidAmountSave() {
+  async function handleBillingConfigSave() {
     const amount = Number(prepaidAmount);
-    if (!Number.isFinite(amount) || amount < 0) {
+    const usdToCnyRate = Number(billingUsdToCnyRate);
+    if (billingMode !== "self" && (!Number.isFinite(amount) || amount < 0)) {
       toast.error(t("toast.prepaidInvalid"), { description: t("toast.prepaidInvalidDescription") });
+      return;
+    }
+    if (!Number.isFinite(usdToCnyRate) || usdToCnyRate <= 0) {
+      toast.error(t("toast.usdToCnyRateInvalid"), { description: t("toast.usdToCnyRateInvalidDescription") });
       return;
     }
     setSaving(true);
@@ -1313,15 +1354,19 @@ export function AdminBillingPage() {
       }
       const result = await patchAdminBillingConfig(token, {
         mode: billingMode,
-        prepaidAmountUSD: amount,
+        prepaidAmountUSD: billingMode !== "self" ? amount : undefined,
+        usdToCNYRate: usdToCnyRate,
       });
       const nextAmount = formatBillingAmountInput(result.config.prepaidAmountUSD);
+      const nextUsdToCnyRate = formatBillingAmountInput(result.config.usdToCNYRate);
       setPrepaidAmount(nextAmount);
       setSavedPrepaidAmount(nextAmount);
+      setBillingUsdToCnyRate(nextUsdToCnyRate);
+      setSavedBillingUsdToCnyRate(nextUsdToCnyRate);
       invalidateAdminReferenceDataCache();
-      toast.success(t("toast.prepaidSaved"));
+      toast.success(t("toast.billingConfigSaved"));
     } catch (error) {
-      toast.error(t("toast.prepaidSaveFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.billingConfigSaveFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -1357,7 +1402,7 @@ export function AdminBillingPage() {
       setEditRow(null);
       setForm(null);
     } catch (error) {
-      toast.error(t("toast.pricingSaveFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.pricingSaveFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -1445,7 +1490,7 @@ export function AdminBillingPage() {
       invalidateAdminReferenceDataCache();
       toast.success(t("toast.imported", { count: parsed.items.length }));
     } catch (error) {
-      toast.error(t("toast.importFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.importFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -1484,7 +1529,7 @@ export function AdminBillingPage() {
       toast.success(checked ? t("toast.freeEnabled") : t("toast.freeDisabled"));
     } catch (error) {
       setPricingItems(previousPricingItems);
-      toast.error(t("toast.freeSaveFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.freeSaveFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setFreeSwitchPendingModel("");
     }
@@ -1515,7 +1560,7 @@ export function AdminBillingPage() {
       setEditPlan(null);
       setPlanForm(null);
     } catch (error) {
-      toast.error(t("toast.planSaveFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.planSaveFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -1652,7 +1697,10 @@ export function AdminBillingPage() {
       return t("redemption.unavailableSelf");
     }
     const codeMode = item.mode === "period" ? "period" : "usage";
-    if (billingMode !== codeMode) {
+    const modeAllowed = billingMode === "period"
+      ? codeMode === "usage" || codeMode === "period"
+      : billingMode === codeMode;
+    if (!modeAllowed) {
       return t("redemption.unavailableModeMismatch", {
         currentMode: redemptionModeLabel(billingMode),
         codeMode: redemptionModeLabel(codeMode),
@@ -1723,16 +1771,23 @@ export function AdminBillingPage() {
               >
                 <Switch size="sm" checked={stripeEnabled} disabled={loading || saving} onCheckedChange={(checked) => setPaymentProviderEnabled("stripe", checked)} />
               </SettingsFieldRow>
-              <SettingsCollapsibleContent open={stripeEnabled} contentClassName="space-y-4">
+              <CollapsibleMotionContent open={stripeEnabled} contentClassName="space-y-4">
                 <SettingsFieldRow
                   title={t("payment.stripeWebhookEndpoint")}
                   description={t("payment.stripeWebhookEndpointDescription")}
                 >
                   <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1">
                     <Input value={stripeWebhookEndpoint} className="min-w-0 truncate text-left text-xs md:text-right" readOnly />
-                    <Button type="button" variant="secondary" size="icon" className="size-8 shrink-0 rounded-md shadow-none active:scale-90 transition-transform" onClick={() => void copyStripeWebhookEndpoint()} aria-label={tActions("copy")} title={tActions("copy")}>
-                      <Copy className="size-3.5" />
-                    </Button>
+                    <CopyActionButton
+                      type="button"
+                      variant="secondary"
+                      size="icon"
+                      className="size-8 shrink-0 rounded-md shadow-none active:scale-90 transition-transform"
+                      value={stripeWebhookEndpoint}
+                      messages={{ copied: tActions("copied"), failed: tCommonErrors("copyFailed") }}
+                      aria-label={tActions("copy")}
+                      title={tActions("copy")}
+                    />
                   </div>
                 </SettingsFieldRow>
                 <SettingsFieldRow
@@ -1753,7 +1808,7 @@ export function AdminBillingPage() {
                 >
                   <Input value={paymentSettings.stripe_webhook_secret} className="text-right" type="password" disabled={loading || saving} placeholder={paymentConfiguredMap["billing.stripe_webhook_secret"] ? tInput("configuredPasswordPlaceholder") : "whsec_..."} onChange={(event) => updatePaymentSetting("stripe_webhook_secret", event.target.value)} />
                 </SettingsFieldRow>
-              </SettingsCollapsibleContent>
+              </CollapsibleMotionContent>
             </TabsContent>
 
             <TabsContent value="epay" className="mt-4 space-y-4">
@@ -1763,19 +1818,7 @@ export function AdminBillingPage() {
               >
                 <Switch size="sm" checked={epayEnabled} disabled={loading || saving} onCheckedChange={(checked) => setPaymentProviderEnabled("epay", checked)} />
               </SettingsFieldRow>
-              <SettingsCollapsibleContent open={epayEnabled} contentClassName="space-y-4">
-                <SettingsFieldRow
-                  title={t("payment.usdToCnyRate")}
-                  description={t("payment.usdToCnyRateDescription")}
-                >
-                  <Input
-                    id="billing.usd_to_cny_rate"
-                    value={paymentSettings.usd_to_cny_rate}
-                    className="text-right"
-                    disabled={loading || saving}
-                    onChange={(event) => updatePaymentSetting("usd_to_cny_rate", event.target.value)}
-                  />
-                </SettingsFieldRow>
+              <CollapsibleMotionContent open={epayEnabled} contentClassName="space-y-4">
                 <SettingsFieldRow
                   title={t("payment.epayGateway")}
                   description={t("payment.epayGatewayDescription")}
@@ -1809,7 +1852,7 @@ export function AdminBillingPage() {
                     />
                   </div>
                 </Field>
-              </SettingsCollapsibleContent>
+              </CollapsibleMotionContent>
             </TabsContent>
           </Tabs>
         </div>
@@ -1840,8 +1883,49 @@ export function AdminBillingPage() {
               </div>
             </SettingsFieldRow>
           </SettingsFieldItem>
+          <SettingsFieldItem index={1}>
+            <SettingsFieldRow
+              title={t("billingConfig.displayCurrency")}
+              description={t("billingConfig.displayCurrencyDescription")}
+            >
+              <div className="w-full">
+                <Select
+                  value={billingDisplayCurrency}
+                  onValueChange={(value) => void handleBillingDisplayCurrencyChange(value as "USD" | "CNY")}
+                  disabled={loading || saving}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    <SelectItem value="USD">{t("billingConfig.displayCurrencies.usd")}</SelectItem>
+                    <SelectItem value="CNY">{t("billingConfig.displayCurrencies.cny")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </SettingsFieldRow>
+          </SettingsFieldItem>
+          <SettingsFieldItem index={2}>
+            <SettingsFieldRow
+              title={t("billingConfig.usdToCnyRate")}
+              description={t("billingConfig.usdToCnyRateDescription")}
+            >
+              <div className="w-full">
+                <Input
+                  id="billing.usd_to_cny_rate"
+                  type="number"
+                  min={0.000001}
+                  step="0.0001"
+                  value={billingUsdToCnyRate}
+                  className="text-right"
+                  disabled={loading || saving}
+                  onChange={(event) => setBillingUsdToCnyRate(event.target.value)}
+                />
+              </div>
+            </SettingsFieldRow>
+          </SettingsFieldItem>
           {billingMode !== "self" ? (
-            <SettingsFieldItem index={1}>
+            <SettingsFieldItem index={3}>
               <SettingsFieldRow
                 title={t("billingConfig.prepaidAmount")}
                 description={t("billingConfig.prepaidAmountDescription")}
@@ -2061,7 +2145,7 @@ export function AdminBillingPage() {
               {
                 key: "copy-codes",
                 label: t("redemption.copySelected"),
-                icon: <Copy className="size-3.5 stroke-1" />,
+                icon: isCopied("selected-redemption-codes") ? <Check className="size-3.5 stroke-1" /> : <Copy className="size-3.5 stroke-1" />,
                 onClick: () => void copySelectedRedemptionCodes(),
               },
               {
@@ -2098,7 +2182,11 @@ export function AdminBillingPage() {
             </Button>
           </TableToolbar>
 
-          <Table>
+          <Table
+            viewportRef={redemptionVirtualRows.viewportRef}
+            viewportClassName={redemptionVirtualRows.viewportClassName}
+            viewportStyle={redemptionVirtualRows.viewportStyle}
+          >
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[44px] py-1.5 text-center">
@@ -2120,10 +2208,11 @@ export function AdminBillingPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {redemptionTableLoading ? <TableSkeletonRows colSpan={8} rowCount={4} /> : null}
+              {redemptionInitialLoading ? <TableLoadingRow colSpan={8} /> : null}
               {!redemptionTableLoading && redemptionCodes.length === 0 ? <TableEmptyRow colSpan={8}>{t("redemption.empty")}</TableEmptyRow> : null}
-              {!redemptionTableLoading
-                ? redemptionCodes.map((item) => {
+              {showRedemptionRows ? <VirtualTablePaddingRow colSpan={8} height={redemptionVirtualRows.paddingTop} /> : null}
+              {showRedemptionRows
+                ? redemptionVirtualRows.rows.map(({ item }) => {
                   const unavailableReason = redemptionUnavailableReason(item);
                   const displayCode = item.codeHint || "-";
                   const redemptionLimitTotal = item.maxRedemptions == null ? t("redemption.unlimited") : String(item.maxRedemptions);
@@ -2141,17 +2230,17 @@ export function AdminBillingPage() {
                       <TableCell className="w-[168px] max-w-[168px] py-1.5 font-mono text-xs">
                         <div className="flex h-7 items-center gap-1.5">
                           <span className="min-w-0 max-w-[112px] truncate">{displayCode}</span>
-                          <Button
+                          <CopyActionButton
                             type="button"
                             variant="ghost"
                             size="icon-xs"
                             className="h-6 w-6 text-muted-foreground shadow-none"
-                            disabled={redemptionCopyingID === item.id}
-                            onClick={() => void copyStoredRedemptionCode(item)}
+                            messages={{ copied: tActions("copied"), failed: t("toast.redemptionCopyFailed") }}
+                            resolveValue={() => fetchRedemptionCodePlaintext(item)}
+                            onResolveError={(error) => toast.error(t("toast.redemptionCopyFailed"), { description: resolveAdminErrorMessage(error) })}
+                            iconClassName="size-3.5 stroke-1.5"
                             aria-label={tActions("copy")}
-                          >
-                            <Copy className="size-3.5 stroke-1.5" />
-                          </Button>
+                          />
                           {unavailableReason ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -2229,6 +2318,7 @@ export function AdminBillingPage() {
                   );
                 })
                 : null}
+              {showRedemptionRows ? <VirtualTablePaddingRow colSpan={8} height={redemptionVirtualRows.paddingBottom} /> : null}
             </TableBody>
           </Table>
 
@@ -2237,7 +2327,6 @@ export function AdminBillingPage() {
             page={redemptionPage}
             pageCount={redemptionPageCount}
             pageSize={redemptionPageSize}
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
             onPageChange={setRedemptionPage}
             onPageSizeChange={(next) => {
               setRedemptionPageSize(next);
@@ -2374,7 +2463,11 @@ export function AdminBillingPage() {
             </Button>
           </TableToolbar>
 
-          <Table>
+          <Table
+            viewportRef={modelPricingVirtualRows.viewportRef}
+            viewportClassName={modelPricingVirtualRows.viewportClassName}
+            viewportStyle={modelPricingVirtualRows.viewportStyle}
+          >
             <TableHeader>
               <TableRow>
                 <TableHead className="min-w-[210px]">{t("modelPricing.platformModel")}</TableHead>
@@ -2386,10 +2479,11 @@ export function AdminBillingPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? <TableSkeletonRows colSpan={6} rowCount={10} /> : null}
+              {modelPricingInitialLoading ? <TableLoadingRow colSpan={6} /> : null}
               {!loading && pageRows.length === 0 ? <TableEmptyRow colSpan={6}>{t("modelPricing.empty")}</TableEmptyRow> : null}
-              {!loading
-                ? pageRows.map((row) => {
+              {showModelPricingRows ? <VirtualTablePaddingRow colSpan={6} height={modelPricingVirtualRows.paddingTop} /> : null}
+              {showModelPricingRows
+                ? modelPricingVirtualRows.rows.map(({ item: row }) => {
                     const identity = resolveModelIdentity({
                       code: row.platformModelName,
                       vendor: row.vendor,
@@ -2447,6 +2541,7 @@ export function AdminBillingPage() {
                     );
                   })
                 : null}
+              {showModelPricingRows ? <VirtualTablePaddingRow colSpan={6} height={modelPricingVirtualRows.paddingBottom} /> : null}
             </TableBody>
           </Table>
 
@@ -2455,7 +2550,6 @@ export function AdminBillingPage() {
             page={page}
             pageCount={pageCount}
             pageSize={pageSize}
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
             onPageChange={setPage}
             onPageSizeChange={(next) => {
               setPageSize(next);
@@ -2484,7 +2578,7 @@ export function AdminBillingPage() {
             </SettingsFieldRow>
           </SettingsFieldItem>
         </SettingsFieldList>
-        <SettingsCollapsibleContent open={nativeToolBillingEnabled} contentClassName="mt-5 space-y-2">
+        <CollapsibleMotionContent open={nativeToolBillingEnabled} contentClassName="mt-5 space-y-2">
             <p className="px-1 text-[11px] leading-5 text-muted-foreground">
               {t("toolPricing.nativeToolCount", { count: nativeToolPricing.length })}
             </p>
@@ -2549,7 +2643,7 @@ export function AdminBillingPage() {
             </Table>
             <p className="text-[11px] leading-5 text-muted-foreground">{t("toolPricing.defaultPriceDescription")}</p>
             <p className="text-[11px] leading-5 text-muted-foreground">{t("toolPricing.note")}</p>
-        </SettingsCollapsibleContent>
+        </CollapsibleMotionContent>
       </SettingsSection>
 
       <PlanBillingDialog
@@ -2913,25 +3007,31 @@ export function AdminBillingPage() {
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-2">
             <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-medium">{t("redemption.createdCodes")}</p>
-              <Button type="button" variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs shadow-none" onClick={() => void copyCreatedRedemptionCodes()}>
-                <Copy className="size-3.5" />
+              <CopyActionButton
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs shadow-none"
+                value={createdRedemptionCodes.join("\n")}
+                messages={{ copied: tActions("copied"), failed: tCommonErrors("copyFailed") }}
+                disabled={createdRedemptionCodes.length === 0}
+              >
                 {t("redemption.copyAll")}
-              </Button>
+              </CopyActionButton>
             </div>
             <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
               {createdRedemptionCodes.map((code) => (
                 <div key={code} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-border/60 bg-muted/25 px-3 py-2">
                   <span className="min-w-0 break-all font-mono text-xs">{code}</span>
-                  <Button
+                  <CopyActionButton
                     type="button"
                     variant="ghost"
                     size="icon-sm"
                     className="text-muted-foreground"
-                    onClick={() => void copyRedemptionText(code)}
+                    value={code}
+                    messages={{ copied: tActions("copied"), failed: tCommonErrors("copyFailed") }}
                     aria-label={tActions("copy")}
-                  >
-                    <Copy className="size-3.5" />
-                  </Button>
+                  />
                 </div>
               ))}
             </div>

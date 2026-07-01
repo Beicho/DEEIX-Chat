@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { CircleHelp, Save } from "lucide-react";
+import { CircleHelp, Download, Save } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
-import { TaskModelField, type ModelOption } from "../shared/model-field";
+import { TaskModelField, type ModelOption } from "../shared/task-model-field";
 import { SettingsFieldEditor } from "../shared/settings-runtime-panel";
+import { ConversationPromptPresetsSection } from "@/features/admin/components/sections/conversation/conversation-prompt-presets";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,23 +22,26 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import {
+  SettingsFieldInset,
   SettingsFieldItem,
   SettingsFieldList,
+  SettingsFieldRow,
   SettingsPage,
   SettingsSection,
   SettingsSectionSeparator,
 } from "@/shared/components/settings-layout";
-import { getAdminReferenceData, listAdminSettings, patchAdminSettings } from "@/features/admin/api";
+import { exportAllConversations, getAdminReferenceData, listAdminSettings, patchAdminSettings } from "@/features/admin/api";
 import {
   applyConversationDefaults,
   buildConversationSettingsFields,
   CONVERSATION_TASK_MODEL_FOLLOW,
   fieldID,
   flattenConversationSettings,
-  resolveErrorMessage,
+  resolveVisibleConversationFields,
   toEditorField,
   type ConversationSettingsField,
 } from "@/features/admin/model/conversation-settings";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { buildTaskModelOptions } from "@/features/admin/model/task-model-options";
 import type { PatchSettingItem } from "@/shared/api/settings.types";
 import {
@@ -50,7 +54,7 @@ import {
 } from "@/shared/lib/model-option-policy";
 
 function isModelOptionPolicyField(field: ConversationSettingsField): boolean {
-  return field.key.startsWith("model_option_");
+  return field.section === "optionPassthrough";
 }
 
 type ModelOptionPreviewRow = {
@@ -223,10 +227,6 @@ generationConfig.safetySettings.threshold`}
     "reasoning.effort",
     "text.verbosity"
   ],
-  "openrouter_responses": [
-    "reasoning.effort",
-    "reasoning.summary"
-  ],
   "openai_image_generations": [
     "background",
     "moderation",
@@ -273,6 +273,15 @@ generationConfig.safetySettings.threshold`}
     "service_tier",
     "thinking.type"
   ],
+  "openrouter_chat_completions": [
+    "reasoning_effort",
+    "reasoning.effort",
+    "thinking.type"
+  ],
+  "openrouter_responses": [
+    "reasoning.effort",
+    "reasoning.summary"
+  ],
   "anthropic_messages": [
     "speed",
     "thinking.type",
@@ -306,7 +315,7 @@ generationConfig.safetySettings.threshold`}
             <h4 className="text-sm font-medium text-foreground">{t("guide.protocolTitle")}</h4>
             <p className="text-xs">{t("guide.protocolDescription")}</p>
             <div className="flex flex-wrap gap-1.5">
-              {["default", "openai_chat_completions", "openai_responses", "openrouter_responses", "openai_image_generations", "openai_image_edits", "google_image_generation", "xai_image", "xai_image_edits", "anthropic_messages", "xai_responses", "gemini_generate_content"].map((item) => (
+              {["default", "openai_chat_completions", "openrouter_chat_completions", "openai_responses", "openrouter_responses", "openai_image_generations", "openai_image_edits", "google_image_generation", "xai_image", "xai_image_edits", "anthropic_messages", "xai_responses", "gemini_generate_content"].map((item) => (
                 <code key={item} className="rounded-md bg-muted/60 px-2 py-1 text-xs text-foreground">{item}</code>
               ))}
             </div>
@@ -346,6 +355,29 @@ export function AdminConversationSettingsPage() {
       followValue: CONVERSATION_TASK_MODEL_FOLLOW,
     }),
   );
+  const [exporting, setExporting] = React.useState(false);
+
+  const handleExportConversations = React.useCallback(async () => {
+    setExporting(true);
+    try {
+      const token = await resolveAccessToken();
+      if (!token) return;
+      const { blob, fileName } = await exportAllConversations(token);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error(t("dataExport.failed"));
+    } finally {
+      setExporting(false);
+    }
+  }, [t]);
 
   const loadSettings = React.useCallback(async () => {
     setLoading(true);
@@ -369,7 +401,7 @@ export function AdminConversationSettingsPage() {
       setSettingsMap(flattened);
       setSavedMap(flattened);
     } catch (error) {
-      toast.error(t("toast.loadFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.loadFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setLoading(false);
     }
@@ -390,8 +422,8 @@ export function AdminConversationSettingsPage() {
     return result;
   }, [conversationSettingsFields, savedMap, settingsMap]);
 
-  const handleSave = React.useCallback(async () => {
-    const items: PatchSettingItem[] = conversationSettingsFields
+  const handleSave = React.useCallback(async (fields: ConversationSettingsField[]) => {
+    const items: PatchSettingItem[] = fields
       .filter((field) => dirtyFieldIDs.has(fieldID(field)))
       .map((field) => ({
         namespace: field.namespace,
@@ -414,19 +446,27 @@ export function AdminConversationSettingsPage() {
       setSavedMap(flattened);
       toast.success(t("toast.updated"));
     } catch (error) {
-      toast.error(t("toast.saveFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.saveFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setSaving(false);
     }
-  }, [conversationSettingsFields, dirtyFieldIDs, settingsMap, t]);
+  }, [dirtyFieldIDs, settingsMap, t]);
 
+  const visibleConversationSettingsFields = React.useMemo(
+    () => resolveVisibleConversationFields(conversationSettingsFields, settingsMap),
+    [conversationSettingsFields, settingsMap],
+  );
   const conversationFields = React.useMemo(
-    () => conversationSettingsFields.filter((field) => !isModelOptionPolicyField(field)),
-    [conversationSettingsFields],
+    () => visibleConversationSettingsFields.filter((field) => field.section === "conversation"),
+    [visibleConversationSettingsFields],
+  );
+  const contextCompressionFields = React.useMemo(
+    () => visibleConversationSettingsFields.filter((field) => field.section === "contextCompression"),
+    [visibleConversationSettingsFields],
   );
   const modelOptionFields = React.useMemo(
-    () => conversationSettingsFields.filter(isModelOptionPolicyField),
-    [conversationSettingsFields],
+    () => visibleConversationSettingsFields.filter(isModelOptionPolicyField),
+    [visibleConversationSettingsFields],
   );
   const modelOptionMode = settingsMap["chat.model_option_policy_mode"] || "allowlist";
   const modelOptionModeField = React.useMemo(
@@ -453,7 +493,7 @@ export function AdminConversationSettingsPage() {
   );
   const renderSaveAction = React.useCallback(
     (fields: ConversationSettingsField[]) => hasDirtyField(fields) ? (
-      <Button type="button" size="sm" disabled={loading || saving} onClick={() => void handleSave()}>
+      <Button type="button" size="sm" disabled={loading || saving} onClick={() => void handleSave(fields)}>
         <Save className="size-3.5" />
         {commonT("actions.save")}
       </Button>
@@ -461,6 +501,7 @@ export function AdminConversationSettingsPage() {
     [commonT, handleSave, hasDirtyField, loading, saving],
   );
   const modelOptionActions = renderSaveAction(modelOptionFields);
+  const contextCompressionActions = renderSaveAction(contextCompressionFields);
   const conversationActions = renderSaveAction(conversationFields);
 
   function renderField(
@@ -468,26 +509,10 @@ export function AdminConversationSettingsPage() {
     index: number,
     options?: {
       animateLayout?: boolean;
+      inset?: boolean;
     },
   ) {
     const id = fieldID(field);
-    if (id === "chat.conversation_task_model") {
-      return (
-        <SettingsFieldItem key={id} index={index}>
-          <TaskModelField
-            id={id}
-            label={field.label}
-            description={field.description}
-            value={settingsMap[id] ?? ""}
-            fallbackValue={CONVERSATION_TASK_MODEL_FOLLOW}
-            dirty={(settingsMap[id] ?? "") !== (savedMap[id] ?? "")}
-            disabled={loading || saving}
-            modelOptions={modelOptions}
-            onChange={(value) => setSettingsMap((prev) => ({ ...prev, [id]: value }))}
-          />
-        </SettingsFieldItem>
-      );
-    }
     const labelAction =
       field.key === "model_option_allowed_paths" || field.key === "model_option_denied_paths"
         ? <ModelOptionPolicyGuideButton t={t} />
@@ -501,18 +526,34 @@ export function AdminConversationSettingsPage() {
           t={t}
         />
       ) : undefined;
+    const content = id === "chat.conversation_task_model" || id === "chat.compact_task_model" ? (
+      <TaskModelField
+        id={id}
+        label={field.label}
+        description={field.description}
+        value={settingsMap[id] ?? ""}
+        fallbackValue={CONVERSATION_TASK_MODEL_FOLLOW}
+        dirty={(settingsMap[id] ?? "") !== (savedMap[id] ?? "")}
+        disabled={loading || saving}
+        modelOptions={modelOptions}
+        onChange={(value) => setSettingsMap((prev) => ({ ...prev, [id]: value }))}
+      />
+    ) : (
+      <SettingsFieldEditor
+        field={toEditorField(field)}
+        value={settingsMap[id] ?? ""}
+        dirty={(settingsMap[id] ?? "") !== (savedMap[id] ?? "")}
+        disabled={loading || saving}
+        labelAction={labelAction}
+        afterControl={afterControl}
+        animateLayout={options?.animateLayout ?? true}
+        onChange={(value) => setSettingsMap((prev) => ({ ...prev, [id]: value }))}
+      />
+    );
+
     return (
       <SettingsFieldItem key={id} index={index}>
-        <SettingsFieldEditor
-          field={toEditorField(field)}
-          value={settingsMap[id] ?? ""}
-          dirty={(settingsMap[id] ?? "") !== (savedMap[id] ?? "")}
-          disabled={loading || saving}
-          labelAction={labelAction}
-          afterControl={afterControl}
-          animateLayout={options?.animateLayout ?? true}
-          onChange={(value) => setSettingsMap((prev) => ({ ...prev, [id]: value }))}
-        />
+        {options?.inset ? <SettingsFieldInset>{content}</SettingsFieldInset> : content}
       </SettingsFieldItem>
     );
   }
@@ -527,6 +568,18 @@ export function AdminConversationSettingsPage() {
 
       <SettingsSectionSeparator />
 
+      <SettingsSection title={t("sections.contextCompression")} actions={contextCompressionActions}>
+        <SettingsFieldList>
+          {contextCompressionFields.map((field, index) => renderField(field, index, { inset: Boolean(field.subgroupKey) }))}
+        </SettingsFieldList>
+      </SettingsSection>
+
+      <SettingsSectionSeparator />
+
+      <ConversationPromptPresetsSection />
+
+      <SettingsSectionSeparator />
+
       <SettingsSection title={t("sections.optionPassthrough")} actions={modelOptionActions}>
         <SettingsFieldList>
           {modelOptionModeField ? renderField(modelOptionModeField, 0) : null}
@@ -535,6 +588,29 @@ export function AdminConversationSettingsPage() {
               animateLayout: false,
             })
             : null}
+        </SettingsFieldList>
+      </SettingsSection>
+
+      <SettingsSectionSeparator />
+
+      <SettingsSection title={t("sections.dataExport")}>
+        <SettingsFieldList>
+          <SettingsFieldItem>
+            <SettingsFieldRow
+              title={t("dataExport.title")}
+              description={t("dataExport.description")}
+            >
+              <Button
+                variant="default"
+                size="sm"
+                disabled={exporting}
+                onClick={handleExportConversations}
+              >
+                <Download className="size-3.5" />
+                {t("dataExport.exportButton")}
+              </Button>
+            </SettingsFieldRow>
+          </SettingsFieldItem>
         </SettingsFieldList>
       </SettingsSection>
     </SettingsPage>

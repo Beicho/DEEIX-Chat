@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronDown, Globe2, Info, SlidersHorizontal, Terminal } from "lucide-react";
+import { Check, ChevronDown, Globe2, Info, SlidersHorizontal, Star, Terminal } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
@@ -40,6 +40,7 @@ type ChatMCPProps = {
   availableTools: MCPToolDTO[];
   selectedToolIDs: number[];
   confirmedToolIDs: number[];
+  defaultToolIDs: number[];
   webSearchEnabled: boolean;
   codeSandboxEnabled: boolean;
   researchMaxLLMCalls: number;
@@ -48,18 +49,47 @@ type ChatMCPProps = {
   disabled: boolean;
   onSelectedToolsChange: (toolIDs: number[]) => void;
   onConfirmedToolsChange: (toolIDs: number[]) => void;
+  onDefaultToolsChange: (toolIDs: number[]) => void | Promise<void>;
   onWebSearchEnabledChange: (enabled: boolean) => void;
   onCodeSandboxEnabledChange: (enabled: boolean) => void;
   onResearchMaxLLMCallsChange: (value: number) => void;
   onResearchMaxToolCallsChange: (value: number) => void;
 };
 
+type MCPToolRowActionProps = React.ComponentPropsWithoutRef<"button"> & {
+  label: string;
+};
+
+function MCPToolRowAction({
+  label,
+  className,
+  children,
+  ...props
+}: MCPToolRowActionProps) {
+  return (
+    <button
+      {...props}
+      type="button"
+      aria-label={label}
+      title={label}
+      className={cn(
+        "flex size-8 shrink-0 items-center justify-center rounded-md text-foreground/45 outline-none transition-[background-color,color] duration-150 hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function resolveMCPToolLabel(tool: MCPToolDTO, fallback: string): string {
-  return tool.displayName.trim() || tool.name.trim() || fallback;
+  const displayName = typeof tool.displayName === "string" ? tool.displayName.trim() : "";
+  const name = typeof tool.name === "string" ? tool.name.trim() : "";
+  return displayName || name || fallback;
 }
 
 function resolveMCPToolServerName(tool: MCPToolDTO): string {
-  return tool.serverName?.trim() ?? "";
+  return typeof tool.serverName === "string" ? tool.serverName.trim() : "";
 }
 
 function resolveMCPToolServerKey(tool: MCPToolDTO): string {
@@ -134,6 +164,7 @@ export function ChatMCP({
   availableTools,
   selectedToolIDs,
   confirmedToolIDs,
+  defaultToolIDs,
   webSearchEnabled,
   codeSandboxEnabled,
   researchMaxLLMCalls,
@@ -142,6 +173,7 @@ export function ChatMCP({
   disabled,
   onSelectedToolsChange,
   onConfirmedToolsChange,
+  onDefaultToolsChange,
   onWebSearchEnabledChange,
   onCodeSandboxEnabledChange,
   onResearchMaxLLMCallsChange,
@@ -155,6 +187,7 @@ export function ChatMCP({
   const [expandedServerKeys, setExpandedServerKeys] = React.useState<Set<string>>(() => new Set());
   const selectedToolIDSet = React.useMemo(() => new Set(selectedToolIDs), [selectedToolIDs]);
   const confirmedToolIDSet = React.useMemo(() => new Set(confirmedToolIDs), [confirmedToolIDs]);
+  const defaultToolIDSet = React.useMemo(() => new Set(defaultToolIDs), [defaultToolIDs]);
   const selectedToolCount = selectedToolIDs.length + (webSearchEnabled ? 1 : 0) + (codeSandboxEnabled ? 1 : 0);
   const selectionLimit = resolveToolSelectionLimit(maxSelectedTools);
   const toolGroups = React.useMemo(
@@ -222,6 +255,43 @@ export function ChatMCP({
       onConfirmedToolsChange(confirmedToolIDs.filter((item) => item !== toolID));
     },
     [confirmedToolIDs, confirmedToolIDSet, onConfirmedToolsChange],
+  );
+
+  const toggleDefaultTool = React.useCallback(
+    (toolID: number) => {
+      if (defaultToolIDSet.has(toolID)) {
+        void onDefaultToolsChange(defaultToolIDs.filter((id) => id !== toolID));
+        return;
+      }
+      if (defaultToolIDs.length >= selectionLimit) {
+        showToolLimitToast();
+        return;
+      }
+      void onDefaultToolsChange([...defaultToolIDs, toolID]);
+    },
+    [defaultToolIDs, defaultToolIDSet, onDefaultToolsChange, selectionLimit, showToolLimitToast],
+  );
+
+  const toggleDefaultToolGroup = React.useCallback(
+    (tools: MCPToolDTO[]) => {
+      const toolIDs = tools.map((tool) => tool.id);
+      if (toolIDs.length === 0) {
+        return;
+      }
+      const allDefault = toolIDs.every((toolID) => defaultToolIDSet.has(toolID));
+      if (allDefault) {
+        const removeSet = new Set(toolIDs);
+        void onDefaultToolsChange(defaultToolIDs.filter((id) => !removeSet.has(id)));
+        return;
+      }
+      const missingIDs = toolIDs.filter((toolID) => !defaultToolIDSet.has(toolID));
+      if (defaultToolIDs.length + missingIDs.length > selectionLimit) {
+        showToolLimitToast();
+        return;
+      }
+      void onDefaultToolsChange([...defaultToolIDs, ...missingIDs]);
+    },
+    [defaultToolIDs, defaultToolIDSet, onDefaultToolsChange, selectionLimit, showToolLimitToast],
   );
 
   const onResearchLimitChange = React.useCallback((kind: "llm" | "tool", rawValue: string) => {
@@ -385,6 +455,9 @@ export function ChatMCP({
           const groupState = toolSelectionState(group.tools);
           const expanded = hasSearch || expandedServerKeys.has(group.key);
           const overLimit = group.tools.length > selectionLimit;
+          const defaultCount = group.tools.filter((tool) => defaultToolIDSet.has(tool.id)).length;
+          const allDefault = group.tools.length > 0 && defaultCount === group.tools.length;
+          const hasDefault = defaultCount > 0;
           return (
             <div key={group.key} className="mb-1">
               <div
@@ -421,6 +494,29 @@ export function ChatMCP({
                 >
                   {groupState.allSelected ? tComposer("mcpClearServerTools") : tComposer("mcpSelectServerTools")}
                 </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <MCPToolRowAction
+                      label={allDefault
+                        ? tComposer("mcpUnsetDefaultServerTools", { server: group.serverName })
+                        : tComposer("mcpSetDefaultServerTools", { server: group.serverName })}
+                      className={cn("size-7", hasDefault && "text-amber-500 hover:text-amber-500 focus-visible:text-amber-500")}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleDefaultToolGroup(group.tools);
+                      }}
+                    >
+                      <Star
+                        className="size-3.5"
+                        strokeWidth={1.8}
+                        fill={allDefault ? "currentColor" : "none"}
+                      />
+                    </MCPToolRowAction>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" align="center" sideOffset={6} className="text-xs">
+                    {allDefault ? tComposer("mcpDefaultServerToolsEnabled") : tComposer("mcpDefaultServerToolsDisabled")}
+                  </TooltipContent>
+                </Tooltip>
                 <Checkbox
                   checked={groupState.allSelected ? true : groupState.partiallySelected ? "indeterminate" : false}
                   className="mr-1"
@@ -443,6 +539,7 @@ export function ChatMCP({
                         const checked = selectedToolIDSet.has(tool.id);
                         const confirmationRequired = Boolean(tool.requiresConfirmation);
                         const confirmed = confirmedToolIDSet.has(tool.id);
+                        const isDefault = defaultToolIDSet.has(tool.id);
                         const label = resolveMCPToolLabel(tool, tComposer("tool", { id: tool.id }));
                         const description = (tool.description ?? "").trim() || tComposer("noToolDescription");
                         return (
@@ -476,13 +573,32 @@ export function ChatMCP({
                             </span>
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  aria-label={tComposer("viewToolDescription")}
-                                  className="relative ml-1 flex size-6 shrink-0 items-center justify-center rounded-md text-current outline-none transition-colors after:absolute after:-inset-2 after:content-[''] hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground md:after:hidden"
+                                <MCPToolRowAction
+                                  label={isDefault
+                                    ? tComposer("mcpUnsetDefaultTool", { tool: label })
+                                    : tComposer("mcpSetDefaultTool", { tool: label })}
+                                  className={cn("size-6", isDefault && "text-amber-500 hover:text-amber-500 focus-visible:text-amber-500")}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    toggleDefaultTool(tool.id);
+                                  }}
                                 >
+                                  <Star
+                                    className="size-3.5"
+                                    strokeWidth={1.8}
+                                    fill={isDefault ? "currentColor" : "none"}
+                                  />
+                                </MCPToolRowAction>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" align="center" sideOffset={6} className="text-xs">
+                                {isDefault ? tComposer("mcpDefaultToolEnabled") : tComposer("mcpDefaultToolDisabled")}
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <MCPToolRowAction label={tComposer("viewToolDescription")} className="size-6">
                                   <Info className="size-3.5" strokeWidth={1.8} />
-                                </button>
+                                </MCPToolRowAction>
                               </TooltipTrigger>
                               <TooltipContent
                                 side="right"

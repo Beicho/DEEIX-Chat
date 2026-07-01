@@ -56,6 +56,16 @@ func DefaultModelOptionAllowedPathsJSON() string {
     "thinking.type",
     "stream_options.include_usage"
   ],
+  "openrouter_chat_completions": [
+    "presence_penalty",
+    "frequency_penalty",
+    "reasoning_effort",
+    "reasoning.effort",
+    "reasoning.summary",
+    "verbosity",
+    "thinking.type",
+    "stream_options.include_usage"
+  ],
   "openai_responses": [
     "service_tier",
     "reasoning.effort",
@@ -194,10 +204,12 @@ type yamlConfig struct {
 			TempStore     string `yaml:"temp_store"`
 		} `yaml:"sqlite"`
 		Redis struct {
-			Addr     string `yaml:"addr"`
-			Username string `yaml:"username"`
-			Password string `yaml:"password"`
-			DB       int    `yaml:"db"`
+			Addr                  string `yaml:"addr"`
+			Username              string `yaml:"username"`
+			Password              string `yaml:"password"`
+			DB                    int    `yaml:"db"`
+			TLSEnabled            *bool  `yaml:"tls_enabled"`
+			TLSInsecureSkipVerify *bool  `yaml:"tls_insecure_skip_verify"`
 		} `yaml:"redis"`
 	} `yaml:"database"`
 	Cache struct {
@@ -234,6 +246,7 @@ type yamlConfig struct {
 			Endpoint     string  `yaml:"endpoint"`
 			Headers      string  `yaml:"headers"`
 			Insecure     *bool   `yaml:"insecure"`
+			Protocol     string  `yaml:"protocol"`
 			SamplingRate float64 `yaml:"sampling_rate"`
 		} `yaml:"tracing"`
 	} `yaml:"observability"`
@@ -277,6 +290,8 @@ type Config struct {
 	RedisUsername                string
 	RedisPassword                string
 	RedisDB                      int
+	RedisTLSEnabled              bool
+	RedisTLSInsecureSkipVerify   bool
 	StorageBackend               string
 	StorageRootDir               string
 	StorageS3Endpoint            string
@@ -306,6 +321,7 @@ type Config struct {
 	OTelExporterOTLPEndpoint     string
 	OTelExporterOTLPHeaders      string
 	OTelExporterOTLPInsecure     bool
+	OTelExporterOTLPProtocol     string
 	OTelSamplingRate             float64
 
 	// ── 动态配置（由 DB 种子初始化默认值，settings.RuntimeSettings.ApplyTo 覆盖） ──
@@ -323,6 +339,7 @@ type Config struct {
 	EmailRegistrationEnabled     bool
 	EmailVerificationEnabled     bool
 	InviteRegistrationRequired   bool
+	PasswordResetEnabled         bool
 	EmailRegistrationDomains     string
 	EmailRegistrationNoAlias     bool
 	AutoLinkVerifiedEmail        bool
@@ -333,12 +350,14 @@ type Config struct {
 	MaxContextMessages       int
 	ContextMaxTurns          int
 	ContextMaxInputTokens    int
+	ContextCompactEnabled    bool
 	ContextCompactTrigger    int
 	ContextCompactPreserve   int
 	ConversationTaskModel    string
 	ConversationTitlePrompt  string
 	ConversationLabelsPrompt string
 	DefaultSystemPrompt      string
+	SkillsPrompt             string
 	ModelOptionPolicyMode    string
 	ModelOptionAllowedPaths  string
 	ModelOptionDeniedPaths   string
@@ -464,6 +483,7 @@ type Config struct {
 	MCPMaxSelectedToolsPerMessage int
 	MCPMaxLLMCallsPerRun          int
 	MCPMaxToolCallsPerRun         int
+	MCPToolPrompt                 string
 	WebSearchProvider             string
 	WebSearchBaseURL              string
 	WebSearchAPIKey               string
@@ -511,7 +531,7 @@ func Load() Config {
 		DataEncryptionKey:            envOr("DATA_ENCRYPTION_KEY", yc.Security.DataEncryptionKey, defaultDataEncryptionKey),
 		SSRFProtectionEnabled:        envOrBoolPtr("SSRF_PROTECTION_ENABLED", yc.Security.SSRFProtectionEnabled, false),
 		DatabaseDriver:               normalizeDatabaseDriver(envOr("DATABASE_DRIVER", yc.Database.Driver, "postgres")),
-		PostgresDSN:                  envOr("POSTGRES_DSN", yc.Database.Postgres.DSN, "host=127.0.0.1 user=deeix_chat password=deeix_chat_dev_2026 dbname=deeix_chat port=5432 sslmode=disable TimeZone=Asia/Shanghai"),
+		PostgresDSN:                  normalizePostgresDSN(envOr("POSTGRES_DSN", yc.Database.Postgres.DSN, "host=127.0.0.1 user=deeix_chat password=deeix_chat_dev_2026 dbname=deeix_chat port=5432 sslmode=disable TimeZone=Asia/Shanghai")),
 		PostgresMaxOpenConns:         envOrInt("POSTGRES_MAX_OPEN_CONNS", yc.Database.Postgres.MaxOpenConns, 30),
 		PostgresMaxIdleConns:         envOrInt("POSTGRES_MAX_IDLE_CONNS", yc.Database.Postgres.MaxIdleConns, 10),
 		PostgresConnMaxLifetimeMin:   envOrInt("POSTGRES_CONN_MAX_LIFETIME_MINUTES", yc.Database.Postgres.ConnMaxLifetimeMin, 60),
@@ -529,6 +549,8 @@ func Load() Config {
 		RedisUsername:                envOr("REDIS_USERNAME", yc.Database.Redis.Username, ""),
 		RedisPassword:                envOr("REDIS_PASSWORD", yc.Database.Redis.Password, ""),
 		RedisDB:                      envOrInt("REDIS_DB", yc.Database.Redis.DB, 0),
+		RedisTLSEnabled:              envOrBoolPtr("REDIS_TLS_ENABLED", yc.Database.Redis.TLSEnabled, false),
+		RedisTLSInsecureSkipVerify:   envOrBoolPtr("REDIS_TLS_INSECURE_SKIP_VERIFY", yc.Database.Redis.TLSInsecureSkipVerify, false),
 		StorageBackend:               envOr("STORAGE_BACKEND", yc.Storage.Backend, "local"),
 		StorageRootDir:               envOrPath("STORAGE_ROOT_DIR", yc.Storage.Local.RootDir, "./storage", yc.sourceDir),
 		StorageS3Endpoint:            envOr("STORAGE_S3_ENDPOINT", yc.Storage.S3.Endpoint, ""),
@@ -558,6 +580,7 @@ func Load() Config {
 		OTelExporterOTLPEndpoint:     envOr("OTEL_EXPORTER_OTLP_ENDPOINT", yc.Observability.Tracing.Endpoint, ""),
 		OTelExporterOTLPHeaders:      envOr("OTEL_EXPORTER_OTLP_HEADERS", yc.Observability.Tracing.Headers, ""),
 		OTelExporterOTLPInsecure:     envOrBoolPtr("OTEL_EXPORTER_OTLP_INSECURE", yc.Observability.Tracing.Insecure, false),
+		OTelExporterOTLPProtocol:     normalizeOTelExporterOTLPProtocol(envOr("OTEL_EXPORTER_OTLP_PROTOCOL", yc.Observability.Tracing.Protocol, "grpc")),
 		OTelSamplingRate:             envOrFloat("OTEL_TRACES_SAMPLER_ARG", envOrFloat("OTEL_SAMPLING_RATE", yc.Observability.Tracing.SamplingRate, 1), 1),
 
 		// 动态配置默认值（会被 DB 覆盖）
@@ -574,6 +597,7 @@ func Load() Config {
 		EmailRegistrationEnabled:           true,
 		EmailVerificationEnabled:           false,
 		InviteRegistrationRequired:         false,
+		PasswordResetEnabled:               false,
 		EmailRegistrationDomains:           "",
 		EmailRegistrationNoAlias:           false,
 		AutoLinkVerifiedEmail:              true,
@@ -583,12 +607,14 @@ func Load() Config {
 		MaxContextMessages:                 20,
 		ContextMaxTurns:                    48,
 		ContextMaxInputTokens:              32000,
+		ContextCompactEnabled:              false,
 		ContextCompactTrigger:              32768,
 		ContextCompactPreserve:             8,
 		ConversationTaskModel:              "follow",
 		ConversationTitlePrompt:            "",
 		ConversationLabelsPrompt:           "",
 		DefaultSystemPrompt:                "",
+		SkillsPrompt:                       "",
 		ModelOptionPolicyMode:              "allowlist",
 		ModelOptionAllowedPaths:            DefaultModelOptionAllowedPathsJSON(),
 		ModelOptionDeniedPaths:             DefaultModelOptionDeniedPathsJSON(),
@@ -702,6 +728,7 @@ func Load() Config {
 		MCPMaxSelectedToolsPerMessage:      DefaultMCPMaxSelectedToolsPerMessage,
 		MCPMaxLLMCallsPerRun:               5,
 		MCPMaxToolCallsPerRun:              8,
+		MCPToolPrompt:                      "",
 		WebSearchProvider:                  "disabled",
 		WebSearchBaseURL:                   "",
 		WebSearchAPIKey:                    "",
@@ -718,6 +745,7 @@ func Load() Config {
 		VoiceTTSProvider:                   "disabled",
 		VoiceTTSModel:                      "",
 		VoiceTTSVoice:                      "",
+
 	}
 }
 
@@ -901,6 +929,61 @@ func normalizeDatabaseDriver(value string) string {
 	}
 }
 
+func normalizePostgresDSN(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return trimmed
+	}
+	if strings.Contains(trimmed, "://") {
+		parsed, err := url.Parse(trimmed)
+		if err != nil || parsed == nil || parsed.RawQuery == "" {
+			return trimmed
+		}
+		parts := strings.Split(parsed.RawQuery, "&")
+		changed := false
+		for index, part := range parts {
+			key, rawValue, ok := strings.Cut(part, "=")
+			if !ok {
+				continue
+			}
+			decodedKey, keyErr := url.QueryUnescape(key)
+			if keyErr != nil || !strings.EqualFold(decodedKey, "timezone") || !strings.Contains(rawValue, "%") {
+				continue
+			}
+			decodedValue, valueErr := url.QueryUnescape(rawValue)
+			if valueErr != nil || strings.TrimSpace(decodedValue) == "" || decodedValue == rawValue {
+				continue
+			}
+			parts[index] = key + "=" + decodedValue
+			changed = true
+		}
+		if !changed {
+			return trimmed
+		}
+		parsed.RawQuery = strings.Join(parts, "&")
+		return parsed.String()
+	}
+
+	parts := strings.Fields(trimmed)
+	changed := false
+	for index, part := range parts {
+		key, rawValue, ok := strings.Cut(part, "=")
+		if !ok || !strings.EqualFold(key, "timezone") || !strings.Contains(rawValue, "%") {
+			continue
+		}
+		decodedValue, err := url.QueryUnescape(rawValue)
+		if err != nil || strings.TrimSpace(decodedValue) == "" || decodedValue == rawValue {
+			continue
+		}
+		parts[index] = key + "=" + decodedValue
+		changed = true
+	}
+	if !changed {
+		return trimmed
+	}
+	return strings.Join(parts, " ")
+}
+
 func normalizeCacheDriver(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "redis":
@@ -909,6 +992,15 @@ func normalizeCacheDriver(value string) string {
 		return "memory"
 	default:
 		return strings.ToLower(strings.TrimSpace(value))
+	}
+}
+
+func normalizeOTelExporterOTLPProtocol(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "http", "http/protobuf":
+		return "http"
+	default:
+		return "grpc"
 	}
 }
 

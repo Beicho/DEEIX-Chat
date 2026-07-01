@@ -19,6 +19,8 @@ import type {
   MeData,
   PatchMePayload,
   PatchUsernamePayload,
+  PasswordResetCompleteData,
+  PasswordResetStartData,
   PasswordChangeVerificationStartData,
   SecurityVerificationMethod,
   TwoFactorDisableData,
@@ -143,20 +145,6 @@ export async function completeEmailRegistration(email: string, password: string,
   });
 }
 
-export async function startPasswordReset(email: string): Promise<EmailVerificationStartData> {
-  return apiRequest<EmailVerificationStartData>("/api/v1/auth/password/reset/start", {
-    method: "POST",
-    body: { email },
-  });
-}
-
-export async function completePasswordReset(email: string, code: string, newPassword: string): Promise<ChangePasswordData> {
-  return apiRequest<ChangePasswordData>("/api/v1/auth/password/reset/complete", {
-    method: "POST",
-    body: { email, code, newPassword },
-  });
-}
-
 export async function startEmailCodeLogin(email: string): Promise<EmailVerificationStartData> {
   return apiRequest<EmailVerificationStartData>("/api/v1/auth/email-login/start", {
     method: "POST",
@@ -168,6 +156,20 @@ export async function completeEmailCodeLogin(email: string, code: string): Promi
   return apiRequest<LoginData>("/api/v1/auth/email-login/complete", {
     method: "POST",
     body: { email, code },
+  });
+}
+
+export async function startPasswordReset(email: string): Promise<PasswordResetStartData> {
+  return apiRequest<PasswordResetStartData>("/api/v1/auth/password/reset/start", {
+    method: "POST",
+    body: { email },
+  });
+}
+
+export async function completePasswordReset(email: string, code: string, newPassword: string): Promise<PasswordResetCompleteData> {
+  return apiRequest<PasswordResetCompleteData>("/api/v1/auth/password/reset/complete", {
+    method: "POST",
+    body: { email, code, newPassword },
   });
 }
 

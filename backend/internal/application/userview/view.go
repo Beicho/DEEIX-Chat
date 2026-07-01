@@ -60,6 +60,7 @@ type UserView struct {
 	TwoFactorRequired       bool
 	TwoFactorRecoveryCount  int
 	LastLoginAt             *time.Time
+	LastActiveAt            *time.Time
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	SubscriptionTier        string
@@ -99,6 +100,7 @@ func FromUser(item domainuser.User, subscription *SubscriptionState) UserView {
 		SuspendedAt:            item.SuspendedAt,
 		SuspendedBy:            item.SuspendedBy,
 		LastLoginAt:            item.LastLoginAt,
+		LastActiveAt:           item.LastLoginAt,
 		CreatedAt:              item.CreatedAt,
 		UpdatedAt:              item.UpdatedAt,
 		SubscriptionTier:       "free",
@@ -127,6 +129,14 @@ func FromUser(item domainuser.User, subscription *SubscriptionState) UserView {
 	view.SubscriptionPlanID = subscription.PlanID
 	view.SubscriptionExpiresAt = subscription.ExpiresAt
 
+	return view
+}
+
+// WithLastActiveAt 设置用户视图中的最近活跃时间。
+func WithLastActiveAt(view UserView, value *time.Time) UserView {
+	if value != nil {
+		view.LastActiveAt = value
+	}
 	return view
 }
 

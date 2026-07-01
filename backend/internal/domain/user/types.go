@@ -207,6 +207,7 @@ const (
 	ContactVerificationPurposeRegister           = "register"
 	ContactVerificationPurposePasswordReset      = "password_reset"
 	ContactVerificationPurposePasswordChange     = "password_change"
+	ContactVerificationPurposePasswordReset      = "password_reset"
 	ContactVerificationPurposeLogin              = "login"
 	ContactVerificationPurposeAccountDelete      = "account_delete"
 	ContactVerificationPurposeEmailChangeCurrent = "email_change_current"

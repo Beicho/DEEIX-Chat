@@ -7,6 +7,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/userview"
 	domainaudit "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/audit"
 	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
+	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	domainsystemevent "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/systemevent"
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 )
@@ -55,6 +56,19 @@ type ResetUserPasswordRequest struct {
 	MustResetPassword *bool  `json:"mustResetPassword"`
 }
 
+// ImportOpenWebUIUsersRequest 从 OpenWebUI 数据库导入用户请求。
+type ImportOpenWebUIUsersRequest struct {
+	DSN              string   `json:"dsn" binding:"required,max=2048"`
+	CreditMultiplier *float64 `json:"creditMultiplier" binding:"required"`
+	DryRun           bool     `json:"dryRun"`
+}
+
+// CleanupLogsRequest 管理员日志清理请求。
+type CleanupLogsRequest struct {
+	Type   string `json:"type" binding:"required"`
+	Before string `json:"before" binding:"required"`
+}
+
 // ── 响应 DTO ────────────────────────────────────────────────────────────────
 
 // UserResponse 面向前端的用户视图响应。
@@ -83,6 +97,7 @@ type UserResponse struct {
 	TwoFactorRequired      bool       `json:"twoFactorRequired"`
 	TwoFactorRecoveryCount int        `json:"twoFactorRecoveryCount"`
 	LastLoginAt            *time.Time `json:"lastLoginAt"`
+	LastActiveAt           *time.Time `json:"lastActiveAt"`
 	CreatedAt              time.Time  `json:"createdAt"`
 	UpdatedAt              time.Time  `json:"updatedAt"`
 	SubscriptionTier       string     `json:"subscriptionTier"`
@@ -118,6 +133,26 @@ type ResetUserTwoFactorResponse struct {
 // DeleteUserResponse 管理员删除用户响应。
 type DeleteUserResponse struct {
 	Deleted bool `json:"deleted"`
+}
+
+// CleanupLogsResponse 管理员日志清理响应。
+type CleanupLogsResponse struct {
+	Type         string    `json:"type"`
+	Before       time.Time `json:"before"`
+	DeletedCount int64     `json:"deletedCount"`
+}
+
+// ImportOpenWebUIUsersResponse 从 OpenWebUI 导入用户响应。
+type ImportOpenWebUIUsersResponse struct {
+	Source                      string `json:"source"`
+	DedupeField                 string `json:"dedupeField"`
+	DedupeRule                  string `json:"dedupeRule"`
+	Scanned                     int    `json:"scanned"`
+	Imported                    int    `json:"imported"`
+	SkippedExistingEmail        int    `json:"skippedExistingEmail"`
+	SkippedDuplicateSourceEmail int    `json:"skippedDuplicateSourceEmail"`
+	SkippedInvalidEmail         int    `json:"skippedInvalidEmail"`
+	SkippedInvalidRow           int    `json:"skippedInvalidRow"`
 }
 
 // AuthEventResponse 认证事件响应。
@@ -187,6 +222,7 @@ type UsageLogResponse struct {
 	RoutedBindingCode   string    `json:"routedBindingCode"`
 	UpstreamModelName   string    `json:"upstreamModelName"`
 	IsFreeModel         bool      `json:"isFreeModel"`
+	BillingAt           time.Time `json:"billingAt"`
 	UsageDate           time.Time `json:"usageDate"`
 	InputTokens         int64     `json:"inputTokens"`
 	CacheReadTokens     int64     `json:"cacheReadTokens"`
@@ -206,6 +242,72 @@ type UsageLogResponse struct {
 	PricingSnapshotJSON string    `json:"pricingSnapshotJSON"`
 	CreatedAt           time.Time `json:"createdAt"`
 	UpdatedAt           time.Time `json:"updatedAt"`
+}
+
+// PaymentOrderResponse 支付订单记录响应。
+type PaymentOrderResponse struct {
+	ID                 uint       `json:"id"`
+	OrderNo            string     `json:"orderNo"`
+	OrderType          string     `json:"orderType"`
+	UserID             uint       `json:"userID"`
+	Username           string     `json:"username"`
+	UserDisplayName    string     `json:"userDisplayName"`
+	UserLabel          string     `json:"userLabel"`
+	PlanID             uint       `json:"planID"`
+	PriceID            uint       `json:"priceID"`
+	Provider           string     `json:"provider"`
+	Status             string     `json:"status"`
+	BaseCurrency       string     `json:"baseCurrency"`
+	BaseAmountCents    int64      `json:"baseAmountCents"`
+	PayCurrency        string     `json:"payCurrency"`
+	PayAmountCents     int64      `json:"payAmountCents"`
+	FXRate             string     `json:"fxRate"`
+	CreditNanousd      int64      `json:"creditNanousd"`
+	CreditUSD          float64    `json:"creditUSD"`
+	BillingInterval    string     `json:"billingInterval"`
+	Cycles             int        `json:"cycles"`
+	ExternalPaymentID  string     `json:"externalPaymentID"`
+	ExternalCheckoutID string     `json:"externalCheckoutID"`
+	PaidAt             *time.Time `json:"paidAt"`
+	ExpiredAt          *time.Time `json:"expiredAt"`
+	SnapshotJSON       string     `json:"snapshotJSON"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+}
+
+// ConversationEventResponse 对话事件响应。
+type ConversationEventResponse struct {
+	ID              uint       `json:"id"`
+	MessageID       uint       `json:"messageID"`
+	ConversationID  uint       `json:"conversationID"`
+	UserID          uint       `json:"userID"`
+	Username        string     `json:"username"`
+	UserDisplayName string     `json:"userDisplayName"`
+	UserLabel       string     `json:"userLabel"`
+	RunID           string     `json:"runID"`
+	EventScope      string     `json:"eventScope"`
+	EventID         string     `json:"eventID"`
+	EventType       string     `json:"eventType"`
+	Phase           string     `json:"phase"`
+	Stage           string     `json:"stage"`
+	RoundID         string     `json:"roundID"`
+	ParentEventID   string     `json:"parentEventID"`
+	Status          string     `json:"status"`
+	Title           string     `json:"title"`
+	Summary         string     `json:"summary"`
+	ContentMarkdown string     `json:"contentMarkdown"`
+	PayloadJSON     string     `json:"payloadJSON"`
+	Seq             int        `json:"seq"`
+	ToolCallID      string     `json:"toolCallID"`
+	ToolName        string     `json:"toolName"`
+	LatencyMS       int64      `json:"latencyMS"`
+	InputJSON       string     `json:"inputJSON"`
+	OutputJSON      string     `json:"outputJSON"`
+	ErrorJSON       string     `json:"errorJSON"`
+	StartedAt       time.Time  `json:"startedAt"`
+	EndedAt         *time.Time `json:"endedAt"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
 }
 
 // ── Swagger 文档 DTO ────────────────────────────────────────────────────────
@@ -247,6 +349,18 @@ type ResetUserPasswordResponseDoc struct {
 type DeleteUserResponseDoc struct {
 	ErrorMsg string             `json:"errorMsg"`
 	Data     DeleteUserResponse `json:"data"`
+}
+
+// CleanupLogsResponseDoc 管理员日志清理响应。
+type CleanupLogsResponseDoc struct {
+	ErrorMsg string              `json:"errorMsg"`
+	Data     CleanupLogsResponse `json:"data"`
+}
+
+// ImportOpenWebUIUsersResponseDoc 从 OpenWebUI 导入用户响应。
+type ImportOpenWebUIUsersResponseDoc struct {
+	ErrorMsg string                       `json:"errorMsg"`
+	Data     ImportOpenWebUIUsersResponse `json:"data"`
 }
 
 // UserAuthEventListResponseDoc 用户认证事件分页响应。
@@ -347,6 +461,24 @@ type MultiAccountCandidatesDataResponse struct {
 	Candidates []MultiAccountCandidateResponse `json:"candidates"`
 }
 
+// PaymentOrderListResponseDoc 支付订单分页响应。
+type PaymentOrderListResponseDoc struct {
+	ErrorMsg string `json:"errorMsg"`
+	Data     struct {
+		Total   int64                  `json:"total"`
+		Results []PaymentOrderResponse `json:"results"`
+	} `json:"data"`
+}
+
+// ConversationEventListResponseDoc 对话事件分页响应。
+type ConversationEventListResponseDoc struct {
+	ErrorMsg string `json:"errorMsg"`
+	Data     struct {
+		Total   int64                       `json:"total"`
+		Results []ConversationEventResponse `json:"results"`
+	} `json:"data"`
+}
+
 // ErrorDoc 错误响应。
 type ErrorDoc struct {
 	ErrorMsg  string      `json:"errorMsg"`
@@ -384,6 +516,7 @@ func toUserResponse(v userview.UserView) UserResponse {
 		TwoFactorRequired:      v.TwoFactorRequired,
 		TwoFactorRecoveryCount: v.TwoFactorRecoveryCount,
 		LastLoginAt:            v.LastLoginAt,
+		LastActiveAt:           v.LastActiveAt,
 		CreatedAt:              v.CreatedAt,
 		UpdatedAt:              v.UpdatedAt,
 		SubscriptionTier:       v.SubscriptionTier,
@@ -395,6 +528,23 @@ func toUserResponse(v userview.UserView) UserResponse {
 		BillingBalanceNanousd:  v.BillingBalanceNanousd,
 		BillingBalanceUSD:      float64(v.BillingBalanceNanousd) / 1000000000.0,
 		BillingAccountStatus:   v.BillingAccountStatus,
+	}
+}
+
+func toImportOpenWebUIUsersResponse(result *appadmin.OpenWebUIImportResult) ImportOpenWebUIUsersResponse {
+	if result == nil {
+		return ImportOpenWebUIUsersResponse{}
+	}
+	return ImportOpenWebUIUsersResponse{
+		Source:                      result.Source,
+		DedupeField:                 result.DedupeField,
+		DedupeRule:                  result.DedupeRule,
+		Scanned:                     result.Scanned,
+		Imported:                    result.Imported,
+		SkippedExistingEmail:        result.SkippedExistingEmail,
+		SkippedDuplicateSourceEmail: result.SkippedDuplicateSourceEmail,
+		SkippedInvalidEmail:         result.SkippedInvalidEmail,
+		SkippedInvalidRow:           result.SkippedInvalidRow,
 	}
 }
 
@@ -468,6 +618,7 @@ func toUsageLogResponse(item domainbilling.UsageLedger, label appadmin.UserLabel
 		RoutedBindingCode:   item.RoutedBindingCode,
 		UpstreamModelName:   item.UpstreamModelName,
 		IsFreeModel:         item.IsFreeModel,
+		BillingAt:           item.BillingAt,
 		UsageDate:           item.UsageDate,
 		InputTokens:         item.InputTokens,
 		CacheReadTokens:     item.CacheReadTokens,
@@ -553,6 +704,74 @@ func toMultiAccountCandidateResponses(items []domainuser.MultiAccountCandidate) 
 		})
 	}
 	return results
+}
+
+func toPaymentOrderResponse(item domainbilling.PaymentOrder, label appadmin.UserLabel) PaymentOrderResponse {
+	return PaymentOrderResponse{
+		ID:                 item.ID,
+		OrderNo:            item.OrderNo,
+		OrderType:          item.OrderType,
+		UserID:             item.UserID,
+		Username:           label.Username,
+		UserDisplayName:    label.DisplayName,
+		UserLabel:          label.Label,
+		PlanID:             item.PlanID,
+		PriceID:            item.PriceID,
+		Provider:           item.Provider,
+		Status:             item.Status,
+		BaseCurrency:       item.BaseCurrency,
+		BaseAmountCents:    item.BaseAmountCents,
+		PayCurrency:        item.PayCurrency,
+		PayAmountCents:     item.PayAmountCents,
+		FXRate:             item.FXRate,
+		CreditNanousd:      item.CreditNanousd,
+		CreditUSD:          float64(item.CreditNanousd) / 1_000_000_000,
+		BillingInterval:    item.BillingInterval,
+		Cycles:             item.Cycles,
+		ExternalPaymentID:  item.ExternalPaymentID,
+		ExternalCheckoutID: item.ExternalCheckoutID,
+		PaidAt:             item.PaidAt,
+		ExpiredAt:          item.ExpiredAt,
+		SnapshotJSON:       item.SnapshotJSON,
+		CreatedAt:          item.CreatedAt,
+		UpdatedAt:          item.UpdatedAt,
+	}
+}
+
+func toConversationEventResponse(item domainconversation.EventLog, label appadmin.UserLabel) ConversationEventResponse {
+	return ConversationEventResponse{
+		ID:              item.ID,
+		MessageID:       item.MessageID,
+		ConversationID:  item.ConversationID,
+		UserID:          item.UserID,
+		Username:        label.Username,
+		UserDisplayName: label.DisplayName,
+		UserLabel:       label.Label,
+		RunID:           item.RunID,
+		EventScope:      item.EventScope,
+		EventID:         item.EventID,
+		EventType:       item.EventType,
+		Phase:           item.Phase,
+		Stage:           item.Stage,
+		RoundID:         item.RoundID,
+		ParentEventID:   item.ParentEventID,
+		Status:          item.Status,
+		Title:           item.Title,
+		Summary:         item.Summary,
+		ContentMarkdown: item.ContentMarkdown,
+		PayloadJSON:     item.PayloadJSON,
+		Seq:             item.Seq,
+		ToolCallID:      item.ToolCallID,
+		ToolName:        item.ToolName,
+		LatencyMS:       item.LatencyMS,
+		InputJSON:       item.InputJSON,
+		OutputJSON:      item.OutputJSON,
+		ErrorJSON:       item.ErrorJSON,
+		StartedAt:       item.StartedAt,
+		EndedAt:         item.EndedAt,
+		CreatedAt:       item.CreatedAt,
+		UpdatedAt:       item.UpdatedAt,
+	}
 }
 
 func toAppPatchUserInput(req PatchUserRequest) appadmin.PatchUserInput {

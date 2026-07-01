@@ -23,6 +23,9 @@ func GetModelCaps(modelName string) ModelCaps {
 
 	switch {
 	// ── Anthropic Claude ──────────────────────────────────────────
+	case strings.Contains(code, "claude-sonnet-5"):
+		// Claude Sonnet 5：OpenRouter 标注 1M 上下文，128k 输出。
+		return ModelCaps{ContextWindow: 1_000_000, MaxOutputTokens: 128_000}
 	case strings.Contains(code, "claude-opus-4") || strings.Contains(code, "claude-sonnet-4"):
 		// Claude 4 系列：1M 上下文，32k 输出
 		return ModelCaps{ContextWindow: 1_000_000, MaxOutputTokens: 32_000}

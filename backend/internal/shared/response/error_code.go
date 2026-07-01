@@ -29,6 +29,7 @@ const (
 	CodeBillingPricingRequired   = "billing.pricing_required"
 	CodeRateLimitExceeded        = "rate_limit.exceeded"
 	CodeQuotaExceeded            = "quota.exceeded"
+	CodeFileInUse                = "file.in_use"
 	CodeFileTooLarge             = "file.too_large"
 	CodeFileNotReady             = "file.not_ready"
 	CodeFileTypeBlocked          = "file.type_blocked"
@@ -63,6 +64,7 @@ var exactErrorSpecs = map[string]errorSpec{
 	"two factor setup was not persisted":                         {Code: CodeInternal, Message: "internal server error"},
 	"two factor authentication is already enabled":               {Code: "auth.two_factor_already_enabled", Message: "two factor authentication is already enabled"},
 	"password reset required":                                    {Code: "auth.password_reset_required", Message: "password reset required"},
+	"password reset failed":                                      {Code: "auth.password_reset_failed", Message: "password reset failed"},
 	"username change required":                                   {Code: "auth.username_change_required", Message: "username change required"},
 	"password length must be between 6 and 128":                  {Code: "auth.invalid_password", Message: "password length must be between 6 and 128"},
 	"invalid password":                                           {Code: "auth.invalid_password", Message: "password must be at least 8 characters and not digits only"},
@@ -77,7 +79,6 @@ var exactErrorSpecs = map[string]errorSpec{
 	"invite code is invalid or exhausted":                                   {Code: "auth.invite_code_invalid", Message: "invite code is invalid or exhausted"},
 	"email code login is disabled":                                          {Code: "auth.email_code_login_disabled", Message: "email code login is disabled"},
 	"email already exists":                                                  {Code: "auth.email_already_exists", Message: "email already exists"},
-	"email already exists; bind the provider before login":                  {Code: "auth.provider_email_conflict", Message: "email already exists; bind the provider before login"},
 	"user email is invalid":                                                 {Code: "auth.invalid_email", Message: "invalid email"},
 	"admin email is invalid":                                                {Code: "auth.invalid_email", Message: "invalid email"},
 	"invalid email":                                                         {Code: "auth.invalid_email", Message: "invalid email"},
@@ -144,6 +145,7 @@ var exactErrorSpecs = map[string]errorSpec{
 	"empty admin user patch":                  {Code: "user.empty_patch", Message: "at least one user field is required"},
 
 	"invalid conversation title":                              {Code: "conversation.invalid_title", Message: "invalid conversation title"},
+	"conversation has no titleable content":                   {Code: "conversation.no_titleable_content", Message: "conversation has no titleable content"},
 	"invalid conversation share":                              {Code: "conversation_share.invalid", Message: "invalid conversation share"},
 	"conversation share schema outdated":                      {Code: "conversation_share.schema_outdated", Message: "conversation share schema is outdated"},
 	"conversation share schema is outdated, rebuild database": {Code: "conversation_share.schema_outdated", Message: "conversation share schema is outdated"},
@@ -158,6 +160,7 @@ var exactErrorSpecs = map[string]errorSpec{
 	"message was blocked":                                     {Code: "message.blocked", Message: "message was blocked"},
 	"too many files in one message":                           {Code: "message.too_many_files", Message: "too many files in one message"},
 	"too many selected tools":                                 {Code: "message.too_many_selected_tools", Message: "too many selected tools"},
+	"too many selected skills":                                {Code: "message.too_many_selected_skills", Message: "too many selected skills"},
 	"generation stream not found":                             {Code: "conversation_run.stream_not_found", Message: "generation stream not found"},
 	"image prompt is required":                                {Code: "media.image_prompt_required", Message: "image prompt is required"},
 	"image generation does not accept input images":           {Code: "media.image_generation_rejects_inputs", Message: "image generation does not accept input images"},
@@ -177,6 +180,7 @@ var exactErrorSpecs = map[string]errorSpec{
 	"embedding unavailable":                                {Code: "file.embedding_unavailable", Message: "embedding is unavailable"},
 	"embedding unavailable for this file size":             {Code: "file.embedding_unavailable", Message: "embedding is unavailable for this file size"},
 	"embedding unavailable for current file capability":    {Code: "file.embedding_unavailable", Message: "embedding is unavailable for current file capability"},
+	"file is in use":                                       {Code: CodeFileInUse, Message: "file is in use"},
 	"file too large":                                       {Code: CodeFileTooLarge, Message: "file too large"},
 	"file processing not ready":                            {Code: CodeFileNotReady, Message: "file processing is not ready"},
 	"file extract not ready":                               {Code: "file.extract_not_ready", Message: "file extract is not ready"},
@@ -470,6 +474,7 @@ var fallbackMessages = map[string]string{
 	"auth.admin_required":                             "admin permission required",
 	"auth.superadmin_required":                        "superadmin permission required",
 	"auth.password_reset_required":                    "password reset required",
+	"auth.password_reset_failed":                      "password reset failed",
 	"auth.username_change_required":                   "username change required",
 	"auth.invalid_password":                           "invalid password",
 	"auth.password_reuse_not_allowed":                 "new password must be different",
@@ -534,6 +539,7 @@ var fallbackMessages = map[string]string{
 	"conversation.invalid_id":                         "invalid conversation id",
 	"conversation.not_found":                          "conversation not found",
 	"conversation.invalid_title":                      "invalid conversation title",
+	"conversation.no_titleable_content":               "conversation has no titleable content",
 	"conversation_share.invalid":                      "invalid conversation share",
 	"conversation_share.not_found":                    "conversation share not found",
 	"conversation_share.invalid_id":                   "invalid share id",

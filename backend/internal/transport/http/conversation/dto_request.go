@@ -119,6 +119,7 @@ type SendMessageRequest struct {
 	CodeSandboxEnabled      bool                   `json:"codeSandboxEnabled"`
 	ResearchMaxLLMCalls     int                    `json:"researchMaxLLMCalls" binding:"omitempty,min=0,max=32"`
 	ResearchMaxToolCalls    int                    `json:"researchMaxToolCalls" binding:"omitempty,min=0,max=64"`
+	SkillIDs                []uint                 `json:"skillIDs" binding:"max=128"`
 	HTMLVisualPromptEnabled bool                   `json:"htmlVisualPrompt"`
 	HTMLVisualColorMode     string                 `json:"htmlVisualColorMode" binding:"omitempty,oneof=light dark"`
 	AssistantID             string                 `json:"assistantID" binding:"omitempty,max=32"`

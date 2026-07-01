@@ -24,12 +24,12 @@ type BillingRepository interface {
 	CreatePaymentOrder(ctx context.Context, item *domainbilling.PaymentOrder) (*domainbilling.PaymentOrder, error)
 	UpdatePaymentOrderCheckout(ctx context.Context, orderNo string, externalCheckoutID string, checkoutURL string) error
 	GetPaymentOrderByOrderNo(ctx context.Context, orderNo string) (*domainbilling.PaymentOrder, error)
-	ListPaymentOrders(ctx context.Context, filter PaymentOrderListFilter, offset int, limit int) ([]domainbilling.PaymentOrder, int64, error)
 	UpdatePaymentOrderStatus(ctx context.Context, orderNo string, status string) (*domainbilling.PaymentOrder, error)
 	MarkPaymentOrderPaidAndGrantSubscription(ctx context.Context, orderNo string, externalPaymentID string, paidAt time.Time, subscription *domainbilling.Subscription) (*domainbilling.PaymentOrder, bool, error)
 	AddUsage(ctx context.Context, usage *domainbilling.UsageLedger) error
 	AddUsageAndDebitBalance(ctx context.Context, usage *domainbilling.UsageLedger) error
 	AddUsageAndSettleBalance(ctx context.Context, usage *domainbilling.UsageLedger, reservation *domainbilling.UsageBalanceReservation) error
+	AddPeriodUsageAndSettleOverage(ctx context.Context, usage *domainbilling.UsageLedger, periodStart time.Time, periodEnd time.Time, periodCreditNanousd int64, reservation *domainbilling.UsageBalanceReservation) error
 	ReserveUsageBalance(ctx context.Context, userID uint, amountNanousd int64, refNo string) (*domainbilling.UsageBalanceReservation, error)
 	ReleaseUsageBalanceReservation(ctx context.Context, userID uint, refNo string, description string) error
 	GetOrCreateBillingAccount(ctx context.Context, userID uint) (*domainbilling.BillingAccount, error)
@@ -65,22 +65,13 @@ type BillingRepository interface {
 	UpsertModelPricing(ctx context.Context, item *domainbilling.ModelPricing) (*domainbilling.ModelPricing, error)
 	ListUsageByUser(ctx context.Context, userID uint, filter UsageListFilter, offset int, limit int) ([]domainbilling.UsageLedger, int64, error)
 	ListUsageLogs(ctx context.Context, filter UsageLogListFilter, offset int, limit int) ([]domainbilling.UsageLedger, int64, error)
+	ListPaymentOrders(ctx context.Context, filter PaymentOrderListFilter, offset int, limit int) ([]domainbilling.PaymentOrder, int64, error)
 	GetUserCreatedAt(ctx context.Context, userID uint) (time.Time, error)
 	ListMonthlyUsageByUser(ctx context.Context, userID uint, limit int) ([]domainbilling.UsageMonthlySummary, error)
 	ListDailyUsageByUser(ctx context.Context, userID uint, startDate time.Time, endDate time.Time) ([]domainbilling.UsageDailySummary, error)
 	SumBillableNanousd(ctx context.Context, userID uint, startAt time.Time, endAt time.Time) (int64, error)
 	GetAdminDashboardStats(ctx context.Context, startAt time.Time, endAt time.Time, limit int) (*domainbilling.AdminDashboardStats, error)
 	GetBillingRiskSummary(ctx context.Context) (*domainbilling.RiskSummary, error)
-}
-
-// PaymentOrderListFilter 描述支付单分页筛选条件。
-type PaymentOrderListFilter struct {
-	UserID    uint
-	Status    string
-	OrderType string
-	Provider  string
-	Query     string
-	Sort      string
 }
 
 // BalanceTransactionListFilter 描述余额流水分页筛选条件。
@@ -146,6 +137,7 @@ type RedemptionListFilter struct {
 // RedemptionCodeListFilter 描述管理员兑换码列表筛选条件。
 type RedemptionCodeListFilter struct {
 	Mode         string
+	Modes        []string
 	Status       string
 	Availability string
 	Query        string
@@ -197,4 +189,16 @@ type UsageLogListFilter struct {
 	CreatedFrom       *time.Time
 	CreatedTo         *time.Time
 	Sort              string
+}
+
+// PaymentOrderListFilter 描述管理员支付订单列表筛选和排序条件。
+type PaymentOrderListFilter struct {
+	Query       string
+	OrderType   string
+	Provider    string
+	Status      string
+	UserID      uint
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
+	Sort        string
 }

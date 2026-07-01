@@ -127,7 +127,13 @@
       "title": "Edit avatar",
       "description": "Enter an avatar URL or click the avatar area to generate a pixel-style avatar.",
       "avatarURL": "Avatar URL",
-      "apply": "Apply"
+      "apply": "Apply",
+      "upload": "Upload image",
+      "uploading": "Uploading",
+      "uploaded": "Avatar uploaded",
+      "uploadFailed": "Failed to upload avatar",
+      "uploadInvalid": "Please choose an image file",
+      "generate": "Generate avatar"
     }
   },
   "profile": "Profile",
@@ -212,7 +218,8 @@
         "back": "Back",
         "copiedLabel": "{label} copied",
         "copyFailed": "Copy failed",
-        "copyManually": "Please select the content manually."
+        "copyManually": "Please select the content manually.",
+        "debugCode": "Development code: {code}"
       },
       "password": {
         "title": {
@@ -361,6 +368,11 @@
       "regenerateRecoveryCodesFailed": "Failed to regenerate recovery codes",
       "providerUnavailable": "This identity provider is not available for binding.",
       "bindIdentityFailed": "Failed to bind identity provider"
+    },
+    "logoutAllDialog": {
+      "title": "Sign out all active devices?",
+      "description": "After confirmation, active sessions for this account in other browsers, desktop apps, or mobile devices will be invalidated. This device will return to the sign-in page too.",
+      "confirm": "Sign out all devices"
     }
   },
   "chatPage": {
@@ -388,7 +400,9 @@
       "preserveDraftTitle": "Preserve conversation drafts",
       "preserveDraftDescription": "Controls whether unsent content is kept and restored when switching conversations.",
       "deleteFilesDefaultTitle": "Delete files by default when deleting chats",
-      "deleteFilesDefaultDescription": "When enabled, delete confirmations select file deletion by default. Files still referenced by other conversations are kept."
+      "deleteFilesDefaultDescription": "When enabled, delete confirmations select file deletion by default. Files still referenced by other conversations are kept.",
+      "reuseModelOptionsTitle": "Reuse model configuration",
+      "reuseModelOptionsDescription": "When enabled, new chats using the same model automatically fill the model parameters used last time."
     },
     "display": {
       "sectionTitle": "Display and rendering",
@@ -402,7 +416,27 @@
       "latencyDescription": "Controls whether total call latency appears below AI replies.",
       "costTitle": "Show total cost",
       "costDescription": "Controls whether total call cost appears below AI replies.",
-      "costDescriptionSelfMode": "Controls whether total call cost appears below AI replies. Hidden in self-use mode."
+      "costDescriptionSelfMode": "Controls whether total call cost appears below AI replies. Hidden in self-use mode.",
+      "widthTitle": "Chat area width",
+      "width": {
+        "compact": "Compact",
+        "standard": "Standard",
+        "wide": "Wide"
+      },
+      "chatFont": "Chat font",
+      "chatFontWeight": "Chat font weight",
+      "font": {
+        "default": "Default",
+        "songti": "Serif",
+        "heiti": "Sans",
+        "mono": "Mono"
+      },
+      "fontWeight": {
+        "regular": "Regular",
+        "medium": "Medium",
+        "semibold": "Semibold",
+        "bold": "Bold"
+      }
     },
     "context": {
       "sectionTitle": "Context management",
@@ -646,7 +680,8 @@
       "amountAria": "Top-up amount in USD",
       "confirm": "Top up",
       "cnyEstimate": "About {value}",
-      "quickCNY": "CNY quick amounts"
+      "quickCNY": "CNY quick amounts",
+      "currentBalance": "Current balance {value}"
     },
     "redemption": {
       "open": "Redeem",
@@ -712,6 +747,10 @@
       "invalidRedemptionCode": "Enter a redemption code.",
       "redemptionSucceeded": "Redemption applied",
       "redemptionFailed": "Redemption failed"
+    },
+    "periodOverage": {
+      "title": "Overage billing",
+      "balance": "Available balance {value}"
     }
   }
 }

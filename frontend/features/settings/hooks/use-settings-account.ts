@@ -65,7 +65,6 @@ type UseSettingsAccountResult = {
   setEmailDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setCurrentEmailVerificationDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setDeleteDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  handleCopyPublicID: () => Promise<void>;
   handleSendPasswordCode: (method: SecurityVerificationMethod) => Promise<void>;
   handleChangePassword: (payload: { currentPassword: string; newPassword: string; verificationMethod: SecurityVerificationMethod; code: string; revokeOtherSessions: boolean }) => Promise<void>;
   handleSendEmailBootstrapCode: (email: string) => Promise<void>;
@@ -207,20 +206,6 @@ export function useSettingsAccount(): UseSettingsAccountResult {
   React.useEffect(() => {
     void loadAccountData();
   }, [loadAccountData]);
-
-  const handleCopyPublicID = React.useCallback(async () => {
-    const value = (viewer?.publicID || "").trim();
-    if (!value) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(value);
-      toast.success(t("publicIDCopied"));
-    } catch {
-      toast.error(t("copyFailed"), { description: t("retryLater") });
-    }
-  }, [t, viewer?.publicID]);
 
   const handleLogoutAll = React.useCallback(async () => {
     if (loggingOut) {
@@ -637,7 +622,6 @@ export function useSettingsAccount(): UseSettingsAccountResult {
     setEmailDialogOpen,
     setCurrentEmailVerificationDialogOpen,
     setDeleteDialogOpen,
-    handleCopyPublicID,
     handleSendPasswordCode,
     handleChangePassword,
     handleSendEmailBootstrapCode,

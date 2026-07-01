@@ -6,10 +6,10 @@ import {
   ArrowUpFromLine,
   Bookmark,
   Brain,
-  Check,
   ClockArrowUp,
   ClockCheck,
   CircleDollarSign,
+  TicketSlash,
   DatabaseSearch,
   DatabaseZap,
   Cpu,
@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { Brush } from "@/components/animate-ui/icons/brush";
 import { ChevronLeft } from "@/components/animate-ui/icons/chevron-left";
 import { ChevronRight } from "@/components/animate-ui/icons/chevron-right";
+import { Check } from "@/components/animate-ui/icons/check";
 import { Copy } from "@/components/animate-ui/icons/copy";
 import { Heart } from "@/components/animate-ui/icons/heart";
 import { RotateCcw } from "@/components/animate-ui/icons/rotate-ccw";
@@ -48,11 +49,18 @@ import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { upsertUserMemory } from "@/shared/api/memory";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { resolvePersistedPublicID } from "@/features/chat/model/message-submit";
-import { billingRateMultiplierNote, cacheWriteBillingLabel, cacheWriteBillingNote } from "@/shared/lib/billing-display";
-import type { BillingDisplayLabels } from "@/shared/lib/billing-display";
+import {
+  billingRateMultiplierNote,
+  cacheWriteBillingLabel,
+  cacheWriteBillingNote,
+  formatBillingDisplayCompactAmountFromUSD,
+  formatBillingDisplayPreciseAmountFromUSD,
+  formatBillingDisplayUnitPriceFromUSD,
+} from "@/shared/lib/billing-display";
+import type { BillingDisplayCurrency, BillingDisplayLabels, BillingDisplayOptions } from "@/shared/lib/billing-display";
 import type { ChatBillingCost, ChatMessageBranchNavigator } from "@/features/chat/types/messages";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
-import { useAppLocale } from "@/i18n/app-i18n-provider";
+import { usePointerInteraction } from "@/shared/hooks/use-pointer-interaction";
 import { cn } from "@/lib/utils";
 
 export type ChatMetaMessage = {
@@ -77,24 +85,69 @@ export type ChatMetaMessage = {
 
 export type AssistantReaction = "up" | "down" | null;
 
-function formatMessageDate(value: string | undefined, locale: string): string {
+type MessageTimestampLabel = {
+  label: string;
+  title: string;
+};
+
+type MessageTimestampValues = {
+  year: number;
+  month: number;
+  day: number;
+  time: string;
+};
+
+type MessageTimestampFormatter = (
+  key: "todayTime" | "thisYearDateTime" | "fullDateTime",
+  values: MessageTimestampValues,
+) => string;
+
+function formatMessageTimestamp(value: string | undefined, formatLabel: MessageTimestampFormatter): MessageTimestampLabel | null {
   if (!value) {
-    return "";
+    return null;
   }
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return "";
+    return null;
   }
 
+  const now = new Date();
   const year = date.getFullYear();
-  const isCurrentYear = year === new Date().getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+  const seconds = date.getSeconds();
+  const isToday =
+    year === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    day === now.getDate();
+  const isCurrentYear = year === now.getFullYear();
+  const timeLabel = [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+  const values = { year, month, day, time: timeLabel };
+  const title = formatLabel("fullDateTime", values);
 
-  return new Intl.DateTimeFormat(locale, {
-    year: isCurrentYear ? undefined : "numeric",
-    month: "short",
-    day: "numeric",
-  }).format(date);
+  if (isToday) {
+    return { label: formatLabel("todayTime", values), title };
+  }
+
+  return {
+    label: formatLabel(isCurrentYear ? "thisYearDateTime" : "fullDateTime", values),
+    title,
+  };
+}
+
+function MessageTimestamp({ timestamp }: { timestamp: MessageTimestampLabel | null }) {
+  if (!timestamp) {
+    return null;
+  }
+
+  return (
+    <span className="inline-flex h-6 shrink-0 items-center leading-none tabular-nums" title={timestamp.title}>
+      {timestamp.label}
+    </span>
+  );
 }
 
 function BranchSwitcher({
@@ -110,7 +163,7 @@ function BranchSwitcher({
   }
 
   return (
-    <div className="inline-flex items-center">
+    <div className="inline-flex items-center" data-screenshot-exclude="true">
       <button
         type="button"
         className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-35"
@@ -146,17 +199,21 @@ function MetaContainer({
   mobileStack?: boolean;
   alwaysVisible?: boolean;
 }>) {
+  const { hasTouchInput } = usePointerInteraction();
+  const actionsVisible = alwaysVisible || hasTouchInput;
+
   return (
     <div
+      data-hover-actions={!actionsVisible ? "true" : undefined}
       className={[
-        "mt-1.5 flex gap-1 text-xs text-muted-foreground opacity-100 transition-opacity duration-150",
-        alwaysVisible ? "md:pointer-events-auto md:opacity-100" : "md:pointer-events-none md:opacity-0",
+        "chat-message-meta mt-1.5 flex gap-1 text-xs text-muted-foreground opacity-100 transition-opacity duration-150",
+        actionsVisible ? "md:pointer-events-auto md:opacity-100" : "md:pointer-events-none md:opacity-0",
         mobileStack ? "flex-col items-start md:flex-row md:items-center" : "items-center",
         align === "end" ? "justify-end" : "justify-start",
-        !alwaysVisible && align === "end"
+        !actionsVisible && align === "end"
           ? "md:group-hover/user-message:pointer-events-auto md:group-hover/user-message:opacity-100 md:group-focus-within/user-message:pointer-events-auto md:group-focus-within/user-message:opacity-100"
           : "",
-        !alwaysVisible && align === "start"
+        !actionsVisible && align === "start"
           ? "md:group-hover/assistant-message:pointer-events-auto md:group-hover/assistant-message:opacity-100 md:group-focus-within/assistant-message:pointer-events-auto md:group-focus-within/assistant-message:opacity-100"
           : "",
       ].join(" ")}
@@ -184,6 +241,7 @@ function MetaIconButton({
       <TooltipTrigger asChild>
         <button
           type="button"
+          data-screenshot-exclude="true"
           className={cn(
             "inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40",
             className,
@@ -287,6 +345,7 @@ export function UserMessageMeta({
   onCopy,
   bookmarked = false,
   onToggleBookmark,
+  copySucceeded = false,
   readOnly = false,
   alwaysVisible = false,
   showBranchNavigator = true,
@@ -301,19 +360,20 @@ export function UserMessageMeta({
   onCopy: () => void;
   bookmarked?: boolean;
   onToggleBookmark?: () => void;
+  copySucceeded?: boolean;
   readOnly?: boolean;
   alwaysVisible?: boolean;
   showBranchNavigator?: boolean;
 }) {
   const t = useTranslations("chat.messages");
-  const { locale } = useAppLocale();
-  const dateLabel = formatMessageDate(item.createdAt, locale);
+  const timeT = useTranslations("common.time");
+  const timestamp = formatMessageTimestamp(item.createdAt, (key, values) => timeT(key, values));
   const hasPersistedMessage = Boolean(resolvePersistedPublicID(item.publicID));
   const canShowBranchNavigator = Boolean(showBranchNavigator && item.branchNavigator && !busy && !item.isPending);
 
   return (
     <MetaContainer align="end" alwaysVisible={alwaysVisible}>
-      {dateLabel ? <span className="mr-1 shrink-0 tabular-nums">{dateLabel}</span> : null}
+      <MessageTimestamp timestamp={timestamp} />
       {!readOnly ? (
         <div className="flex items-center">
           {showRetry && hasPersistedMessage ? (
@@ -337,7 +397,11 @@ export function UserMessageMeta({
             disabled={item.isPending}
             onClick={onCopy}
           >
-            <Copy size={14} strokeWidth={1.8} animateOnHover="default" />
+            {copySucceeded ? (
+              <Check size={14} strokeWidth={1.8} animate="default" />
+            ) : (
+              <Copy size={14} strokeWidth={1.8} animateOnHover="default" />
+            )}
           </MetaIconButton>
           {onDelete ? (
             <MetaIconButton
@@ -609,29 +673,16 @@ function nanousdToUSD(value: number): number {
   return value / 1_000_000_000;
 }
 
-function formatBillingCost(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0";
-  if (value < 0.000001) return "< $0.000001";
-  return `$${value.toLocaleString("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 6,
-  })}`;
+function formatBillingCost(value: number, billingDisplay: BillingDisplayOptions): string {
+  return formatBillingDisplayCompactAmountFromUSD(value, billingDisplay);
 }
 
-function formatTooltipBillingCost(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0.000000";
-  return `$${value.toLocaleString("en-US", {
-    minimumFractionDigits: 6,
-    maximumFractionDigits: 6,
-  })}`;
+function formatTooltipBillingCost(value: number, billingDisplay: BillingDisplayOptions): string {
+  return formatBillingDisplayPreciseAmountFromUSD(value, billingDisplay);
 }
 
-function formatTooltipUnitPrice(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0.00";
-  return `$${value.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+function formatTooltipUnitPrice(value: number, billingDisplay: BillingDisplayOptions): string {
+  return formatBillingDisplayUnitPriceFromUSD(value, billingDisplay);
 }
 
 function calcTokenBilledNanousd(tokens: number, rateNanousd: number): number {
@@ -702,11 +753,11 @@ function useBillingMetaLabels(): BillingMetaLabels {
   );
 }
 
-function formatBillingFormulaLine(label: string, tokens: number, rateNanousd: number, billedNanousd: number): BillingTooltipLine {
+function formatBillingFormulaLine(label: string, tokens: number, rateNanousd: number, billedNanousd: number, billingDisplay: BillingDisplayOptions): BillingTooltipLine {
   return {
     type: "row",
     left: label,
-    right: `${tokens.toLocaleString("en-US")} tokens * ${formatTooltipUnitPrice(nanousdToUSD(rateNanousd))} / 1M = ${formatTooltipBillingCost(nanousdToUSD(billedNanousd))}`,
+    right: `${tokens.toLocaleString("en-US")} tokens * ${formatTooltipUnitPrice(nanousdToUSD(rateNanousd), billingDisplay)} / 1M = ${formatTooltipBillingCost(nanousdToUSD(billedNanousd), billingDisplay)}`,
   };
 }
 
@@ -721,23 +772,23 @@ function formatTieredRangeLabel(fromTokens: number | null | undefined, upToToken
   return labels.tieredRange(formatTokenQuantity(from), upTo ? formatTokenQuantity(upTo) : null);
 }
 
-function formatTieredTableRow(item: string, tokens: number, rateNanousd: number, billedNanousd: number): BillingTieredTableRow {
+function formatTieredTableRow(item: string, tokens: number, rateNanousd: number, billedNanousd: number, billingDisplay: BillingDisplayOptions): BillingTieredTableRow {
   const safeTokens = Number.isFinite(tokens) && tokens > 0 ? tokens : 0;
   const safeBilled = Number.isFinite(billedNanousd) && billedNanousd > 0 ? billedNanousd : 0;
   return {
     item,
     tokens: formatTokenQuantity(safeTokens),
-    unitPrice: `${formatTooltipUnitPrice(nanousdToUSD(rateNanousd))} / 1M`,
-    amount: formatTooltipBillingCost(nanousdToUSD(safeBilled)),
+    unitPrice: `${formatTooltipUnitPrice(nanousdToUSD(rateNanousd), billingDisplay)} / 1M`,
+    amount: formatTooltipBillingCost(nanousdToUSD(safeBilled), billingDisplay),
   };
 }
 
-function formatCountLine(label: string, count: number, unit: string, rateNanousd: number, billedNanousd: number): BillingTooltipLine {
+function formatCountLine(label: string, count: number, unit: string, rateNanousd: number, billedNanousd: number, billingDisplay: BillingDisplayOptions): BillingTooltipLine {
   const safeCount = Number.isFinite(count) && count > 0 ? count : 0;
   return {
     type: "row",
     left: label,
-    right: `${safeCount.toLocaleString("en-US")} ${unit} * ${formatTooltipUnitPrice(nanousdToUSD(rateNanousd))} / ${unit} = ${formatTooltipBillingCost(nanousdToUSD(billedNanousd))}`,
+    right: `${safeCount.toLocaleString("en-US")} ${unit} * ${formatTooltipUnitPrice(nanousdToUSD(rateNanousd), billingDisplay)} / ${unit} = ${formatTooltipBillingCost(nanousdToUSD(billedNanousd), billingDisplay)}`,
   };
 }
 
@@ -745,7 +796,7 @@ function formatTotalLine(amount: string, labels: BillingMetaLabels): BillingTool
   return { type: "row", left: labels.total, right: amount };
 }
 
-function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels): BillingTooltipLine[] {
+function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels, billingDisplay: BillingDisplayOptions): BillingTooltipLine[] {
   const cost = item.billingCost;
   if (!cost) {
     return [];
@@ -753,19 +804,19 @@ function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels): 
   const snapshot = parseBillingSnapshot(cost.pricingSnapshotJSON);
   const pricingMode = snapshot.pricing_mode === "call" || snapshot.pricing_mode === "duration" || snapshot.pricing_mode === "tiered" ? snapshot.pricing_mode : "token";
   const totalLine = snapshot.is_free_model
-    ? formatTotalLine(`$0.000000 (${labels.freeModelNoBilling})`, labels)
-    : formatTotalLine(formatTooltipBillingCost(nanousdToUSD(cost.billedNanousd)), labels);
+    ? formatTotalLine(`${formatTooltipBillingCost(0, billingDisplay)} (${labels.freeModelNoBilling})`, labels)
+    : formatTotalLine(formatTooltipBillingCost(nanousdToUSD(cost.billedNanousd), billingDisplay), labels);
 
   if (pricingMode === "call") {
     const rate = readBillingNumber(snapshot, "call_nanousd_per_call");
     const billed = readBillingNumber(snapshot, "call_billed_nanousd") || rate;
-    return [formatCountLine(labels.perCall, 1, labels.callUnit, rate, billed), { type: "divider" }, totalLine];
+    return [formatCountLine(labels.perCall, 1, labels.callUnit, rate, billed, billingDisplay), { type: "divider" }, totalLine];
   }
 
   if (pricingMode === "duration") {
     const rate = readBillingNumber(snapshot, "duration_nanousd_per_second");
     const billed = readBillingNumber(snapshot, "duration_billed_nanousd");
-    return [formatCountLine(labels.perSecond, 1, labels.secondUnit, rate, billed), { type: "divider" }, totalLine];
+    return [formatCountLine(labels.perSecond, 1, labels.secondUnit, rate, billed, billingDisplay), { type: "divider" }, totalLine];
   }
 
   const inputRate = readBillingNumber(snapshot, "input_nanousd_per_m_tokens");
@@ -784,10 +835,10 @@ function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels): 
 
   if (pricingMode === "tiered") {
     const tieredRows = [
-      formatTieredTableRow(labels.input, inputTokens, inputRate, readBillingNumber(snapshot, "input_billed_nanousd")),
-      formatTieredTableRow(labels.output, billedOutputTokens, outputRate, readBillingNumber(snapshot, "output_billed_nanousd")),
-      formatTieredTableRow(labels.cacheRead, cacheReadTokens, cacheReadRate, readBillingNumber(snapshot, "cache_read_billed_nanousd")),
-      formatTieredTableRow(cacheWriteLabel, cacheWriteTokens, cacheWriteRate, readBillingNumber(snapshot, "cache_write_billed_nanousd")),
+      formatTieredTableRow(labels.input, inputTokens, inputRate, readBillingNumber(snapshot, "input_billed_nanousd"), billingDisplay),
+      formatTieredTableRow(labels.output, billedOutputTokens, outputRate, readBillingNumber(snapshot, "output_billed_nanousd"), billingDisplay),
+      formatTieredTableRow(labels.cacheRead, cacheReadTokens, cacheReadRate, readBillingNumber(snapshot, "cache_read_billed_nanousd"), billingDisplay),
+      formatTieredTableRow(cacheWriteLabel, cacheWriteTokens, cacheWriteRate, readBillingNumber(snapshot, "cache_write_billed_nanousd"), billingDisplay),
     ];
     const lines: BillingTooltipLine[] = [];
     if (rateMultiplierNote || cacheWriteNote) {
@@ -804,17 +855,17 @@ function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels): 
         type: "tiered-table",
         rangeLabel: formatTieredRangeLabel(snapshot.tiered_from_tokens, snapshot.tiered_up_to_tokens, labels),
         rows: tieredRows,
-        totalAmount: snapshot.is_free_model ? `$0.000000 (${labels.freeModelNoBilling})` : formatTooltipBillingCost(nanousdToUSD(cost.billedNanousd)),
+        totalAmount: snapshot.is_free_model ? `${formatTooltipBillingCost(0, billingDisplay)} (${labels.freeModelNoBilling})` : formatTooltipBillingCost(nanousdToUSD(cost.billedNanousd), billingDisplay),
       });
       return lines;
     }
   }
 
   const lines: BillingTooltipLine[] = [
-    formatBillingFormulaLine(labels.input, inputTokens, inputRate, readBillingNumber(snapshot, "input_billed_nanousd") || calcTokenBilledNanousd(inputTokens, inputRate)),
-    formatBillingFormulaLine(labels.output, billedOutputTokens, outputRate, readBillingNumber(snapshot, "output_billed_nanousd") || calcTokenBilledNanousd(billedOutputTokens, outputRate)),
-    formatBillingFormulaLine(labels.cacheRead, cacheReadTokens, cacheReadRate, readBillingNumber(snapshot, "cache_read_billed_nanousd") || calcTokenBilledNanousd(cacheReadTokens, cacheReadRate)),
-    formatBillingFormulaLine(cacheWriteLabel, cacheWriteTokens, cacheWriteRate, readBillingNumber(snapshot, "cache_write_billed_nanousd") || calcTokenBilledNanousd(cacheWriteTokens, cacheWriteRate)),
+    formatBillingFormulaLine(labels.input, inputTokens, inputRate, readBillingNumber(snapshot, "input_billed_nanousd") || calcTokenBilledNanousd(inputTokens, inputRate), billingDisplay),
+    formatBillingFormulaLine(labels.output, billedOutputTokens, outputRate, readBillingNumber(snapshot, "output_billed_nanousd") || calcTokenBilledNanousd(billedOutputTokens, outputRate), billingDisplay),
+    formatBillingFormulaLine(labels.cacheRead, cacheReadTokens, cacheReadRate, readBillingNumber(snapshot, "cache_read_billed_nanousd") || calcTokenBilledNanousd(cacheReadTokens, cacheReadRate), billingDisplay),
+    formatBillingFormulaLine(cacheWriteLabel, cacheWriteTokens, cacheWriteRate, readBillingNumber(snapshot, "cache_write_billed_nanousd") || calcTokenBilledNanousd(cacheWriteTokens, cacheWriteRate), billingDisplay),
     { type: "divider" },
     totalLine,
   ];
@@ -831,17 +882,18 @@ function billingTooltipLines(item: ChatMetaMessage, labels: BillingMetaLabels): 
   return lines;
 }
 
-function BillingCostBadge({ item }: { item: ChatMetaMessage }) {
+function BillingCostBadge({ item, billingDisplay }: { item: ChatMetaMessage; billingDisplay: BillingDisplayOptions }) {
   const t = useTranslations("chat.meta");
   const labels = useBillingMetaLabels();
   const cost = item.billingCost;
   if (!cost || cost.billingMode === "self") {
     return null;
   }
-  const lines = billingTooltipLines(item, labels);
+  const lines = billingTooltipLines(item, labels, billingDisplay);
   if (lines.length === 0) {
     return null;
   }
+  const freeModel = parseBillingSnapshot(cost.pricingSnapshotJSON).is_free_model === true;
 
   return (
     <Tooltip>
@@ -851,8 +903,12 @@ function BillingCostBadge({ item }: { item: ChatMetaMessage }) {
           aria-label={t("billingCost")}
           className="ml-0.5 inline-flex cursor-default items-center gap-1 rounded bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] leading-3.5 text-muted-foreground/70 select-none whitespace-nowrap outline-none focus-visible:ring-[1px] focus-visible:ring-ring/40"
         >
-          <CircleDollarSign className="size-3" strokeWidth={1.4} />
-          {formatBillingCost(nanousdToUSD(cost.billedNanousd))}
+          {freeModel ? (
+            <TicketSlash className="size-3" strokeWidth={1.4} />
+          ) : (
+            <CircleDollarSign className="size-3" strokeWidth={1.4} />
+          )}
+          {formatBillingCost(nanousdToUSD(cost.billedNanousd), billingDisplay)}
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" align="start" className="max-w-[min(92vw,44rem)]">
@@ -958,6 +1014,7 @@ function QuickMemoryPin({ disabled }: { disabled?: boolean }) {
           <PopoverTrigger asChild>
             <button
               type="button"
+              data-screenshot-exclude="true"
               className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
               aria-label={t("rememberPreference")}
               disabled={disabled}
@@ -1009,6 +1066,7 @@ export function AssistantMessageMeta({
   onCopy,
   bookmarked = false,
   onToggleBookmark,
+  copySucceeded = false,
   onReact,
   speechSupported = false,
   speechActive = false,
@@ -1020,6 +1078,8 @@ export function AssistantMessageMeta({
   showLatency = true,
   showTokenUsage = true,
   showBillingCost = false,
+  billingDisplayCurrency = "USD",
+  billingDisplayUsdToCnyRate = null,
   readOnly = false,
   alwaysVisible = false,
   showBranchNavigator = true,
@@ -1035,6 +1095,7 @@ export function AssistantMessageMeta({
   onCopy: () => void;
   bookmarked?: boolean;
   onToggleBookmark?: () => void;
+  copySucceeded?: boolean;
   onReact: (value: AssistantReaction) => void;
   speechSupported?: boolean;
   speechActive?: boolean;
@@ -1046,12 +1107,19 @@ export function AssistantMessageMeta({
   showLatency?: boolean;
   showTokenUsage?: boolean;
   showBillingCost?: boolean;
+  billingDisplayCurrency?: BillingDisplayCurrency;
+  billingDisplayUsdToCnyRate?: number | null;
   readOnly?: boolean;
   alwaysVisible?: boolean;
   showBranchNavigator?: boolean;
 }) {
   const t = useTranslations("chat.messages");
+  const timeT = useTranslations("common.time");
   const isLive = Boolean(item.isPending || item.isStreaming);
+  const timestamp = formatMessageTimestamp(
+    isLive ? item.createdAt : item.updatedAt || item.createdAt,
+    (key, values) => timeT(key, values),
+  );
   const canRetry = !readOnly && !busy && !isLive;
   const canEdit = Boolean(canRetry && onEdit && resolvePersistedPublicID(item.publicID));
   const canDelete = Boolean(canRetry && onDelete && resolvePersistedPublicID(item.publicID));
@@ -1079,7 +1147,14 @@ export function AssistantMessageMeta({
     item.editedAt ||
     (showBillingCost && item.billingCost && item.billingCost.billingMode !== "self"),
   );
-  const hasActionRow = Boolean(!readOnly || canShowBranchNavigator);
+  const billingDisplay = React.useMemo<BillingDisplayOptions>(
+    () => ({
+      currency: billingDisplayCurrency,
+      usdToCnyRate: billingDisplayUsdToCnyRate,
+    }),
+    [billingDisplayCurrency, billingDisplayUsdToCnyRate],
+  );
+  const hasActionRow = Boolean(timestamp || !readOnly || canShowBranchNavigator);
 
   return (
     <MetaContainer align="start" alwaysVisible={alwaysVisible}>
@@ -1098,7 +1173,7 @@ export function AssistantMessageMeta({
             ) : null}
             {hasLatencyBadge ? <LatencyBadge item={item} /> : null}
             {item.editedAt ? <EditedBadge /> : null}
-            {showBillingCost ? <BillingCostBadge item={item} /> : null}
+            {showBillingCost ? <BillingCostBadge item={item} billingDisplay={billingDisplay} /> : null}
           </div>
         ) : null}
         {hasActionRow ? (
@@ -1110,7 +1185,11 @@ export function AssistantMessageMeta({
                   disabled={!item.publicID}
                   onClick={onCopy}
                 >
-                  <Copy size={14} strokeWidth={1.8} animateOnHover="default" />
+                  {copySucceeded ? (
+                    <Check size={14} strokeWidth={1.8} animate="default" />
+                  ) : (
+                    <Copy size={14} strokeWidth={1.8} animateOnHover="default" />
+                  )}
                 </MetaIconButton>
                 {onToggleBookmark ? (
                   <MetaIconButton
@@ -1192,6 +1271,7 @@ export function AssistantMessageMeta({
               </>
             ) : null}
             {canShowBranchNavigator ? <BranchSwitcher item={item} onCycle={onCycleBranch} /> : null}
+            <MessageTimestamp timestamp={timestamp} />
           </div>
         ) : null}
       </div>

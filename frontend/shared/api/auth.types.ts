@@ -33,6 +33,7 @@ export type UserDTO = {
   twoFactorRequired: boolean;
   twoFactorRecoveryCount: number;
   lastLoginAt: string | null;
+  lastActiveAt: string | null;
   createdAt: string;
   updatedAt: string;
   subscriptionTier: string;
@@ -86,6 +87,15 @@ export type EmailRegistrationStartData = {
   sent: boolean;
   expiresAt: string;
   debugCode?: string;
+};
+
+export type PasswordResetStartData = {
+  sent: boolean;
+  expiresAt: string;
+};
+
+export type PasswordResetCompleteData = {
+  changed: boolean;
 };
 
 export type PasswordChangeVerificationStartData = {

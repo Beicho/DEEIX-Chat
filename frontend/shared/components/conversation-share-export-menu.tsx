@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ClipboardCopy, Download, FileText, ImageDown, Share2 } from "lucide-react";
+import { Camera, ClipboardCopy, Download, FileText, ImageDown, MousePointerClick, Share2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +9,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuItemIcon,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -22,16 +23,40 @@ type ConversationShareExportActionsProps = {
   exportMarkdownLabel?: string;
   exportImageLabel?: string;
   copyMarkdownLabel?: string;
+  screenshotFullLabel?: string;
+  screenshotSelectLabel?: string;
   onShare?: () => void;
   onExport?: () => void | Promise<void>;
   onExportMarkdown?: () => void | Promise<void>;
   onExportImage?: () => void | Promise<void>;
   onCopyMarkdown?: () => void | Promise<void>;
+  onScreenshotFull?: () => void;
+  onScreenshotSelect?: () => void;
 };
 
 type ConversationShareExportMenuItemsProps = ConversationShareExportActionsProps & {
   onCloseMenu?: () => void;
 };
+
+function hasConversationShareExportAction({
+  onShare,
+  onExport,
+  onExportMarkdown,
+  onExportImage,
+  onCopyMarkdown,
+  onScreenshotFull,
+  onScreenshotSelect,
+}: Partial<ConversationShareExportActionsProps>) {
+  return Boolean(
+    onShare ||
+      onExport ||
+      onExportMarkdown ||
+      onExportImage ||
+      onCopyMarkdown ||
+      onScreenshotFull ||
+      onScreenshotSelect,
+  );
+}
 
 export function ConversationShareExportMenuItems({
   shareLabel,
@@ -39,22 +64,25 @@ export function ConversationShareExportMenuItems({
   exportMarkdownLabel,
   exportImageLabel,
   copyMarkdownLabel,
+  screenshotFullLabel,
+  screenshotSelectLabel,
   onShare,
   onExport,
   onExportMarkdown,
   onExportImage,
   onCopyMarkdown,
+  onScreenshotFull,
+  onScreenshotSelect,
   onCloseMenu,
 }: ConversationShareExportMenuItemsProps) {
+  const hasScreenshot = Boolean(onScreenshotFull || onScreenshotSelect);
   return (
     <>
       <DropdownMenuItem
         disabled={!onShare}
         onSelect={(event) => {
           event.preventDefault();
-          if (!onShare) {
-            return;
-          }
+          if (!onShare) return;
           onCloseMenu?.();
           onShare();
         }}
@@ -66,9 +94,7 @@ export function ConversationShareExportMenuItems({
         disabled={!onExport}
         onSelect={(event) => {
           event.preventDefault();
-          if (!onExport) {
-            return;
-          }
+          if (!onExport) return;
           onCloseMenu?.();
           void onExport();
         }}
@@ -81,9 +107,7 @@ export function ConversationShareExportMenuItems({
           disabled={!onExportMarkdown}
           onSelect={(event) => {
             event.preventDefault();
-            if (!onExportMarkdown) {
-              return;
-            }
+            if (!onExportMarkdown) return;
             onCloseMenu?.();
             void onExportMarkdown();
           }}
@@ -97,9 +121,7 @@ export function ConversationShareExportMenuItems({
           disabled={!onExportImage}
           onSelect={(event) => {
             event.preventDefault();
-            if (!onExportImage) {
-              return;
-            }
+            if (!onExportImage) return;
             onCloseMenu?.();
             void onExportImage();
           }}
@@ -113,9 +135,7 @@ export function ConversationShareExportMenuItems({
           disabled={!onCopyMarkdown}
           onSelect={(event) => {
             event.preventDefault();
-            if (!onCopyMarkdown) {
-              return;
-            }
+            if (!onCopyMarkdown) return;
             onCloseMenu?.();
             void onCopyMarkdown();
           }}
@@ -123,6 +143,35 @@ export function ConversationShareExportMenuItems({
           <DropdownMenuItemIcon icon={ClipboardCopy} />
           {copyMarkdownLabel}
         </DropdownMenuItem>
+      ) : null}
+      {hasScreenshot ? (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            disabled={!onScreenshotSelect}
+            onSelect={(event) => {
+              event.preventDefault();
+              if (!onScreenshotSelect) return;
+              onCloseMenu?.();
+              onScreenshotSelect();
+            }}
+          >
+            <DropdownMenuItemIcon icon={MousePointerClick} />
+            {screenshotSelectLabel}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={!onScreenshotFull}
+            onSelect={(event) => {
+              event.preventDefault();
+              if (!onScreenshotFull) return;
+              onCloseMenu?.();
+              onScreenshotFull();
+            }}
+          >
+            <DropdownMenuItemIcon icon={Camera} />
+            {screenshotFullLabel}
+          </DropdownMenuItem>
+        </>
       ) : null}
     </>
   );
@@ -141,6 +190,8 @@ export function ConversationShareExportIconDropdown({
   exportMarkdownLabel,
   exportImageLabel,
   copyMarkdownLabel,
+  screenshotFullLabel,
+  screenshotSelectLabel,
   active = false,
   className,
   onShare,
@@ -148,8 +199,19 @@ export function ConversationShareExportIconDropdown({
   onExportMarkdown,
   onExportImage,
   onCopyMarkdown,
+  onScreenshotFull,
+  onScreenshotSelect,
 }: ConversationShareExportIconDropdownProps) {
   const [open, setOpen] = React.useState(false);
+  const hasAction = hasConversationShareExportAction({
+    onShare,
+    onExport,
+    onExportMarkdown,
+    onExportImage,
+    onCopyMarkdown,
+    onScreenshotFull,
+    onScreenshotSelect,
+  });
 
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
@@ -163,7 +225,7 @@ export function ConversationShareExportIconDropdown({
             active && "text-foreground",
             className,
           )}
-          disabled={!onShare && !onExport && !onExportMarkdown && !onExportImage && !onCopyMarkdown}
+          disabled={!hasAction}
           aria-label={label}
           title={label}
         >
@@ -177,11 +239,15 @@ export function ConversationShareExportIconDropdown({
           exportMarkdownLabel={exportMarkdownLabel}
           exportImageLabel={exportImageLabel}
           copyMarkdownLabel={copyMarkdownLabel}
+          screenshotFullLabel={screenshotFullLabel}
+          screenshotSelectLabel={screenshotSelectLabel}
           onShare={onShare}
           onExport={onExport}
           onExportMarkdown={onExportMarkdown}
           onExportImage={onExportImage}
           onCopyMarkdown={onCopyMarkdown}
+          onScreenshotFull={onScreenshotFull}
+          onScreenshotSelect={onScreenshotSelect}
           onCloseMenu={() => setOpen(false)}
         />
       </DropdownMenuContent>
@@ -196,16 +262,30 @@ export function ConversationShareExportSubmenu({
   exportMarkdownLabel,
   exportImageLabel,
   copyMarkdownLabel,
+  screenshotFullLabel,
+  screenshotSelectLabel,
   onShare,
   onExport,
   onExportMarkdown,
   onExportImage,
   onCopyMarkdown,
+  onScreenshotFull,
+  onScreenshotSelect,
   onCloseMenu,
 }: { label: string } & ConversationShareExportMenuItemsProps) {
+  const hasAction = hasConversationShareExportAction({
+    onShare,
+    onExport,
+    onExportMarkdown,
+    onExportImage,
+    onCopyMarkdown,
+    onScreenshotFull,
+    onScreenshotSelect,
+  });
+
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger disabled={!onShare && !onExport && !onExportMarkdown && !onExportImage && !onCopyMarkdown}>
+      <DropdownMenuSubTrigger disabled={!hasAction}>
         <DropdownMenuItemIcon icon={Share2} />
         {label}
       </DropdownMenuSubTrigger>
@@ -216,11 +296,15 @@ export function ConversationShareExportSubmenu({
           exportMarkdownLabel={exportMarkdownLabel}
           exportImageLabel={exportImageLabel}
           copyMarkdownLabel={copyMarkdownLabel}
+          screenshotFullLabel={screenshotFullLabel}
+          screenshotSelectLabel={screenshotSelectLabel}
           onShare={onShare}
           onExport={onExport}
           onExportMarkdown={onExportMarkdown}
           onExportImage={onExportImage}
           onCopyMarkdown={onCopyMarkdown}
+          onScreenshotFull={onScreenshotFull}
+          onScreenshotSelect={onScreenshotSelect}
           onCloseMenu={onCloseMenu}
         />
       </DropdownMenuSubContent>

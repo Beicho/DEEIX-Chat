@@ -8,6 +8,8 @@ import (
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 )
 
+const ProviderEmailConflictActionSignInThenBind = "sign_in_then_bind"
+
 var (
 	// ErrInvalidCredentials 用户名或密码错误。
 	ErrInvalidCredentials = errors.New("invalid username or password")
@@ -59,6 +61,10 @@ var (
 	ErrTwoFactorSetupNotPersisted = errors.New("two factor setup not persisted")
 	// ErrTwoFactorChallengeExpired 登录二次验证挑战已过期。
 	ErrTwoFactorChallengeExpired = errors.New("two factor challenge expired")
+	// ErrPasswordResetFailed 表示密码重置失败，避免暴露邮箱或账号状态。
+	ErrPasswordResetFailed = errors.New("password reset failed")
+	// ErrProviderEmailConflict 表示第三方身份邮箱已存在但不能安全自动合并。
+	ErrProviderEmailConflict = errors.New("provider email conflict")
 )
 
 // AccountSuspendedError carries the public suspension reason shown to the blocked user.
@@ -98,4 +104,19 @@ func (e *IdentityProviderDeleteConflictError) Error() string {
 
 func (e *IdentityProviderDeleteConflictError) Unwrap() error {
 	return ErrIdentityProviderDeleteConflict
+}
+
+// ProviderEmailConflictError 携带第三方登录邮箱冲突的安全绑定引导信息。
+type ProviderEmailConflictError struct {
+	ProviderSlug string
+	Email        string
+	Action       string
+}
+
+func (e *ProviderEmailConflictError) Error() string {
+	return ErrProviderEmailConflict.Error()
+}
+
+func (e *ProviderEmailConflictError) Unwrap() error {
+	return ErrProviderEmailConflict
 }

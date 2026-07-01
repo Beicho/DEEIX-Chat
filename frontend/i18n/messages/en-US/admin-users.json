@@ -18,7 +18,8 @@
     "loginSettings": "Sign-in & auth",
     "conversationSettings": "Conversation",
     "chatFiles": "Files & retrieval",
-    "about": "About"
+    "about": "About",
+    "upstreams": "Upstreams"
   },
   "dashboardPage": {
     "title": "Operations dashboard",
@@ -135,7 +136,8 @@
     "subscription": "Subscription",
     "balance": "Balance",
     "timezone": "Timezone",
-    "lastLogin": "Last login"
+    "lastLogin": "Last login",
+    "lastActive": "Last active"
   },
   "actions": {
     "apply": "Apply",
@@ -151,7 +153,8 @@
     "idAsc": "ID oldest first",
     "lastLoginDesc": "Last login",
     "updatedDesc": "Recently updated",
-    "displayNameAsc": "Display name A-Z"
+    "displayNameAsc": "Display name A-Z",
+    "lastActiveDesc": "Last active"
   },
   "status": {
     "pendingActivation": "Pending",
@@ -327,6 +330,33 @@
     "bulkBalancePartialFailed": "Some balances could not be updated",
     "bulkBalanceFailed": "Failed to update balances",
     "bulkBalanceUpdated": "Updated balance for {count} users",
-    "bulkBalanceAdjustmentDescription": "Balance set in bulk by an administrator in user management"
+    "bulkBalanceAdjustmentDescription": "Balance set in bulk by an administrator in user management",
+    "bulkDeleting": "Deleting users"
+  },
+  "importOpenWebUI": {
+    "import": "Import",
+    "title": "Import OpenWebUI users",
+    "description": "Connect to an OpenWebUI database and import users with balances.",
+    "dedupeTitle": "Dedupe rule",
+    "dedupeDescription": "Dedupe by email. Existing users are not modified or overwritten.",
+    "dsnLabel": "DB connection string",
+    "dsnPlaceholder": "postgres://... or /data/openwebui.db",
+    "creditMultiplierLabel": "Credit multiplier",
+    "cancel": "Cancel",
+    "preview": "Preview",
+    "submit": "Import",
+    "previewing": "Previewing",
+    "importing": "Importing",
+    "toastPreviewSucceeded": "OpenWebUI preview finished: {imported} can be added, {skipped} skipped",
+    "toastSucceeded": "OpenWebUI import finished: {imported} added, {skipped} skipped",
+    "toastFailed": "OpenWebUI import failed",
+    "summary": {
+      "scanned": "Scanned {count}",
+      "imported": "Can add {count}",
+      "skippedExistingEmail": "Existing emails {count}",
+      "skippedDuplicateSourceEmail": "Duplicate source emails {count}",
+      "skippedInvalidEmail": "Invalid emails {count}",
+      "skippedInvalidRow": "Invalid rows {count}"
+    }
   }
 }

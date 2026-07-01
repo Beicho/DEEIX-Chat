@@ -53,6 +53,7 @@ type VisualOption = {
   placeholder?: string;
   active: boolean;
   editable: boolean;
+  locked?: boolean;
   forcedFilterStatus?: ModelOptionFilterStatus;
 };
 
@@ -75,6 +76,7 @@ type ChatModelConfigProps = {
   options: ConversationOptions;
   defaultOptions: ConversationOptions;
   optionControls: ModelOptionControl[];
+  lockedOptionPaths: string[];
   nativeToolKeys: string[];
   nativeTools: ModelNativeToolConfig[];
   modelOptionPolicy: ModelOptionPolicy | null;
@@ -388,6 +390,7 @@ const PROTOCOL_LABELS: Record<string, string> = {
   google_generate_content: "Generate Content",
   google_image_generation: "Image Generation",
   openai_chat_completions: "Chat Completions",
+  openrouter_chat_completions: "OpenRouter Chat Completions",
   openai_image_edits: "Images Edits",
   openai_image_generations: "Images Generations",
   openai_responses: "Responses",
@@ -540,13 +543,13 @@ function nativeToolDefinitionFromConfig(
 
 function nativeToolDefinitionsFromConfigs(
   configs: ModelNativeToolConfig[],
-  legacyKeys: string[],
+  fallbackToolKeys: string[],
   catalog: NativeToolDefinition[],
   selectedProtocol: string,
 ): NativeToolVisualOption[] {
   const sourceConfigs = configs.length > 0
     ? configs
-    : nativeToolDefinitionsFromKeys(legacyKeys, catalog).map((tool): ModelNativeToolConfig => ({
+    : nativeToolDefinitionsFromKeys(fallbackToolKeys, catalog).map((tool): ModelNativeToolConfig => ({
       id: `${tool.protocol}:${tool.toolKey}:${tool.type}`,
       key: tool.toolKey,
       protocol: tool.protocol,
@@ -696,6 +699,24 @@ function setOptionAtPath(options: ConversationOptions, path: string[], value: un
   };
 }
 
+function applyLockedDefaultOptions(
+  options: ConversationOptions,
+  defaults: ConversationOptions,
+  lockedPaths: string[],
+): ConversationOptions {
+  if (lockedPaths.length === 0) {
+    return options;
+  }
+  return lockedPaths.reduce((nextOptions, key) => {
+    const path = optionPathFromControl(key);
+    if (path.length === 0) {
+      return nextOptions;
+    }
+    const defaultValue = getOptionAtPath(defaults, path);
+    return defaultValue === undefined ? nextOptions : setOptionAtPath(nextOptions, path, defaultValue);
+  }, options);
+}
+
 function visualOptionsFromOptions(
   options: ConversationOptions,
   policy: ModelOptionPolicy | null,
@@ -777,6 +798,7 @@ function resolveControlKind(control: ModelOptionControl): VisualOptionKind | und
 function visualOptionsFromControls(
   controls: ModelOptionControl[],
   options: ConversationOptions,
+  defaultOptions: ConversationOptions = {},
 ): VisualOption[] {
   return controls.flatMap((control): VisualOption[] => {
     const path = optionPathFromControl(control.path);
@@ -784,8 +806,11 @@ function visualOptionsFromControls(
       return [];
     }
     const key = optionPathKey(path);
-    const value = resolveControlEditableValue(options, path);
-    const active = hasOptionAtPath(options, path);
+    const hasLockedDefault = Boolean(control.locked && hasOptionAtPath(defaultOptions, path));
+    const value = hasLockedDefault
+      ? resolveControlEditableValue(defaultOptions, path)
+      : resolveControlEditableValue(options, path);
+    const active = hasOptionAtPath(options, path) || hasLockedDefault;
     const selectValues = normalizeControlSelectValues(control.options);
     return [{
       key,
@@ -797,9 +822,35 @@ function visualOptionsFromControls(
       kind: resolveControlKind(control),
       selectValues,
       placeholder: control.placeholder,
-      editable: true,
+      editable: !control.locked,
+      locked: control.locked,
     }];
   });
+}
+
+function hasVisualConfigurationContent({
+  nativeToolDefinitions,
+  optionControls,
+  options,
+  policy,
+  protocol,
+}: {
+  nativeToolDefinitions: NativeToolDefinition[];
+  optionControls: ModelOptionControl[];
+  options: ConversationOptions;
+  policy: ModelOptionPolicy | null;
+  protocol: string;
+}): boolean {
+  if (nativeToolDefinitions.length > 0) {
+    return true;
+  }
+  const configuredOptions = visualOptionsFromControls(optionControls, options);
+  if (configuredOptions.length > 0) {
+    return true;
+  }
+  const configuredKeys = new Set(configuredOptions.map((item) => item.key));
+  return visualOptionsFromOptions(options, policy, protocol, nativeToolDefinitions)
+    .some((item) => !configuredKeys.has(item.key));
 }
 
 function resolveOptionTitle(key: string, configuredLabel: string | undefined, translate: OptionTranslationResolver): string {
@@ -931,6 +982,7 @@ export function ChatModelConfig({
   options,
   defaultOptions,
   optionControls,
+  lockedOptionPaths,
   nativeToolKeys,
   nativeTools,
   modelOptionPolicy,
@@ -949,7 +1001,7 @@ export function ChatModelConfig({
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [optionsDraft, setOptionsDraft] = React.useState("");
   const [optionsObject, setOptionsObject] = React.useState<ConversationOptions>({});
-  const [mobileView, setMobileView] = React.useState<"json" | "visual">("json");
+  const [mobileView, setMobileView] = React.useState<"json" | "visual">("visual");
   const [defaultRestorePending, setDefaultRestorePending] = React.useState(false);
   const [restoredDefaultOptions, setRestoredDefaultOptions] = React.useState<ConversationOptions | null>(null);
   const optionsObjectRef = React.useRef<ConversationOptions>({});
@@ -964,8 +1016,8 @@ export function ChatModelConfig({
     [nativeToolVisualOptions],
   );
   const configuredOptions = React.useMemo(
-    () => visualOptionsFromControls(optionControls, optionsObject),
-    [optionControls, optionsObject],
+    () => visualOptionsFromControls(optionControls, optionsObject, effectiveDefaultOptions),
+    [effectiveDefaultOptions, optionControls, optionsObject],
   );
   const configuredOptionKeys = React.useMemo(
     () => new Set(configuredOptions.map((item) => item.key)),
@@ -991,6 +1043,7 @@ export function ChatModelConfig({
     () => [...configuredOptions, ...editableOptions],
     [configuredOptions, editableOptions],
   );
+  const lockedOptionPathSet = React.useMemo(() => new Set(lockedOptionPaths), [lockedOptionPaths]);
   const hasRecognizedOptions = Boolean(nativeToolGroup) || visibleOptions.length > 0;
 
   React.useEffect(() => {
@@ -998,29 +1051,48 @@ export function ChatModelConfig({
   }, [optionsObject]);
 
   const openOptionsDialog = React.useCallback(() => {
-    const sanitized = sanitizeConversationOptions(options);
+    const sanitized = applyLockedDefaultOptions(
+      sanitizeConversationOptions(options),
+      effectiveDefaultOptions,
+      lockedOptionPaths,
+    );
+    const hasVisualContent = hasVisualConfigurationContent({
+      nativeToolDefinitions,
+      optionControls,
+      options: sanitized,
+      policy: modelOptionPolicy,
+      protocol: selectedProtocol,
+    });
     optionsObjectRef.current = sanitized;
     setOptionsObject(sanitized);
     setOptionsDraft(stringifyOptions(sanitized));
-    setMobileView("json");
+    setMobileView(hasVisualContent ? "visual" : "json");
     setRestoredDefaultOptions(null);
     setDialogOpen(true);
-  }, [options]);
+  }, [effectiveDefaultOptions, lockedOptionPaths, modelOptionPolicy, nativeToolDefinitions, optionControls, options, selectedProtocol]);
 
   const replaceOptionsDraft = React.useCallback((next: ConversationOptions) => {
-    const sanitized = sanitizeConversationOptions(next);
+    const sanitized = applyLockedDefaultOptions(
+      sanitizeConversationOptions(next),
+      effectiveDefaultOptions,
+      lockedOptionPaths,
+    );
     optionsObjectRef.current = sanitized;
     setOptionsObject(sanitized);
     setOptionsDraft(stringifyOptions(sanitized));
-  }, []);
+  }, [effectiveDefaultOptions, lockedOptionPaths]);
 
   const replaceRawOptionsDraft = React.useCallback((next: ConversationOptions) => {
     const parsed = parseOptionsDraft(stringifyOptions(next));
-    const nextOptions = parsed.rawOptions ?? next;
+    const nextOptions = applyLockedDefaultOptions(
+      parsed.rawOptions ?? next,
+      effectiveDefaultOptions,
+      lockedOptionPaths,
+    );
     optionsObjectRef.current = nextOptions;
     setOptionsObject(nextOptions);
-    setOptionsDraft(stringifyOptions(next));
-  }, []);
+    setOptionsDraft(stringifyOptions(nextOptions));
+  }, [effectiveDefaultOptions, lockedOptionPaths]);
 
   const updateOptionValue = React.useCallback(
     (path: string[], value: unknown) => {
@@ -1041,10 +1113,11 @@ export function ChatModelConfig({
 
     const parsed = parseOptionsDraft(value);
     if (parsed.rawOptions && parsed.options) {
-      optionsObjectRef.current = parsed.rawOptions;
-      setOptionsObject(parsed.rawOptions);
+      const nextOptions = applyLockedDefaultOptions(parsed.rawOptions, effectiveDefaultOptions, lockedOptionPaths);
+      optionsObjectRef.current = nextOptions;
+      setOptionsObject(nextOptions);
     }
-  }, []);
+  }, [effectiveDefaultOptions, lockedOptionPaths]);
 
   const handleRestoreDefaultOptions = React.useCallback(async () => {
     if (defaultRestorePending) {
@@ -1074,14 +1147,24 @@ export function ChatModelConfig({
       toast.error(tComposer("saveFailed"));
       return;
     }
-    if (JSON.stringify(parsed.options) === JSON.stringify(effectiveDefaultOptions)) {
+    const nextOptions = applyLockedDefaultOptions(
+      parsed.options,
+      effectiveDefaultOptions,
+      lockedOptionPaths,
+    );
+    if (JSON.stringify(nextOptions) !== JSON.stringify(parsed.options)) {
+      setOptionsDraft(stringifyOptions(nextOptions));
+      setOptionsObject(nextOptions);
+      optionsObjectRef.current = nextOptions;
+    }
+    if (JSON.stringify(nextOptions) === JSON.stringify(effectiveDefaultOptions)) {
       onOptionsReset(effectiveDefaultOptions);
       setDialogOpen(false);
       return;
     }
-    onOptionsChange(parsed.options);
+    onOptionsChange(nextOptions);
     setDialogOpen(false);
-  }, [effectiveDefaultOptions, onOptionsChange, onOptionsReset, optionsDraft, tComposer]);
+  }, [effectiveDefaultOptions, lockedOptionPaths, onOptionsChange, onOptionsReset, optionsDraft, tComposer]);
 
   const renderOptionsViewToggle = () => (
     <Tabs
@@ -1090,8 +1173,8 @@ export function ChatModelConfig({
       className="w-fit gap-0"
     >
       <TabsList className="h-7">
-        <TabsTrigger value="json">JSON</TabsTrigger>
         <TabsTrigger value="visual">{tComposer("visual")}</TabsTrigger>
+        <TabsTrigger value="json">JSON</TabsTrigger>
       </TabsList>
     </Tabs>
   );
@@ -1113,9 +1196,10 @@ export function ChatModelConfig({
       </div>
       <div className="min-h-0 flex-1 p-0.5">
         <JsonCodeEditor
+          key={mobileView === "json" ? "json-visible" : "json-hidden"}
           value={optionsDraft}
           onChange={handleOptionsJSONChange}
-          autoFocus
+          autoFocus={mobileView === "json"}
           height="100%"
           className="h-full min-h-0"
           actions={
@@ -1170,7 +1254,11 @@ export function ChatModelConfig({
             </button>
           </TooltipTrigger>
           <TooltipContent side="left" align="end" className="max-w-64">
-            <p>{tComposer("ignoredHelp")}</p>
+            <div className="space-y-1.5 text-xs">
+              <p>{tComposer("notEnabledHelp")}</p>
+              <p>{tComposer("ignoredHelp")}</p>
+              <p>{tComposer("lockedHelp")}</p>
+            </div>
           </TooltipContent>
         </Tooltip>
       </div>
@@ -1256,7 +1344,7 @@ export function ChatModelConfig({
                 </div>
               </div>
             ) : null}
-            {visibleOptions.map(({ key, path, value, active, editable, forcedFilterStatus, label, description, kind: configuredKind, selectValues: configuredSelectValues, placeholder }) => {
+            {visibleOptions.map(({ key, path, value, active, editable, locked, forcedFilterStatus, label, description, kind: configuredKind, selectValues: configuredSelectValues, placeholder }) => {
               const editableValue = isEditableOptionValue(value) ? value : null;
               const selectValues = resolveSelectValues(key, configuredSelectValues);
               const kind = configuredKind === "select" && selectValues.length === 0
@@ -1267,7 +1355,9 @@ export function ChatModelConfig({
               const detailText = optionDescription || key;
               const filterStatus = forcedFilterStatus ?? (active ? resolveModelOptionFilterStatus(modelOptionPolicy, selectedProtocol, key) : "inactive");
               const ignored = filterStatus === "filtered";
-              const valueText = editable ? "" : formatVisualOptionValue(value);
+              const lockedByPath = locked || lockedOptionPathSet.has(key);
+              const editableInput = editable && !lockedByPath;
+              const valueText = editableInput ? "" : formatVisualOptionValue(value);
 
               return (
                 <div
@@ -1288,10 +1378,10 @@ export function ChatModelConfig({
                         {title}
                       </p>
                       <ModelOptionFilterBadge
-                        status={filterStatus}
+                        status={lockedByPath && filterStatus === "inactive" ? "passed" : filterStatus}
                         inactiveLabel={tComposer("notEnabled")}
                         ignoredLabel={tComposer("ignored")}
-                        passedLabel={tComposer("willPass")}
+                        passedLabel={lockedByPath ? tComposer("locked") : tComposer("willPass")}
                       />
                     </div>
                     {detailText ? (
@@ -1303,9 +1393,12 @@ export function ChatModelConfig({
                       </p>
                     ) : null}
                   </div>
-                  {!editable ? (
+                  {!editableInput ? (
                     <code
-                      className="block max-w-full truncate justify-self-start rounded-md bg-muted/60 px-2 py-1 font-mono text-[11px] leading-none text-muted-foreground line-through sm:justify-self-end"
+                      className={cn(
+                        "block max-w-full truncate justify-self-start rounded-md bg-muted/60 px-2 py-1 font-mono text-[11px] leading-none text-muted-foreground sm:justify-self-end",
+                        ignored && "line-through",
+                      )}
                       title={valueText}
                     >
                       {valueText}
@@ -1388,7 +1481,7 @@ export function ChatModelConfig({
         <Cog
           size={20}
           strokeWidth={1.4}
-          animate={hovered ? "default" : undefined}
+          animate={hovered ? "default" : false}
         />
       </InputGroupButton>
 

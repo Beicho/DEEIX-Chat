@@ -113,6 +113,7 @@ export function AppRecent() {
       <RecentDialogs
         renameTarget={controller.renameTarget}
         renameValue={controller.renameValue}
+        renamingAutomatically={controller.renamingAutomatically}
         deleteTarget={controller.deleteTarget}
         deleteFiles={controller.deleteFiles}
         shareTarget={controller.shareTarget}
@@ -121,6 +122,7 @@ export function AppRecent() {
         bulkConfirmPending={bulkConfirmPending}
         onRenameValueChange={controller.setRenameValue}
         onRenameCommit={controller.onRenameCommit}
+        onAutoRename={controller.onAutoRename}
         onCloseRenameDialog={controller.closeRenameDialog}
         onDeleteFilesChange={controller.setDeleteFiles}
         onConfirmDelete={controller.confirmDelete}

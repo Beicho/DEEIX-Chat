@@ -145,7 +145,9 @@
     "exportMarkdown": "Export Markdown",
     "exportImage": "Generate image",
     "copyMarkdown": "Copy full conversation",
-    "delete": "Delete"
+    "delete": "Delete",
+    "autoRename": "Auto rename",
+    "autoRenameFailed": "Auto rename failed"
   },
   "imageExport": {
     "exportedAt": "Exported at",
@@ -174,7 +176,8 @@
       "description": "You are about to leave this site. Confirm the link before continuing.",
       "linkAddress": "Link address",
       "copy": "Copy link",
-      "copied": "Link copied"
+      "copied": "Link copied",
+      "copyFailed": "Could not copy link"
     },
     "codeBlock": {
       "collapse": "Collapse",
@@ -281,7 +284,9 @@
     "memoryNamePlaceholder": "Preference name, e.g. response style",
     "memoryValuePlaceholder": "Preference content, e.g. answer concisely",
     "savingPreference": "Saving...",
-    "savePreference": "Save preference"
+    "savePreference": "Save preference",
+    "expandUserMessage": "Expand",
+    "collapseUserMessage": "Collapse"
   },
   "loadError": {
     "title": "Failed to load conversation",
@@ -543,6 +548,46 @@
       "openai": "OpenAI native tools",
       "claude": "Claude native tools",
       "google": "Google native tools"
+    },
+    "inputPlaceholder": "Message, or use / for context, @ for resources",
+    "voiceListeningPlaceholder": "Receiving voice input…",
+    "locked": "Locked",
+    "notEnabledHelp": "Not enabled: this option is not present in the JSON on the left and will not be sent.",
+    "lockedHelp": "Locked: the administrator fixed this option to the model default.",
+    "defaultMCPToolsSaved": "Default MCP tools saved",
+    "defaultMCPToolsSaveFailed": "Failed to save default MCP tools",
+    "sessionExpired": "Your session has expired. Please sign in again.",
+    "mcpExpandServerTools": "Expand {server} tools",
+    "mcpCollapseServerTools": "Collapse {server} tools",
+    "mcpToggleTool": "Select {tool}",
+    "skillLimitTitle": "Skill limit reached",
+    "skillLimitDescription": "A message can load up to {limit} skills. Clear one before selecting more.",
+    "selectedSkillsLabel": "Loaded skills",
+    "mcpSetDefaultTool": "Use {tool} by default in new chats",
+    "mcpUnsetDefaultTool": "Stop using {tool} by default in new chats",
+    "mcpDefaultToolEnabled": "Enabled by default in new chats",
+    "mcpDefaultToolDisabled": "Set as a default tool for new chats",
+    "mcpSetDefaultServerTools": "Use all {server} tools by default in new chats",
+    "mcpUnsetDefaultServerTools": "Stop using all {server} tools by default in new chats",
+    "mcpDefaultServerToolsEnabled": "All tools from this server are default in new chats",
+    "mcpDefaultServerToolsDisabled": "Set all tools from this server as defaults for new chats",
+    "queueMessage": "Queue message",
+    "queuedAttachmentOnly": "{count} attachments",
+    "queuedAttachmentCount": "{count} attachments",
+    "queuedEmptyMessage": "Empty message",
+    "queuedEditPlaceholder": "Edit queued message",
+    "guideQueuedMessageTitle": "Stop the current generation and send this queued message",
+    "editQueuedMessage": "Edit queued message",
+    "deleteQueuedMessage": "Delete queued message",
+    "mention": {
+      "fileFallback": "File",
+      "sections": {
+        "file": "Files",
+        "tool": "MCP",
+        "model": "Models",
+        "skill": "Skills",
+        "prompt": "Prompts"
+      }
     }
   },
   "modelPicker": {
@@ -574,7 +619,8 @@
     "perCall": "Per call",
     "perSecond": "Per second",
     "callUnit": "call",
-    "secondUnit": "second"
+    "secondUnit": "second",
+    "empty": "No models"
   },
   "shareDialog": {
     "title": "Share this conversation",
@@ -630,7 +676,15 @@
       "retrieval": "Retrieval",
       "fullContext": "Full text",
       "skipped": "Skipped",
-      "file": "File"
+      "file": "File",
+      "descriptions": {
+        "directRead": "Images and similar files are sent directly as visual context.",
+        "budget": "The file is within the full-context budget, so its extracted text was included in this turn.",
+        "retrieval": "The file used RAG retrieval, so only relevant chunks were included in this turn.",
+        "fullContext": "The file was included in this turn as full extracted text.",
+        "skipped": "The file was not included in this turn, usually because it exceeded the budget or had no usable extracted text.",
+        "file": "The file participated in context processing for this turn."
+      }
     },
     "rag": {
       "sourceFallback": "Chunk source {fileID}",
@@ -755,7 +809,8 @@
       "fileContext": "File context",
       "contextCompaction": "Context compaction",
       "requestResult": "Request result",
-      "upstreamRequestTriggered": "Model request triggered"
+      "upstreamRequestTriggered": "Model request triggered",
+      "skillContext": "Skill context"
     },
     "process": {
       "titleActive": "Processing",
@@ -999,5 +1054,30 @@
     "advisor": "Advisor",
     "toolSearchRegex": "Tool search (Regex)",
     "toolSearchBm25": "Tool search (BM25)"
+  },
+  "screenshot": {
+    "captureFull": "Capture full conversation",
+    "captureSelect": "Select messages to capture",
+    "selectMessage": "Select this message",
+    "selectedCount": "{count} selected",
+    "selectAll": "Select all",
+    "clearSelection": "Clear selection",
+    "captureSelected": "Capture",
+    "exitSelection": "Exit selection",
+    "generating": "Generating screenshot…",
+    "ready": "Screenshot ready",
+    "failed": "Failed to generate screenshot",
+    "loadLimitReached": "The conversation is too long. Please select a portion of the messages to take a screenshot.",
+    "tooLarge": "The conversation content is too large. Please select a portion of the messages to take a screenshot.",
+    "emptySelection": "Select at least one message",
+    "previewTitle": "Conversation screenshot",
+    "previewDescription": "Preview the generated image, then download or copy it to the clipboard.",
+    "close": "Close",
+    "copy": "Copy",
+    "download": "Download",
+    "downloaded": "Image downloaded",
+    "copied": "Image copied to clipboard",
+    "copyFailed": "Failed to copy image",
+    "copyUnsupported": "Copying images is not supported in this browser"
   }
 }

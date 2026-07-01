@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
 
 import { ChatFontProvider } from "@/features/layouts/components/providers/chat-font-provider";
 import { AppVersionGuard } from "@/features/layouts/components/providers/app-version-guard";
@@ -28,6 +28,11 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: "--font-mono",
+  subsets: ["latin"],
+});
+
+const jetBrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
   subsets: ["latin"],
 });
 
@@ -61,6 +66,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#0f172a",
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
 };
@@ -75,10 +83,12 @@ export default async function RootLayout({
   const initialMessages = await loadLocaleMessages(buildLocale);
 
   return (
-    <html lang={buildLocale} className="h-full" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} h-full min-h-svh overflow-hidden antialiased`}
-      >
+    <html
+      lang={buildLocale}
+      className={`${geistSans.variable} ${geistMono.variable} ${jetBrainsMono.variable} h-full`}
+      suppressHydrationWarning
+    >
+      <body className="h-full min-h-svh overflow-hidden antialiased">
         <AppI18nProvider initialLocale={buildLocale} initialMessages={initialMessages}>
           <ThemeProvider>
             <BrandingProvider>

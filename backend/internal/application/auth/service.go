@@ -45,9 +45,10 @@ type Service struct {
 	subscriptionResolver subscriptionResolver
 	providerHTTPClient   *http.Client
 	logger               *zap.Logger
-	storeProvider        appstorage.Provider
-	auditWriter          auditWriter
-	notificationNotifier authNotificationNotifier
+	storeProvider         appstorage.Provider
+	auditWriter           auditWriter
+	notificationNotifier  authNotificationNotifier
+	avatarFileValidator   avatarFileValidator
 }
 
 type subscriptionResolver interface {
@@ -56,11 +57,15 @@ type subscriptionResolver interface {
 		userID uint,
 		now time.Time,
 	) (*billing.UserSubscriptionSnapshot, error)
-	ListBillingAccountSnapshots(ctx context.Context, userIDs []uint) (map[uint]billing.UserBillingAccountSnapshot, error)
 }
 
 type auditWriter interface {
 	Write(ctx context.Context, requestID string, actorUserID uint, action string, resource string, resourceID string, ip string, userAgent string, detail interface{})
+}
+
+
+type avatarFileValidator interface {
+	ValidateImageFile(ctx context.Context, userID uint, fileID string) error
 }
 
 // NewService 创建服务。
@@ -110,6 +115,11 @@ func (s *Service) SetObjectStoreProvider(provider appstorage.Provider) {
 	}
 }
 
+// SetAvatarFileValidator 注入头像文件校验能力。
+func (s *Service) SetAvatarFileValidator(validator avatarFileValidator) {
+	s.avatarFileValidator = validator
+}
+
 // ShouldUseSecureCookies 判断当前运行环境是否必须写入 Secure Cookie。
 func (s *Service) ShouldUseSecureCookies() bool {
 	if s == nil || s.cfg == nil {
@@ -124,7 +134,6 @@ func (s *Service) SetAuditWriter(writer auditWriter) {
 	s.auditWriter = writer
 }
 
-// SetNotificationNotifier enables login-related user-facing notifications.
 func (s *Service) SetNotificationNotifier(notifier authNotificationNotifier) {
 	s.notificationNotifier = notifier
 }
@@ -501,9 +510,6 @@ func (s *Service) buildUserView(ctx context.Context, item domainuser.User) (user
 	if subscription == nil {
 		view := userview.FromUser(item, nil)
 		s.applyCredentialView(&view, item, credential)
-		if err := s.applyBillingAccountView(ctx, &view, item.ID); err != nil {
-			return userview.UserView{}, err
-		}
 		if err := s.applyTwoFactorView(ctx, &view); err != nil {
 			return userview.UserView{}, err
 		}
@@ -518,33 +524,10 @@ func (s *Service) buildUserView(ctx context.Context, item domainuser.User) (user
 		ExpiresAt: subscription.ExpiresAt,
 	})
 	s.applyCredentialView(&view, item, credential)
-	if err := s.applyBillingAccountView(ctx, &view, item.ID); err != nil {
-		return userview.UserView{}, err
-	}
 	if err := s.applyTwoFactorView(ctx, &view); err != nil {
 		return userview.UserView{}, err
 	}
 	return view, nil
-}
-
-func (s *Service) applyBillingAccountView(ctx context.Context, view *userview.UserView, userID uint) error {
-	if view == nil || s.subscriptionResolver == nil || userID == 0 {
-		return nil
-	}
-	accounts, err := s.subscriptionResolver.ListBillingAccountSnapshots(ctx, []uint{userID})
-	if err != nil {
-		return err
-	}
-	account, ok := accounts[userID]
-	if !ok {
-		return nil
-	}
-	*view = userview.WithBillingAccount(*view, &userview.BillingAccountState{
-		Currency:       account.Currency,
-		BalanceNanousd: account.BalanceNanousd,
-		Status:         account.Status,
-	})
-	return nil
 }
 
 func (s *Service) applyCredentialView(view *userview.UserView, item domainuser.User, credential *domainuser.Credential) {
@@ -560,8 +543,8 @@ func (s *Service) applyCredentialView(view *userview.UserView, item domainuser.U
 }
 
 func shouldRequireInitialUsername(item domainuser.User, adminUsername string) bool {
-	if item.UsernameChangedAt != nil {
-		return false
+	if item.UsernameChangedAt == nil {
+		return true
 	}
 	if item.Role == domainuser.RoleSuperAdmin {
 		return strings.EqualFold(strings.TrimSpace(item.Username), strings.TrimSpace(adminUsername))
@@ -738,11 +721,21 @@ func sessionActivityInputFromSnapshot(snapshot sessionAuditSnapshot, lastSeenAt 
 // UpdateProfile 更新当前用户资料。
 func (s *Service) UpdateProfile(ctx context.Context, userID uint, input UpdateProfileInput) (*domainuser.User, error) {
 	updateInput := repository.UpdateUserFieldsInput{}
+	avatarFileReferenceRequested := false
 
 	if input.AvatarURL != nil {
 		nextAvatarURL := strings.TrimSpace(*input.AvatarURL)
 		if err := validateAvatarURL(nextAvatarURL); err != nil {
 			return nil, err
+		}
+		if fileID, ok := domainuser.ParseFileAvatarURL(nextAvatarURL); ok {
+			avatarFileReferenceRequested = true
+			if s.avatarFileValidator == nil {
+				return nil, ErrInvalidAvatarURL
+			}
+			if err := s.avatarFileValidator.ValidateImageFile(ctx, userID, fileID); err != nil {
+				return nil, ErrInvalidAvatarURL
+			}
 		}
 		updateInput.AvatarURL = &nextAvatarURL
 	}
@@ -783,7 +776,11 @@ func (s *Service) UpdateProfile(ctx context.Context, userID uint, input UpdatePr
 		updateInput.AppearancePreferences = &normalizedAppearancePreferences
 	}
 
-	return s.repo.UpdateProfile(ctx, userID, updateInput)
+	item, err := s.repo.UpdateProfile(ctx, userID, updateInput)
+	if avatarFileReferenceRequested && errors.Is(err, repository.ErrNotFound) {
+		return nil, ErrInvalidAvatarURL
+	}
+	return item, err
 }
 
 func normalizeAppearancePreferences(raw string) (string, error) {
@@ -898,30 +895,21 @@ func (s *Service) DeleteAccount(
 	if normalizedMethod := normalizeSecurityVerificationMethod(verificationMethod); normalizedMethod != "" {
 		method = normalizedMethod
 	}
-	if method == SecurityVerificationMethodUsername {
-		if !containsSecurityVerificationMethod(methods, SecurityVerificationMethodNone) {
-			return fmt.Errorf("verification method is unavailable")
+	if method == SecurityVerificationMethodNone {
+		return ErrAccountDeleteVerificationRequired
+	}
+	if !containsSecurityVerificationMethod(methods, method) {
+		return fmt.Errorf("verification method is unavailable")
+	}
+	normalizedEmail := ""
+	if method == SecurityVerificationMethodEmail {
+		normalizedEmail, err = normalizeRegistrationEmail(item.Email)
+		if err != nil {
+			return fmt.Errorf("user email is invalid")
 		}
-		if strings.TrimSpace(code) != strings.TrimSpace(item.Username) {
-			return fmt.Errorf("verification code is invalid or expired")
-		}
-	} else {
-		if method == SecurityVerificationMethodNone {
-			return ErrAccountDeleteVerificationRequired
-		}
-		if !containsSecurityVerificationMethod(methods, method) {
-			return fmt.Errorf("verification method is unavailable")
-		}
-		normalizedEmail := ""
-		if method == SecurityVerificationMethodEmail {
-			normalizedEmail, err = normalizeRegistrationEmail(item.Email)
-			if err != nil {
-				return fmt.Errorf("user email is invalid")
-			}
-		}
-		if err = s.verifySecurityCodeWithMethod(ctx, item, method, domainuser.ContactVerificationPurposeAccountDelete, normalizedEmail, code, time.Now()); err != nil {
-			return fmt.Errorf("verification code is invalid or expired")
-		}
+	}
+	if err = s.verifySecurityCodeWithMethod(ctx, item, method, domainuser.ContactVerificationPurposeAccountDelete, normalizedEmail, code, time.Now()); err != nil {
+		return fmt.Errorf("verification code is invalid or expired")
 	}
 
 	normalizedAuditCtx := s.resolveSessionAuditContext(ctx, auditCtx)
@@ -1595,9 +1583,15 @@ func normalizeEditableUsername(raw string) (string, error) {
 	return username, nil
 }
 
-// validateAvatarURL 校验头像 URL 合法性；空值、相对路径和 generated: 前缀均视为合法。
+// validateAvatarURL 校验头像 URL 合法性；空值、相对路径、generated: 前缀和 file: 引用均视为合法。
 func validateAvatarURL(raw string) error {
 	if raw == "" || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "generated:github:") {
+		return nil
+	}
+	if strings.HasPrefix(raw, "file:") {
+		if _, ok := domainuser.ParseFileAvatarURL(raw); !ok {
+			return ErrInvalidAvatarURL
+		}
 		return nil
 	}
 
