@@ -1,12 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { usePathname, useRouter } from "next/navigation"
 import { useTranslations } from "next-intl"
 
 import { SidebarGroup, SidebarMenu, useSidebar } from "@/components/ui/sidebar"
-import { useChatSession } from "@/features/chat/context/chat-session-context"
-import { useNavigationSearch, useNavigationShortcuts } from "@/features/layouts/hooks/use-navigation-search"
+import {
+  useLayoutNavigationSearch,
+  useLayoutNavigationShortcuts,
+} from "@/features/layouts/hooks/use-layout-navigation-search"
 import { NAVIGATION_ITEMS } from "@/features/layouts/model/navigation-items"
 import { NavigationSearch } from "@/features/layouts/components/navigation/navigation-search"
 import { NavMainItem } from "@/features/layouts/components/navigation/nav-main-item"
@@ -14,19 +15,15 @@ import { useSidebarRecents } from "@/features/recent/context/sidebar-recents-con
 
 const MAX_SEARCH_RESULTS = 8
 
-export function NavMain() {
+export function NavMain({ onCreateConversation }: { onCreateConversation: () => void }) {
   const t = useTranslations("common.navigation")
   const { state, isMobile, setOpenMobile } = useSidebar()
-  const router = useRouter()
-  const pathname = usePathname()
-  const { requestNewConversation } = useChatSession()
   const { items, loadingInitial } = useSidebarRecents()
   const isCollapsed = !isMobile && state === "collapsed"
 
-  const search = useNavigationSearch({
+  const search = useLayoutNavigationSearch({
     items,
     maxResults: MAX_SEARCH_RESULTS,
-    untitled: t("newChat"),
   })
   const searchLoading = (loadingInitial && items.length === 0) || search.loading
 
@@ -34,16 +31,7 @@ export function NavMain() {
     setOpenMobile(false)
   }, [setOpenMobile])
 
-  const onCreateConversation = React.useCallback(() => {
-    requestNewConversation({ projectID: "" })
-    if (pathname === "/chat") {
-      window.history.pushState(null, "", "/chat")
-      return
-    }
-    router.push("/chat")
-  }, [pathname, requestNewConversation, router])
-
-  useNavigationShortcuts({
+  useLayoutNavigationShortcuts({
     onCreateConversation,
     onOpenSearch: search.openSearch,
   })
@@ -101,7 +89,7 @@ export function NavMain() {
         title={t("searchTitle")}
         description={t("searchDescription")}
         placeholder={t("searchPlaceholder")}
-        loading={searchLoading}
+        loading={search.loading}
         loadingText={t("searchLoading")}
         emptyText={t("searchEmpty")}
         onSelect={search.selectResult}

@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 
 import { AssistantMessageMeta } from "@/features/chat/components/message/message-meta";
 import { MessageAttachmentRow } from "@/features/chat/components/message/message-attachment";
-import { MessageProcessTrace, MessageTraceEventBlocks, MessageToolTrace, MessageUpstreamThink } from "@/features/chat/components/message/message-process-trace";
+import { MessageProcessTrace, MessageTraceEventBlocks } from "@/features/chat/components/message/message-process-trace";
 import { GrainientBackground } from "@/components/reactbits/backgrounds/grainient";
 import type { AssistantReaction } from "@/features/chat/components/message/message-meta";
 import type {
@@ -15,8 +15,8 @@ import type {
   MessageAttachment,
 } from "@/features/chat/types/messages";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
-import { MarkdownImage, type MarkdownArtifactActions } from "@/features/chat/components/markdown/streamdown-components";
-import { StreamdownRender } from "@/features/chat/components/markdown/streamdown-render";
+import { MarkdownImage, type MarkdownArtifactActions } from "@/shared/components/markdown/streamdown-components";
+import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 import {
   Accordion,
   AccordionContent,
@@ -33,8 +33,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { isUpstreamStreamingDebugBody, summarizeUpstreamError } from "@/features/chat/utils/chat-runtime";
 import type { FileContentResult } from "@/shared/api/file";
-import type { PreviewDialogFile } from "@/features/files/components/preview/file-preview-dialog";
+import type { PreviewDialogFile } from "@/shared/components/file-preview/file-preview-dialog";
 import { resolveLeadingImagePreview } from "@/features/chat/model/media-image-preview";
+import type { BillingDisplayCurrency } from "@/shared/lib/billing-display";
 
 const EMPTY_TRACE_EVENTS: NonNullable<ChatAreaMessage["processTrace"]>["events"] = [];
 
@@ -96,11 +97,14 @@ type ChatMessageBotProps = {
   onCopy: () => void;
   bookmarked?: boolean;
   onToggleBookmark?: () => void;
+  copySucceeded?: boolean;
   markdownRender?: boolean;
   showModelInfo?: boolean;
   showLatency?: boolean;
   showTokenUsage?: boolean;
   showBillingCost?: boolean;
+  billingDisplayCurrency?: BillingDisplayCurrency;
+  billingDisplayUsdToCnyRate?: number | null;
   readOnly?: boolean;
   attachmentContentLoader?: (file: PreviewDialogFile) => Promise<FileContentResult>;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
@@ -112,6 +116,8 @@ type ChatMessageBotProps = {
   retryModelOptions?: ChatModelOption[];
   selectedPlatformModelName?: string;
   showBranchNavigator?: boolean;
+  contentWidthClassName?: string;
+  screenshotMeta?: React.ReactNode;
 };
 
 export function ChatMessageBot({
@@ -127,11 +133,14 @@ export function ChatMessageBot({
   onCopy,
   bookmarked = false,
   onToggleBookmark,
+  copySucceeded = false,
   markdownRender = true,
   showModelInfo = true,
   showLatency = true,
   showTokenUsage = true,
   showBillingCost = false,
+  billingDisplayCurrency = "USD",
+  billingDisplayUsdToCnyRate = null,
   readOnly = false,
   attachmentContentLoader,
   onEditImageAttachment,
@@ -143,6 +152,8 @@ export function ChatMessageBot({
   retryModelOptions = [],
   selectedPlatformModelName = "",
   showBranchNavigator = true,
+  contentWidthClassName = "max-w-[1080px]",
+  screenshotMeta,
 }: ChatMessageBotProps) {
   const tCommon = useTranslations("common.actions");
   const submitT = useTranslations("chat.submit");
@@ -176,8 +187,6 @@ export function ChatMessageBot({
   const toolTrace = item.processTrace?.tools;
   const traceEvents = item.processTrace?.events ?? EMPTY_TRACE_EVENTS;
   const messageStreaming = Boolean(item.isStreaming);
-  const upstreamThinkStreaming = messageStreaming && upstreamThink?.status === "streaming";
-  const toolTraceStreaming = messageStreaming && toolTrace?.status === "streaming";
   const hasStreamdownContent = item.content.trim().length > 0;
   const leadingImagePreview = React.useMemo(() => resolveLeadingImagePreview(item.content), [item.content]);
   const leadingImageAlt = React.useMemo(
@@ -200,6 +209,7 @@ export function ChatMessageBot({
     [traceEvents],
   );
   const hasTraceEvents = postProcessEvents.length > 0;
+  const hasTraceBlocks = hasTraceEvents || Boolean(upstreamThink) || Boolean(toolTrace);
   const isImageGenerationLoading = item.contentType === "image" && item.isStreaming && !hasStreamdownContent;
   const editableImageAttachments = React.useMemo(
     () => (item.attachments ?? []).filter(isEditableImageAttachment),
@@ -229,10 +239,7 @@ export function ChatMessageBot({
     onEditImageAttachment,
     readOnly,
   ]);
-  const activeThinkBlock = hasTraceEvents ? upstreamThink : undefined;
-  const activeToolBlock = hasTraceEvents ? toolTrace : undefined;
-  const processAutoCollapseReady = Boolean(hasTraceEvents || upstreamThink || toolTrace || hasStreamdownContent || item.inlineAlert);
-  const toolAutoCollapseReady = Boolean(upstreamThink || hasStreamdownContent || item.inlineAlert);
+  const processAutoCollapseReady = Boolean(hasTraceBlocks || hasStreamdownContent || item.inlineAlert);
 
   if (!readOnly && isEditing) {
     const nextContent = editingValue.trim();
@@ -240,7 +247,7 @@ export function ChatMessageBot({
 
     return (
       <div className="flex justify-start">
-        <div className="w-full max-w-[760px] rounded-lg bg-muted/40 p-3 text-foreground">
+        <div className={cn("w-full rounded-lg bg-muted/40 p-3 text-foreground", contentWidthClassName)}>
           <Textarea
             autoFocus
             value={editingValue}
@@ -272,34 +279,18 @@ export function ChatMessageBot({
 
   return (
     <div className="group/assistant-message flex w-full flex-col items-start">
-      {hasTraceEvents ? (
-        <>
-          <MessageProcessTrace
-            trace={item.processTrace}
-            active={messageStreaming}
-            autoCollapseReady={processAutoCollapseReady}
-          />
-          <MessageTraceEventBlocks
-            events={postProcessEvents}
-            activeToolBlock={activeToolBlock}
-            activeThinkBlock={activeThinkBlock}
-            messageStreaming={messageStreaming}
-            autoCollapseReady={hasStreamdownContent || Boolean(item.inlineAlert)}
-          />
-        </>
-      ) : (
-        <>
-          <MessageProcessTrace
-            trace={item.processTrace}
-            active={messageStreaming}
-            autoCollapseReady={processAutoCollapseReady}
-          />
-
-          <MessageToolTrace block={toolTrace} streaming={toolTraceStreaming} autoCollapseReady={toolAutoCollapseReady} />
-
-          <MessageUpstreamThink block={upstreamThink} streaming={upstreamThinkStreaming} />
-        </>
-      )}
+      <MessageProcessTrace
+        trace={item.processTrace}
+        active={messageStreaming}
+        autoCollapseReady={processAutoCollapseReady}
+      />
+      <MessageTraceEventBlocks
+        events={postProcessEvents}
+        activeToolBlock={toolTrace}
+        activeThinkBlock={upstreamThink}
+        messageStreaming={messageStreaming}
+        autoCollapseReady={hasStreamdownContent || Boolean(item.inlineAlert)}
+      />
 
       <div
         className="w-full min-w-0 max-w-none overflow-hidden text-[15px] leading-8 text-foreground [overflow-wrap:anywhere]"
@@ -352,6 +343,8 @@ export function ChatMessageBot({
         </div>
       ) : null}
 
+      {screenshotMeta}
+
       <AssistantMessageMeta
         item={item}
         busy={busy}
@@ -364,6 +357,7 @@ export function ChatMessageBot({
         onCopy={onCopy}
         bookmarked={bookmarked}
         onToggleBookmark={onToggleBookmark}
+        copySucceeded={copySucceeded}
         onReact={(value) => onReactAssistantMessage(item.publicID, value)}
         speechSupported={speechSupported}
         speechActive={speechActive}
@@ -375,6 +369,8 @@ export function ChatMessageBot({
         showLatency={showLatency}
         showTokenUsage={showTokenUsage}
         showBillingCost={showBillingCost}
+        billingDisplayCurrency={billingDisplayCurrency}
+        billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
         readOnly={readOnly}
         alwaysVisible={readOnly}
         showBranchNavigator={showBranchNavigator}

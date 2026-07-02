@@ -88,7 +88,7 @@ type ConversationImportResult struct {
 
 // ExportConversationTakeout exports all visible conversations owned by the current user.
 func (s *Service) ExportConversationTakeout(ctx context.Context, userID uint) (*ConversationTakeout, error) {
-	items, total, err := s.repo.ListConversationsByUser(ctx, userID, 0, maxTakeoutImportConversations, "all", "all", "all", "all")
+	items, total, err := s.repo.ListConversationsByUser(ctx, userID, 0, maxTakeoutImportConversations, "all", "all", "all", "all", "")
 	if err != nil {
 		return nil, err
 	}

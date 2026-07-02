@@ -11,6 +11,7 @@ type Server struct {
 	AuthTokenEnc         string
 	HeadersJSON          string
 	Status               string
+	SortOrder            int
 	TimeoutSeconds       int
 	OAuthClientID        string
 	OAuthClientSecretEnc string
@@ -29,6 +30,11 @@ type Server struct {
 	UpdatedAt            time.Time
 }
 
+type ServerWithTools struct {
+	Server Server
+	Tools  []Tool
+}
+
 // Tool 表示从 MCP 服务发现并由管理员控制可用性的工具。
 type Tool struct {
 	ID              uint
@@ -39,6 +45,7 @@ type Tool struct {
 	Description     string
 	InputSchemaJSON string
 	Status          string
+	SortOrder       int
 	DefaultEnabled  bool
 	RequiresConfirm bool
 	ToolKind        string

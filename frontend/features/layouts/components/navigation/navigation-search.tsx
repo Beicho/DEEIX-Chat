@@ -7,6 +7,7 @@ import { ArrowRight } from "@/components/animate-ui/icons/arrow-right"
 import { MessageCircleMore } from "@/components/animate-ui/icons/message-circle-more"
 import { Search } from "@/components/animate-ui/icons/search"
 import { AnimatedText } from "@/components/ui/animated-text"
+import { SpinnerLabel } from "@/components/ui/spinner"
 import {
   CommandDialog,
   CommandEmpty,
@@ -16,7 +17,6 @@ import {
 } from "@/components/ui/command"
 import type { ConversationSearchResult } from "@/features/layouts/types/navigation"
 import { formatUpdatedAtLabel } from "@/features/layouts/utils/navigation-search"
-import { useAppLocale } from "@/i18n/app-i18n-provider"
 
 function NavigationSearchResultItem({
   item,
@@ -25,8 +25,7 @@ function NavigationSearchResultItem({
   item: ConversationSearchResult
   onSelect: (href: string) => void
 }) {
-  const t = useTranslations("common.navigation")
-  const { locale } = useAppLocale()
+  const timeT = useTranslations("common.time")
   const [isHovered, setIsHovered] = React.useState(false)
   const snippet = item.snippet?.trim()
   const showSnippet = Boolean(snippet && snippet !== item.title)
@@ -57,9 +56,9 @@ function NavigationSearchResultItem({
           </span>
         ) : null}
       </span>
-      <span className="relative flex h-4 w-12 shrink-0 items-center justify-end">
-        <span className="text-xs font-normal text-foreground/55 transition-opacity group-hover/search-item:opacity-0 group-data-[selected=true]/search-item:opacity-0">
-          {formatUpdatedAtLabel(item.updatedAt, locale, t("today"), t("yesterday"))}
+      <span className="relative flex h-4 min-w-[5.5rem] shrink-0 items-center justify-end">
+        <span className="text-xs font-normal tabular-nums text-foreground/55 transition-opacity group-hover/search-item:opacity-0 group-data-[selected=true]/search-item:opacity-0">
+          {formatUpdatedAtLabel(item.updatedAt, (key, values) => timeT(key, values))}
         </span>
         <ArrowRight
           size={12}
@@ -128,19 +127,30 @@ export function NavigationSearch({
         icon={<Search size={18} strokeWidth={1.2} />}
       />
 
-      <CommandList scrollContainerClassName="max-h-[280px]" className="px-2 py-2">
-        <CommandEmpty className="py-24 text-center text-sm text-muted-foreground">
-          {loading ? loadingText : emptyText}
-        </CommandEmpty>
+      <CommandList
+        scrollContainerClassName="max-h-[280px] overflow-x-hidden overscroll-contain"
+        className="px-2 py-2"
+      >
+        <div>
+          <CommandEmpty className="flex min-h-32 items-center justify-center py-8 text-sm text-muted-foreground">
+            {loading ? (
+              <SpinnerLabel className="justify-center">
+                {loadingText}
+              </SpinnerLabel>
+            ) : (
+              emptyText
+            )}
+          </CommandEmpty>
 
-        <div className="space-y-0.5">
-          {results.map((item) => (
-            <NavigationSearchResultItem
-              key={item.resultID}
-              item={item}
-              onSelect={onSelect}
-            />
-          ))}
+          <div className="space-y-0.5">
+            {results.map((item) => (
+              <NavigationSearchResultItem
+                key={item.resultID}
+                item={item}
+                onSelect={onSelect}
+              />
+            ))}
+          </div>
         </div>
       </CommandList>
     </CommandDialog>

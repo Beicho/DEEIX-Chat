@@ -129,13 +129,16 @@ type GenerateInput struct {
 	RequestID      string
 	ConversationID uint
 	Messages       []Message
-	Tools          []ToolDefinition
+	// Instructions 承载可映射到上游原生指令字段的系统/开发者指令。
+	// 不支持原生指令字段的 adapter 应继续通过 messages 承载系统提示。
+	Instructions string
+	Tools        []ToolDefinition
 	// DisableTools 表示本轮调用必须只生成文本，adapter 不再声明 MCP 或厂商原生工具。
 	DisableTools bool
 	// Options 承载本次调用的自由 JSON 参数。系统字段（model/messages/input/stream）
 	// 由 adapter 固定构造；Options 只表达采样、推理、工具、缓存和厂商原生扩展。
 	Options map[string]interface{}
-	// PreviousResponseID 供 OpenAI/xAI Responses API 实现有状态会话。
+	// PreviousResponseID 供 OpenAI Responses API 实现有状态会话。
 	// 非空时：仅在 input 中发送本轮新消息，服务端从存储状态续接历史。
 	// 空串时：退回全量发送模式，适用于所有 adapter。
 	PreviousResponseID string
@@ -494,6 +497,7 @@ type Usage struct {
 	ReasoningTokens    int64
 	Speed              string
 	ServiceTier        string
+	RawUsageJSON       string
 }
 
 func nonCachedInputTokens(totalInputTokens int64, cacheReadTokens int64) int64 {
@@ -510,15 +514,98 @@ func nonCachedInputTokens(totalInputTokens int64, cacheReadTokens int64) int64 {
 	return remaining
 }
 
+func rawUsageJSONFromPath(payload map[string]interface{}, keys ...string) string {
+	if len(payload) == 0 || len(keys) == 0 {
+		return ""
+	}
+	var current interface{} = payload
+	for _, key := range keys {
+		currentMap, ok := current.(map[string]interface{})
+		if !ok {
+			return ""
+		}
+		current, ok = currentMap[key]
+		if !ok {
+			return ""
+		}
+	}
+	switch value := current.(type) {
+	case map[string]interface{}:
+		if len(value) == 0 {
+			return ""
+		}
+	case []interface{}:
+		if len(value) == 0 {
+			return ""
+		}
+	default:
+		return ""
+	}
+	raw, err := json.Marshal(current)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func MergeRawUsageJSON(left string, right string) string {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" {
+		return right
+	}
+	if right == "" || right == left {
+		return left
+	}
+	items := make([]interface{}, 0, 2)
+	items = appendRawUsageJSON(items, left)
+	items = appendRawUsageJSON(items, right)
+	if len(items) == 0 {
+		return ""
+	}
+	if len(items) == 1 {
+		raw, err := json.Marshal(items[0])
+		if err != nil {
+			return ""
+		}
+		return string(raw)
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func appendRawUsageJSON(items []interface{}, raw string) []interface{} {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return items
+	}
+	var decoded interface{}
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return items
+	}
+	switch value := decoded.(type) {
+	case []interface{}:
+		return append(items, value...)
+	case map[string]interface{}:
+		return append(items, value)
+	default:
+		return items
+	}
+}
+
 // ToolCall 记录上游返回的工具调用请求。
 type ToolCall struct {
-	ToolCallID    string
-	ToolType      string
-	ToolName      string
-	ArgumentsJSON string
-	Status        string
-	OutputJSON    string
-	ErrorJSON     string
+	ToolCallID       string
+	ToolType         string
+	ToolName         string
+	ArgumentsJSON    string
+	ThoughtSignature string
+	Status           string
+	OutputJSON       string
+	ErrorJSON        string
 }
 
 // ToolResult 记录工具执行结果，由各 adapter 序列化为对应 SDK/API 所需格式。
@@ -553,6 +640,8 @@ type GenerateOutput struct {
 	GeneratedImages     []GeneratedImage
 	RawJSON             string
 	Debug               *UpstreamDebugSnapshot `json:"-"`
+
+	chatTextBuffer string
 }
 
 // GeneratedImage 表示图片生成/编辑接口返回的一张图片。
@@ -651,6 +740,7 @@ func NewClientWithEnv(env string, ssrfProtectionEnabled bool) *Client {
 	}
 	client.adapters = map[string]transportAdapter{
 		AdapterOpenAIResponses:        &openAIResponsesAdapter{client: client},
+		AdapterOpenRouterChat:         &openRouterChatCompletionsAdapter{client: client},
 		AdapterOpenRouterResponses:    &openRouterResponsesAdapter{client: client},
 		AdapterOpenAIChatCompletions:  &openAIChatCompletionsAdapter{client: client},
 		AdapterOpenAIImageGenerations: &openAIImageGenerationsAdapter{client: client},
@@ -1268,6 +1358,9 @@ func mergeToolCall(existing ToolCall, incoming ToolCall) ToolCall {
 	if value := strings.TrimSpace(incoming.ArgumentsJSON); value != "" {
 		merged.ArgumentsJSON = value
 	}
+	if value := strings.TrimSpace(incoming.ThoughtSignature); value != "" {
+		merged.ThoughtSignature = value
+	}
 	if value := strings.TrimSpace(incoming.OutputJSON); value != "" {
 		merged.OutputJSON = value
 	}
@@ -1334,8 +1427,8 @@ func updateToolCallInput(items *[]ToolCall, itemID string, input string, done bo
 }
 
 func appendUniqueStrings(items []string, values ...string) []string {
-	seen := make(map[string]struct{}, len(items)+len(values))
-	result := make([]string, 0, len(items)+len(values))
+	seen := make(map[string]struct{}, len(items))
+	result := make([]string, 0, len(items))
 	for _, item := range items {
 		value := strings.TrimSpace(item)
 		if value == "" {

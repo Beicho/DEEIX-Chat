@@ -3,13 +3,14 @@
 import * as React from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { AnimatePresence, motion, type Transition } from "motion/react"
-import { FileText, PencilLine, Plus, RefreshCw, Star, StarOff, Trash, Upload, type LucideIcon } from "lucide-react"
+import { ChevronDown, FileText, PencilLine, RefreshCw, Star, StarOff, Trash, Upload, type LucideIcon } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import { Ellipsis } from "@/components/animate-ui/icons/ellipsis"
 import { FolderArchiveIcon } from "@/components/ui/folder-archive"
 import { FolderOpenIcon } from "@/components/ui/folder-open"
+import { PlusIcon } from "@/components/ui/plus"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,6 +24,9 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Collapsible,
+} from "@/components/ui/collapsible"
 import {
   Drawer,
   DrawerContent,
@@ -71,12 +75,14 @@ import {
 import {
   ConversationShareDialog,
   sharePatchFromDTO,
-} from "@/features/chat/components/sections/conversation-share-dialog"
-import { useConversationExportAction } from "@/features/chat/hooks/use-conversation-export-action"
+} from "@/features/chat/components/sections/chat-share-dialog"
+import { CollapsibleMotionContent } from "@/shared/components/collapsible-motion-content"
+import { useChatConversationExport, useConversationExportAction } from "@/features/chat/hooks/use-chat-conversation-export"
 import { useChatSession } from "@/features/chat/context/chat-session-context"
-import { DeleteFilesOption } from "@/features/recent/components/delete-files-option"
-import { useChatPreferences } from "@/features/settings/hooks/use-chat-preferences"
-import { useActiveSidebarConversation } from "@/features/layouts/hooks/use-active-sidebar-conversation"
+import { DeleteFilesOption } from "@/shared/components/delete-files-option"
+import { useSettingsChatPreferences } from "@/features/settings/hooks/use-settings-chat-preferences"
+import { useLayoutActiveConversation } from "@/features/layouts/hooks/use-layout-active-conversation"
+import { useMobileSidebarNavigation } from "@/features/layouts/hooks/use-mobile-sidebar-navigation"
 import { SidebarConversationItem } from "@/features/layouts/components/navigation/sidebar-conversation-item"
 import type {
   SidebarConversationDeleteTarget,
@@ -96,6 +102,7 @@ import {
 } from "@/shared/api/project-knowledge"
 import type { ProjectKnowledgeDocumentDTO } from "@/shared/api/project-knowledge.types"
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token"
+import { useStoredBoolean } from "@/shared/hooks/use-stored-boolean"
 import { resolveLocalizedErrorMessage } from "@/i18n/resolve-error-message"
 import { cn } from "@/lib/utils"
 
@@ -121,6 +128,7 @@ type ProjectConversationState = {
   loaded: boolean
   error: boolean
 }
+type ProjectConversationStateMap = Record<string, ProjectConversationState>
 
 const PROJECT_CONVERSATION_PAGE_SIZE = 30
 const PROJECT_TREE_ACCORDION_TRANSITION: Transition = {
@@ -139,32 +147,101 @@ const PROJECT_TREE_ACCORDION_MASK_STYLE = {
   overflow: "hidden",
 } satisfies React.CSSProperties
 const PROJECT_CREATE_ACTION_CLASS =
-  "static size-8 shrink-0 opacity-100 transition-[background-color,color,opacity,transform] duration-150 md:size-7"
+  "static size-7 shrink-0 opacity-0 transition-[background-color,color,opacity,transform] duration-150 group-hover/project-create:opacity-100 group-focus-within/project-create:opacity-100"
+const PROJECTS_OPEN_STORAGE_KEY = "deeix.sidebar.projects.open"
+const PROJECT_EXPANDED_IDS_STORAGE_KEY = "deeix.sidebar.projects.expanded"
 
 type ProjectFolderIconHandle = {
   startAnimation: () => void
   stopAnimation: () => void
 }
 
+function readStoredProjectIDSet(storageKey: string): Set<string> {
+  if (typeof window === "undefined") {
+    return new Set()
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(storageKey) ?? "[]") as unknown
+    if (!Array.isArray(parsed)) {
+      return new Set()
+    }
+    return new Set(parsed.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean))
+  } catch {
+    return new Set()
+  }
+}
+
+function hasStoredProjectIDSet(storageKey: string): boolean {
+  if (typeof window === "undefined") {
+    return false
+  }
+
+  try {
+    return window.localStorage.getItem(storageKey) !== null
+  } catch {
+    return false
+  }
+}
+
+function writeStoredProjectIDSet(storageKey: string, value: Set<string>) {
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(Array.from(value)))
+  } catch {
+    // localStorage can be unavailable in private browsing or strict environments.
+  }
+}
+
 function ProjectGroupHeader({
   title,
   createLabel,
+  contentID,
+  open,
   onCreate,
+  onOpenChange,
+  toggleLabel,
 }: {
   title: string
   createLabel: string
+  contentID: string
+  open: boolean
   onCreate: () => void
+  onOpenChange: (open: boolean) => void
+  toggleLabel: string
 }) {
+  const [createHovered, setCreateHovered] = React.useState(false)
+
   return (
-    <div className="group/project-create flex h-9 items-center md:h-8">
-      <SidebarGroupLabel className="min-w-0 flex-1 shrink pr-2">{title}</SidebarGroupLabel>
+    <div className="group/project-create flex h-8 items-center gap-1">
+      <SidebarGroupLabel
+        asChild
+        className="w-fit max-w-full self-start cursor-pointer gap-1 pr-1 transition-[color,margin,opacity] hover:text-sidebar-foreground"
+      >
+        <button
+          type="button"
+          aria-controls={contentID}
+          aria-expanded={open}
+          aria-label={toggleLabel}
+          onClick={() => onOpenChange(!open)}
+        >
+          <span className="min-w-0 truncate text-left">{title}</span>
+          <ChevronDown
+            className={cn(
+              "!size-3 stroke-1.5 transition-transform duration-200",
+              !open && "-rotate-90",
+            )}
+          />
+        </button>
+      </SidebarGroupLabel>
       <SidebarGroupAction
         type="button"
         aria-label={createLabel}
-        className={PROJECT_CREATE_ACTION_CLASS}
+        className={cn(PROJECT_CREATE_ACTION_CLASS, "ml-auto")}
+        onMouseEnter={() => setCreateHovered(true)}
+        onMouseLeave={() => setCreateHovered(false)}
         onClick={onCreate}
       >
-        <Plus />
+        <PlusIcon size={14} strokeWidth={1.8} animate={createHovered ? "default" : undefined} />
       </SidebarGroupAction>
     </div>
   )
@@ -175,12 +252,14 @@ function ProjectTreeButton({
   contentID,
   expanded,
   name,
+  onHoverChange,
   onToggleExpanded,
 }: {
   active: boolean
   contentID: string
   expanded: boolean
   name: string
+  onHoverChange?: (hovered: boolean) => void
   onToggleExpanded: () => void
 }) {
   const iconRef = React.useRef<ProjectFolderIconHandle>(null)
@@ -204,9 +283,11 @@ function ProjectTreeButton({
         onToggleExpanded()
       }}
       onMouseEnter={() => {
+        onHoverChange?.(true)
         iconRef.current?.startAnimation()
       }}
       onMouseLeave={() => {
+        onHoverChange?.(false)
         iconRef.current?.stopAnimation()
       }}
     >
@@ -282,22 +363,19 @@ const ProjectInlineAction = React.forwardRef<HTMLButtonElement, ProjectInlineAct
   )
 })
 
-function ProjectActionIcon({ icon: Icon }: { icon: LucideIcon }) {
-  return <Icon size={16} strokeWidth={1.6} className="size-4" />
-}
-
 export function NavProjects() {
   const t = useTranslations("recent.projects")
   const tRecent = useTranslations("recent")
   const { isMobile, setOpenMobile } = useSidebar()
   const router = useRouter()
+  const onNavigate = useMobileSidebarNavigation()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const activeRecentProjectID = searchParams.get("project") ?? ""
   const activeChatProjectID = searchParams.get("project_id") ?? ""
   const activeProjectID = pathname === "/chat" ? activeChatProjectID : activeRecentProjectID
-  const activeConversationID = useActiveSidebarConversation()
-  const { deleteFilesByDefault: deleteConversationFilesByDefault } = useChatPreferences()
+  const activeConversationID = useLayoutActiveConversation()
+  const { deleteFilesByDefault: deleteConversationFilesByDefault } = useSettingsChatPreferences()
   const { requestNewConversation } = useChatSession()
   const {
     items,
@@ -307,6 +385,7 @@ export function NavProjects() {
     updateProject,
     deleteProject,
     renameByPublicID,
+    regenerateTitleByPublicID,
     setStarByPublicID,
     setProjectByPublicID,
     archiveByPublicID,
@@ -323,13 +402,19 @@ export function NavProjects() {
   const [deleteConversationFiles, setDeleteConversationFiles] = React.useState(false)
   const [shareTarget, setShareTarget] = React.useState<{ publicID: string; title: string } | null>(null)
   const [renameValue, setRenameValue] = React.useState("")
-  const [expandedProjectIDs, setExpandedProjectIDs] = React.useState<Set<string>>(() => new Set())
-  const [projectConversationState, setProjectConversationState] = React.useState<Record<string, ProjectConversationState>>({})
+  const [autoRenamingConversationID, setAutoRenamingConversationID] = React.useState<string | null>(null)
+  const [expandedProjectIDs, setExpandedProjectIDs] = React.useState<Set<string>>(() => readStoredProjectIDSet(PROJECT_EXPANDED_IDS_STORAGE_KEY))
+  const [projectConversationState, setProjectConversationState] = React.useState<ProjectConversationStateMap>({})
   const [openProjectMenuID, setOpenProjectMenuID] = React.useState<string | null>(null)
   const [hoveredProjectMenuID, setHoveredProjectMenuID] = React.useState<string | null>(null)
+  const [hoveredProjectCreateID, setHoveredProjectCreateID] = React.useState<string | null>(null)
   const [hoveredProjectRowID, setHoveredProjectRowID] = React.useState<string | null>(null)
   const [focusedProjectRowID, setFocusedProjectRowID] = React.useState<string | null>(null)
+  const [projectsOpen, setProjectsOpen] = useStoredBoolean(PROJECTS_OPEN_STORAGE_KEY, true)
   const projectConversationStateRef = React.useRef(projectConversationState)
+  const expandedProjectIDsRef = React.useRef(expandedProjectIDs)
+  const activeRevealedProjectIDsRef = React.useRef(new Set<string>())
+  const hasStoredExpandedProjectIDsRef = React.useRef(hasStoredProjectIDSet(PROJECT_EXPANDED_IDS_STORAGE_KEY))
   const activeConversationProjectID = React.useMemo(
     () => items.find((item) => item.publicID === activeConversationID)?.projectID ?? "",
     [activeConversationID, items],
@@ -337,7 +422,8 @@ export function NavProjects() {
   const deleteProjectConversationsID = React.useId()
   const deleteProjectFilesID = React.useId()
   const deleteConversationFilesID = React.useId()
-  const onExportConversation = useConversationExportAction({
+  const projectsContentID = React.useId()
+  const onExportConversation = useChatConversationExport({
     successMessage: tRecent("exported"),
     failureMessage: tRecent("exportFailed"),
   })
@@ -372,9 +458,24 @@ export function NavProjects() {
     },
   })
 
-  React.useEffect(() => {
-    projectConversationStateRef.current = projectConversationState
-  }, [projectConversationState])
+  const updateProjectConversationState = React.useCallback((updater: (prev: ProjectConversationStateMap) => ProjectConversationStateMap) => {
+    const next = updater(projectConversationStateRef.current)
+    projectConversationStateRef.current = next
+    setProjectConversationState(next)
+  }, [])
+
+  const updateExpandedProjectIDs = React.useCallback((updater: (prev: Set<string>) => Set<string>, persist = false) => {
+    const next = updater(expandedProjectIDsRef.current)
+    expandedProjectIDsRef.current = next
+    setExpandedProjectIDs(next)
+    if (persist) {
+      hasStoredExpandedProjectIDsRef.current = true
+      writeStoredProjectIDSet(
+        PROJECT_EXPANDED_IDS_STORAGE_KEY,
+        new Set(Array.from(next).filter((projectID) => !activeRevealedProjectIDsRef.current.has(projectID))),
+      )
+    }
+  }, [])
 
   const closeDraft = React.useCallback(() => {
     setDraft(null)
@@ -401,6 +502,26 @@ export function NavProjects() {
       onRenameConversationCancel()
     },
     [onRenameConversationCancel, renameByPublicID, renameValue],
+  )
+
+  const onAutoRenameConversation = React.useCallback(
+    async (publicID: string) => {
+      if (autoRenamingConversationID) {
+        return
+      }
+      setAutoRenamingConversationID(publicID)
+      try {
+        const updated = await regenerateTitleByPublicID(publicID)
+        if (updated) {
+          onRenameConversationCancel()
+        }
+      } catch {
+        // Keep the current rename input open so the user can retry or edit manually.
+      } finally {
+        setAutoRenamingConversationID(null)
+      }
+    },
+    [autoRenamingConversationID, onRenameConversationCancel, regenerateTitleByPublicID],
   )
 
   const onArchiveConversation = React.useCallback(
@@ -436,7 +557,7 @@ export function NavProjects() {
       return
     }
 
-    setProjectConversationState((prev) => ({
+    updateProjectConversationState((prev) => ({
       ...prev,
       [projectID]: {
         items: prev[projectID]?.items ?? [],
@@ -448,13 +569,13 @@ export function NavProjects() {
 
     const token = await resolveAccessToken()
     if (!token) {
-      setProjectConversationState((prev) => ({
+      updateProjectConversationState((prev) => ({
         ...prev,
         [projectID]: {
-          items: [],
+          items: prev[projectID]?.items ?? [],
           loading: false,
-          loaded: true,
-          error: false,
+          loaded: false,
+          error: true,
         },
       }))
       return
@@ -468,7 +589,7 @@ export function NavProjects() {
         starred: "all",
         project: projectID,
       })
-      setProjectConversationState((prev) => ({
+      updateProjectConversationState((prev) => ({
         ...prev,
         [projectID]: {
           items: mergeUniqueByPublicID(prev[projectID]?.items ?? [], data.results ?? [], sortByUpdatedAtDesc),
@@ -478,7 +599,7 @@ export function NavProjects() {
         },
       }))
     } catch {
-      setProjectConversationState((prev) => ({
+      updateProjectConversationState((prev) => ({
         ...prev,
         [projectID]: {
           items: prev[projectID]?.items ?? [],
@@ -488,50 +609,63 @@ export function NavProjects() {
         },
       }))
     }
-  }, [])
+  }, [updateProjectConversationState])
+
+  React.useEffect(() => {
+    const visibleProjectIDs = new Set(projects.map((project) => project.publicID))
+    expandedProjectIDs.forEach((projectID) => {
+      if (!visibleProjectIDs.has(projectID)) {
+        return
+      }
+      void loadProjectConversations(projectID)
+    })
+  }, [expandedProjectIDs, loadProjectConversations, projects])
 
   const ensureProjectExpanded = React.useCallback(
-    (projectID: string) => {
+    (projectID: string, persist = false) => {
       const shouldLoad = !projectConversationStateRef.current[projectID]?.loaded
-      setExpandedProjectIDs((prev) => {
+      if (persist) {
+        activeRevealedProjectIDsRef.current.delete(projectID)
+      }
+      updateExpandedProjectIDs((prev) => {
         if (prev.has(projectID)) {
           return prev
         }
         const next = new Set(prev)
         next.add(projectID)
         return next
-      })
+      }, persist)
       if (shouldLoad) {
         void loadProjectConversations(projectID)
       }
     },
-    [loadProjectConversations],
+    [loadProjectConversations, updateExpandedProjectIDs],
   )
 
   const toggleProjectExpanded = React.useCallback(
     (projectID: string) => {
       const shouldLoad = !projectConversationStateRef.current[projectID]?.loaded
-      let expandedNext = false
-      setExpandedProjectIDs((prev) => {
+      const expandedNext = !expandedProjectIDsRef.current.has(projectID)
+      activeRevealedProjectIDsRef.current.delete(projectID)
+      updateExpandedProjectIDs((prev) => {
         const next = new Set(prev)
         if (next.has(projectID)) {
           next.delete(projectID)
         } else {
           next.add(projectID)
-          expandedNext = true
         }
         return next
-      })
+      }, true)
       if (expandedNext && shouldLoad) {
         void loadProjectConversations(projectID)
       }
     },
-    [loadProjectConversations],
+    [loadProjectConversations, updateExpandedProjectIDs],
   )
 
   const startProjectConversation = React.useCallback(
     (projectID: string) => {
-      ensureProjectExpanded(projectID)
+      ensureProjectExpanded(projectID, true)
       requestNewConversation({ projectID })
       router.push(`/chat?project_id=${encodeURIComponent(projectID)}`)
       if (isMobile) {
@@ -542,9 +676,11 @@ export function NavProjects() {
   )
 
   React.useEffect(() => {
-    if (activeProjectID) {
-      ensureProjectExpanded(activeProjectID)
+    if (!activeProjectID || hasStoredExpandedProjectIDsRef.current || activeRevealedProjectIDsRef.current.has(activeProjectID)) {
+      return
     }
+    activeRevealedProjectIDsRef.current.add(activeProjectID)
+    ensureProjectExpanded(activeProjectID, false)
   }, [activeProjectID, ensureProjectExpanded])
 
   React.useEffect(() => {
@@ -552,7 +688,7 @@ export function NavProjects() {
       return
     }
 
-    setProjectConversationState((prev) => {
+updateProjectConversationState((prev) => {
       const targetProjectID =
         lastChange.type === "remove"
           ? ""
@@ -613,7 +749,7 @@ export function NavProjects() {
     if (lastChange.type !== "remove") {
       const projectID = lastChange.item?.projectID ?? lastChange.patch?.projectID ?? ""
       if (projectID) {
-        setExpandedProjectIDs((prev) => {
+        updateExpandedProjectIDs((prev) => {
           if (prev.has(projectID)) {
             return prev
           }
@@ -623,7 +759,7 @@ export function NavProjects() {
         })
       }
     }
-  }, [items, lastChange])
+  }, [items, lastChange, updateExpandedProjectIDs, updateProjectConversationState])
 
   const commitDraft = React.useCallback(async () => {
     const name = draft?.name.trim() ?? ""
@@ -661,12 +797,12 @@ export function NavProjects() {
       router.push("/chat")
     }
     if (deleted) {
-      setExpandedProjectIDs((prev) => {
+      updateExpandedProjectIDs((prev) => {
         const next = new Set(prev)
         next.delete(deletingProjectID)
         return next
-      })
-      setProjectConversationState((prev) => {
+      }, true)
+      updateProjectConversationState((prev) => {
         const { [deletingProjectID]: _deleted, ...next } = prev
         return next
       })
@@ -685,6 +821,8 @@ export function NavProjects() {
     pathname,
     projectConversationState,
     router,
+    updateExpandedProjectIDs,
+    updateProjectConversationState,
   ])
 
   React.useEffect(() => {
@@ -710,14 +848,22 @@ export function NavProjects() {
     return (
       <>
         <div className="relative z-10 group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0">
-          <SidebarGroup>
-            <ProjectGroupHeader
-              title={t("title")}
-              createLabel={t("create")}
-              onCreate={() => setDraft({ name: "", systemPrompt: "" })}
-            />
-            <div className="px-2 py-1 text-xs text-sidebar-foreground/55">{t("empty")}</div>
-          </SidebarGroup>
+          <Collapsible open={projectsOpen} onOpenChange={setProjectsOpen}>
+            <SidebarGroup>
+              <ProjectGroupHeader
+                title={t("title")}
+                createLabel={t("create")}
+                contentID={projectsContentID}
+                open={projectsOpen}
+                onCreate={() => setDraft({ name: "", systemPrompt: "" })}
+                onOpenChange={setProjectsOpen}
+                toggleLabel={projectsOpen ? t("collapseSection") : t("expandSection")}
+              />
+              <CollapsibleMotionContent id={projectsContentID} open={projectsOpen}>
+                <div className="px-2 py-1 text-xs text-sidebar-foreground/55">{t("empty")}</div>
+              </CollapsibleMotionContent>
+            </SidebarGroup>
+          </Collapsible>
         </div>
         <ProjectDialog draft={draft} setDraft={setDraft} onOpenChange={(open) => !open && closeDraft()} onSubmit={commitDraft} />
       </>
@@ -727,33 +873,39 @@ export function NavProjects() {
   return (
     <>
       <div className="relative z-10 group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:opacity-0">
-        <SidebarGroup>
-          <ProjectGroupHeader
-            title={t("title")}
-            createLabel={t("create")}
-            onCreate={() => setDraft({ name: "", systemPrompt: "" })}
-          />
-          <SidebarMenu>
-            {projects.map((project) => {
-              const expanded = expandedProjectIDs.has(project.publicID)
-              const conversationState = projectConversationState[project.publicID]
-              const hasActiveChild = Boolean(conversationState?.items.some((item) => item.publicID === activeConversationID))
-              const active =
-                ((pathname === "/recent" || pathname === "/chat") && activeProjectID === project.publicID) ||
-                activeConversationProjectID === project.publicID ||
-                hasActiveChild
-              const rowHovered = hoveredProjectRowID === project.publicID
-              const rowFocused = focusedProjectRowID === project.publicID
-              const menuHovered = hoveredProjectMenuID === project.publicID
-              const menuOpen = openProjectMenuID === project.publicID
-              const showProjectActions = rowHovered || rowFocused || menuHovered || menuOpen
-              const projectConversationContentID = `sidebar-project-${project.publicID}-conversations`
-              return (
-                <SidebarMenuItem key={project.publicID}>
+        <Collapsible open={projectsOpen} onOpenChange={setProjectsOpen}>
+          <SidebarGroup>
+            <ProjectGroupHeader
+              title={t("title")}
+              createLabel={t("create")}
+              contentID={projectsContentID}
+              open={projectsOpen}
+              onCreate={() => setDraft({ name: "", systemPrompt: "" })}
+              onOpenChange={setProjectsOpen}
+              toggleLabel={projectsOpen ? t("collapseSection") : t("expandSection")}
+            />
+            <CollapsibleMotionContent id={projectsContentID} open={projectsOpen}>
+              <SidebarMenu>
+                {projects.map((project) => {
+                  const expanded = expandedProjectIDs.has(project.publicID)
+                  const conversationState = projectConversationState[project.publicID]
+                  const conversationLoading = expanded && (!conversationState || conversationState.loading)
+                  const hasActiveChild = Boolean(conversationState?.items.some((item) => item.publicID === activeConversationID))
+                  const active =
+                    ((pathname === "/recent" || pathname === "/chat") && activeProjectID === project.publicID) ||
+                    activeConversationProjectID === project.publicID ||
+                    hasActiveChild
+                  const rowHovered = hoveredProjectRowID === project.publicID
+                  const rowFocused = focusedProjectRowID === project.publicID
+                  const createHovered = hoveredProjectCreateID === project.publicID
+                  const menuHovered = hoveredProjectMenuID === project.publicID
+                  const menuOpen = openProjectMenuID === project.publicID
+                  const showProjectActions = rowHovered || rowFocused || menuHovered || menuOpen
+                  const projectConversationContentID = `sidebar-project-${project.publicID}-conversations`
+                  return (
+                    <SidebarMenuItem key={project.publicID}>
                   <div
                     className="group/project-row relative"
-                    onMouseEnter={() => setHoveredProjectRowID(project.publicID)}
-                    onMouseLeave={() => setHoveredProjectRowID(null)}
                     onFocus={() => setFocusedProjectRowID(project.publicID)}
                     onBlur={(event) => {
                       const nextTarget = event.relatedTarget
@@ -767,15 +919,17 @@ export function NavProjects() {
                       contentID={projectConversationContentID}
                       expanded={expanded}
                       name={project.name}
+                      onHoverChange={(hovered) => setHoveredProjectRowID(hovered ? project.publicID : null)}
                       onToggleExpanded={() => toggleProjectExpanded(project.publicID)}
                     />
                     <ProjectInlineAction
                       label={t("newChatInProject")}
                       visible={showProjectActions}
                       className="right-8"
+                      onHoverChange={(hovered) => setHoveredProjectCreateID(hovered ? project.publicID : null)}
                       onClick={() => startProjectConversation(project.publicID)}
                     >
-                      <ProjectActionIcon icon={Plus} />
+                      <PlusIcon size={16} strokeWidth={1.6} animate={createHovered ? "default" : undefined} />
                     </ProjectInlineAction>
                     <DropdownMenu
                       modal={false}
@@ -789,7 +943,7 @@ export function NavProjects() {
                           className="right-0"
                           onHoverChange={(hovered) => setHoveredProjectMenuID(hovered ? project.publicID : null)}
                         >
-                          <Ellipsis size={16} strokeWidth={1.4} animate={menuHovered ? "default" : undefined} />
+                          <Ellipsis size={16} strokeWidth={1.4} animate={menuHovered ? "pulse" : undefined} />
                         </ProjectInlineAction>
                       </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-max min-w-36 max-w-[calc(100vw-2rem)]">
@@ -837,7 +991,7 @@ export function NavProjects() {
                         style={PROJECT_TREE_ACCORDION_MASK_STYLE}
                       >
                         <SidebarMenuSub className="mx-0 w-full translate-x-0 border-l-0 px-0 py-0.5">
-                          {conversationState?.loading ? (
+                          {conversationLoading ? (
                             <SidebarMenuSubItem>
                               <div className="flex h-7 w-full items-center gap-2 rounded-md pl-8 pr-2 text-xs text-muted-foreground">
                                 <Spinner className="size-3.5" />
@@ -899,6 +1053,8 @@ export function NavProjects() {
                                 onRenameValueChange={setRenameValue}
                                 onRenameCommit={onRenameConversationCommit}
                                 onRenameCancel={onRenameConversationCancel}
+                                onAutoRename={onAutoRenameConversation}
+                                isAutoRenaming={autoRenamingConversationID === conversation.publicID}
                                 onRename={onRenameConversation}
                                 onArchive={onArchiveConversation}
                                 onShare={(publicID, shareTitle) => setShareTarget({ publicID, title: shareTitle })}
@@ -907,7 +1063,7 @@ export function NavProjects() {
                                 onExportImage={onExportImageConversation}
                                 onCopyMarkdown={onCopyMarkdownConversation}
                                 onDelete={onDeleteConversation}
-                                onNavigate={isMobile ? () => setOpenMobile(false) : undefined}
+                                onNavigate={onNavigate}
                                 menuTriggerID={`project-conversation-menu-trigger-${conversation.publicID}`}
                               />
                             )
@@ -916,11 +1072,13 @@ export function NavProjects() {
                       </motion.div>
                     ) : null}
                   </AnimatePresence>
-                </SidebarMenuItem>
-              )
-            })}
-          </SidebarMenu>
-        </SidebarGroup>
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </CollapsibleMotionContent>
+          </SidebarGroup>
+        </Collapsible>
       </div>
 
       <ProjectDialog draft={draft} setDraft={setDraft} onOpenChange={(open) => !open && closeDraft()} onSubmit={commitDraft} />

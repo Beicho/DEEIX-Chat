@@ -2,8 +2,9 @@ import { createElement } from "react"
 import { Bell, Bookmark, Gift, Swords } from "lucide-react"
 import { Layers } from "@/components/animate-ui/icons/layers"
 import { MessageCircleMore } from "@/components/animate-ui/icons/message-circle-more"
-import { Plus } from "@/components/animate-ui/icons/plus"
+import { PlusIcon } from "@/components/ui/plus"
 import { Search } from "@/components/animate-ui/icons/search"
+import { Blend } from "@/components/animate-ui/icons/blend"
 import type { NavigationItem } from "@/features/layouts/types/navigation"
 
 function BellIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" }) {
@@ -27,7 +28,7 @@ export const NAVIGATION_ITEMS = [
     id: "newChat",
     title: "New chat",
     url: "#",
-    icon: Plus,
+    icon: PlusIcon,
     variant: "primary",
     group: "primary",
     shortcut: ["command", "shift", "O"],
@@ -80,6 +81,13 @@ export const NAVIGATION_ITEMS = [
     title: "Files",
     url: "/files",
     icon: Layers,
+    group: "secondary",
+  },
+  {
+    id: "skillsPrompt",
+    title: "Skills & Prompts",
+    url: "/skills-prompt",
+    icon: Blend,
     group: "secondary",
   },
 ] as const satisfies readonly NavigationItem[]

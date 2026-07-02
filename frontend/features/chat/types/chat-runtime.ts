@@ -21,6 +21,7 @@ export type ChatModelOption = {
   protocols: string[];
   defaultOptions: ConversationOptions;
   optionControls: ModelOptionControl[];
+  lockedOptionPaths: string[];
   nativeToolKeys: string[];
   nativeTools: ModelNativeToolConfig[];
   pricing: PublicModelPricingDTO | null;
@@ -35,6 +36,7 @@ export type ModelOptionControl = {
   type?: ModelOptionControlType;
   options?: string[];
   placeholder?: string;
+  locked?: boolean;
 };
 
 export type PendingAttachment = {
@@ -75,7 +77,7 @@ export type PendingExchange = {
   platformModelName?: string;
   parentPublicID: string | null;
   sourcePublicID: string | null;
-  branchReason: "default" | "retry" | "edit";
+  branchReason: "default" | "retry" | "edit" | "arena";
   userContent: string;
   userAttachments?: PendingAttachment[];
   userServerMessageID?: number;

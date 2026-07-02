@@ -49,15 +49,19 @@ type UseSettingsAccountResult = {
   deletingAccount: boolean;
   changingPassword: boolean;
   sendingPasswordCode: boolean;
+  passwordCodeDebug: string;
   passwordDialogOpen: boolean;
   emailDialogOpen: boolean;
   currentEmailVerificationDialogOpen: boolean;
   revokingSessionID: string;
   deleteDialogOpen: boolean;
   deleteCodeCooldownSeconds: number;
+  deleteCodeDebug: string;
   sendingDeleteCode: boolean;
   emailVerificationEnabled: boolean;
   passwordCodeCooldownSeconds: number;
+  emailCodeDebug: string;
+  currentEmailCodeDebug: string;
   emailCodeCooldownSeconds: number;
   currentEmailCodeCooldownSeconds: number;
   sendingEmailCode: boolean;
@@ -65,7 +69,6 @@ type UseSettingsAccountResult = {
   setEmailDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setCurrentEmailVerificationDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
   setDeleteDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  handleCopyPublicID: () => Promise<void>;
   handleSendPasswordCode: (method: SecurityVerificationMethod) => Promise<void>;
   handleChangePassword: (payload: { currentPassword: string; newPassword: string; verificationMethod: SecurityVerificationMethod; code: string; revokeOtherSessions: boolean }) => Promise<void>;
   handleSendEmailBootstrapCode: (email: string) => Promise<void>;
@@ -142,6 +145,10 @@ export function useSettingsAccount(): UseSettingsAccountResult {
   const [cooldownNow, setCooldownNow] = React.useState(() => Date.now());
   const [sendingEmailCode, setSendingEmailCode] = React.useState(false);
   const [sendingDeleteCode, setSendingDeleteCode] = React.useState(false);
+  const [passwordCodeDebug, setPasswordCodeDebug] = React.useState("");
+  const [emailCodeDebug, setEmailCodeDebug] = React.useState("");
+  const [currentEmailCodeDebug, setCurrentEmailCodeDebug] = React.useState("");
+  const [deleteCodeDebug, setDeleteCodeDebug] = React.useState("");
   const passwordCodeCooldownSeconds = Math.max(0, Math.ceil((passwordCodeResendAt - cooldownNow) / 1000));
   const emailCodeCooldownSeconds = Math.max(0, Math.ceil((emailCodeResendAt - cooldownNow) / 1000));
   const currentEmailCodeCooldownSeconds = Math.max(0, Math.ceil((currentEmailCodeResendAt - cooldownNow) / 1000));
@@ -208,20 +215,6 @@ export function useSettingsAccount(): UseSettingsAccountResult {
     void loadAccountData();
   }, [loadAccountData]);
 
-  const handleCopyPublicID = React.useCallback(async () => {
-    const value = (viewer?.publicID || "").trim();
-    if (!value) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(value);
-      toast.success(t("publicIDCopied"));
-    } catch {
-      toast.error(t("copyFailed"), { description: t("retryLater") });
-    }
-  }, [t, viewer?.publicID]);
-
   const handleLogoutAll = React.useCallback(async () => {
     if (loggingOut) {
       return;
@@ -252,6 +245,7 @@ export function useSettingsAccount(): UseSettingsAccountResult {
         throw new Error(t("sessionMissing"));
       }
       const result = await startPasswordChangeVerification(token, method);
+      setPasswordCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startPasswordCodeCooldown();
         toast.success(t("codeSent"));
@@ -297,6 +291,7 @@ export function useSettingsAccount(): UseSettingsAccountResult {
       const token = await resolveAccessToken();
       if (!token) throw new Error(t("sessionMissing"));
       const result = await startEmailBootstrap(token, email);
+      setEmailCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startEmailCodeCooldown();
         toast.success(t("codeSent"));
@@ -332,6 +327,7 @@ export function useSettingsAccount(): UseSettingsAccountResult {
       const token = await resolveAccessToken();
       if (!token) throw new Error(t("sessionMissing"));
       const result = await startCurrentEmailVerification(token);
+      setCurrentEmailCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startCurrentEmailCodeCooldown();
         toast.success(t("currentEmailCodeSent"));
@@ -367,6 +363,7 @@ export function useSettingsAccount(): UseSettingsAccountResult {
       const token = await resolveAccessToken();
       if (!token) throw new Error(t("sessionMissing"));
       const result = await startCurrentEmailChange(token, method);
+      setCurrentEmailCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startCurrentEmailCodeCooldown();
         toast.success(t("currentEmailCodeSent"));
@@ -385,6 +382,7 @@ export function useSettingsAccount(): UseSettingsAccountResult {
       const token = await resolveAccessToken();
       if (!token) throw new Error(t("sessionMissing"));
       const result = await startNewEmailChange(token, email);
+      setEmailCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startEmailCodeCooldown();
         toast.success(t("newEmailCodeSent"));
@@ -425,6 +423,7 @@ export function useSettingsAccount(): UseSettingsAccountResult {
       const token = await resolveAccessToken();
       if (!token) throw new Error(t("sessionMissing"));
       const result = await startAccountDeleteVerification(token, method);
+      setDeleteCodeDebug(result.debugCode ?? "");
       if (result.sent) {
         startDeleteCodeCooldown();
         toast.success(t("deleteAccountCodeSent"));
@@ -621,15 +620,19 @@ export function useSettingsAccount(): UseSettingsAccountResult {
     deletingAccount,
     changingPassword,
     sendingPasswordCode,
+    passwordCodeDebug,
     revokingSessionID,
     passwordDialogOpen,
     emailDialogOpen,
     currentEmailVerificationDialogOpen,
     deleteDialogOpen,
     deleteCodeCooldownSeconds,
+    deleteCodeDebug,
     sendingDeleteCode,
     emailVerificationEnabled,
     passwordCodeCooldownSeconds,
+    emailCodeDebug,
+    currentEmailCodeDebug,
     emailCodeCooldownSeconds,
     currentEmailCodeCooldownSeconds,
     sendingEmailCode,
@@ -637,7 +640,6 @@ export function useSettingsAccount(): UseSettingsAccountResult {
     setEmailDialogOpen,
     setCurrentEmailVerificationDialogOpen,
     setDeleteDialogOpen,
-    handleCopyPublicID,
     handleSendPasswordCode,
     handleChangePassword,
     handleSendEmailBootstrapCode,

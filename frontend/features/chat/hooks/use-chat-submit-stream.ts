@@ -15,6 +15,7 @@ import type {
   ConversationOptions,
   MessageDTO,
 } from "@/shared/api/conversation.types";
+import type { SkillSummaryDTO } from "@/shared/api/skills.types";
 
 export function useChatSubmitStream({
   conversationID,
@@ -28,6 +29,7 @@ export function useChatSubmitStream({
   codeSandboxEnabled,
   researchMaxLLMCalls,
   researchMaxToolCalls,
+  selectedSkills,
   htmlVisualPromptEnabled,
   htmlVisualColorMode,
   options,
@@ -56,6 +58,7 @@ export function useChatSubmitStream({
   serverMessagePublicIDs,
   activeGenerationRunsRef,
   failedGenerationRunsRef,
+  resumeGenerationActive,
 }: {
   conversationID: string | null;
   resetToken: number;
@@ -68,6 +71,7 @@ export function useChatSubmitStream({
   codeSandboxEnabled: boolean;
   researchMaxLLMCalls: number;
   researchMaxToolCalls: number;
+  selectedSkills: SkillSummaryDTO[];
   htmlVisualPromptEnabled: boolean;
   htmlVisualColorMode: "light" | "dark";
   options: ConversationOptions;
@@ -96,6 +100,7 @@ export function useChatSubmitStream({
   serverMessagePublicIDs: Set<string>;
   activeGenerationRunsRef?: React.RefObject<Set<string>>;
   failedGenerationRunsRef?: React.RefObject<Set<string>>;
+  resumeGenerationActive?: boolean;
 }) {
   const streamBuffer = useChatStreamBuffer({
     setPendingExchange,
@@ -112,6 +117,7 @@ export function useChatSubmitStream({
     codeSandboxEnabled,
     researchMaxLLMCalls,
     researchMaxToolCalls,
+    selectedSkills,
     htmlVisualPromptEnabled,
     htmlVisualColorMode,
     options,
@@ -145,11 +151,11 @@ export function useChatSubmitStream({
     resetToken,
     activeGenerationRunsRef,
     failedGenerationRunsRef,
+    resumeGenerationActive,
   });
 
   return {
     ...messageSubmit,
     pendingExchange,
-    streamingText: pendingExchange?.assistantText ?? "",
   };
 }

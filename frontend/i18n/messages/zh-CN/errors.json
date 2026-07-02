@@ -25,6 +25,7 @@
     "oauthIntentMismatch": "第三方登录流程不匹配，请重新操作。",
     "oauthStateExpired": "第三方登录状态已过期，请重新登录。",
     "oauthStateInvalid": "第三方登录状态无效，请重新登录。",
+    "passwordResetFailed": "密码重置失败，请检查邮箱、验证码和新密码。",
     "passwordResetRequired": "请先完成密码重置。",
     "passwordReuseNotAllowed": "新密码不能与初始密码相同。",
     "providerAccountNotRegistered": "该第三方账号尚未注册。",
@@ -108,6 +109,7 @@
   "conversation": {
     "invalidId": "对话 ID 无效。",
     "invalidTitle": "对话标题无效。",
+    "noTitleableContent": "当前对话没有可用于生成标题的内容。",
     "notFound": "对话不存在。"
   },
   "conversationRun": {
@@ -141,6 +143,7 @@
     "invalidName": "文件名无效。",
     "invalidReference": "文件引用无效。",
     "invalidStream": "文件流无效。",
+    "inUse": "文件正在使用中，无法删除。",
     "notFound": "文件不存在。",
     "notReady": "文件尚未准备完成。",
     "required": "请选择文件。",
@@ -153,6 +156,9 @@
   },
   "internal": {
     "error": "服务器内部错误，请稍后重试。"
+  },
+  "toolRun": {
+    "finalAnswerMissing": "工具调用已到达运行上限，但模型没有生成最终回答。请重试或减少本次启用的工具。"
   },
   "llm": {
     "apiKeysRequired": "API Keys 不能为空。",

@@ -145,7 +145,9 @@
     "exportMarkdown": "导出 Markdown",
     "exportImage": "生成长图",
     "copyMarkdown": "复制全文",
-    "delete": "删除"
+    "delete": "删除",
+    "autoRename": "自动命名",
+    "autoRenameFailed": "自动命名失败"
   },
   "imageExport": {
     "exportedAt": "导出时间",
@@ -174,7 +176,8 @@
       "description": "即将跳转到外部网站，请确认链接地址。",
       "linkAddress": "链接地址",
       "copy": "复制链接",
-      "copied": "已复制链接"
+      "copied": "已复制链接",
+      "copyFailed": "链接复制失败"
     },
     "codeBlock": {
       "collapse": "折叠",
@@ -281,7 +284,9 @@
     "memoryNamePlaceholder": "偏好名称（如：回复风格）",
     "memoryValuePlaceholder": "偏好内容（如：请用简洁的中文回复）",
     "savingPreference": "保存中…",
-    "savePreference": "保存偏好"
+    "savePreference": "保存偏好",
+    "expandUserMessage": "展开",
+    "collapseUserMessage": "收起"
   },
   "loadError": {
     "title": "会话加载失败",
@@ -543,6 +548,46 @@
       "openai": "OpenAI 原生工具",
       "claude": "Claude 原生工具",
       "google": "Google 原生工具"
+    },
+    "inputPlaceholder": "输入消息，或用 / 添加上下文，@ 添加资源",
+    "voiceListeningPlaceholder": "正在接收语音…",
+    "locked": "不可修改",
+    "notEnabledHelp": "未启用：该配置当前不在左侧 JSON 中，不会随请求透传。",
+    "lockedHelp": "不可修改：该参数由管理员锁定，会使用模型默认值。",
+    "defaultMCPToolsSaved": "已保存默认 MCP 工具",
+    "defaultMCPToolsSaveFailed": "默认 MCP 工具保存失败",
+    "sessionExpired": "登录状态已失效，请重新登录。",
+    "mcpExpandServerTools": "展开 {server} 的工具",
+    "mcpCollapseServerTools": "收起 {server} 的工具",
+    "mcpToggleTool": "选择 {tool}",
+    "skillLimitTitle": "Skills 数量已达上限",
+    "skillLimitDescription": "单次消息最多加载 {limit} 个 Skills，请移除一个后再继续。",
+    "selectedSkillsLabel": "已加载 Skills",
+    "mcpSetDefaultTool": "新对话默认使用 {tool}",
+    "mcpUnsetDefaultTool": "新对话不再默认使用 {tool}",
+    "mcpDefaultToolEnabled": "新对话会默认启用",
+    "mcpDefaultToolDisabled": "设为新对话默认工具",
+    "mcpSetDefaultServerTools": "新对话默认使用 {server} 的全部工具",
+    "mcpUnsetDefaultServerTools": "新对话不再默认使用 {server} 的全部工具",
+    "mcpDefaultServerToolsEnabled": "该服务下全部工具已设为新对话默认",
+    "mcpDefaultServerToolsDisabled": "将该服务下全部工具设为新对话默认",
+    "queueMessage": "排队发送",
+    "queuedAttachmentOnly": "{count} 个附件",
+    "queuedAttachmentCount": "{count} 个附件",
+    "queuedEmptyMessage": "空消息",
+    "queuedEditPlaceholder": "编辑排队消息",
+    "guideQueuedMessageTitle": "停止当前生成并发送这条排队消息",
+    "editQueuedMessage": "编辑排队消息",
+    "deleteQueuedMessage": "删除排队消息",
+    "mention": {
+      "fileFallback": "文件",
+      "sections": {
+        "file": "文件",
+        "tool": "MCP",
+        "model": "模型",
+        "skill": "Skills",
+        "prompt": "Prompts"
+      }
     }
   },
   "modelPicker": {
@@ -574,7 +619,8 @@
     "perCall": "每次",
     "perSecond": "每秒",
     "callUnit": "次",
-    "secondUnit": "秒"
+    "secondUnit": "秒",
+    "empty": "暂无模型"
   },
   "shareDialog": {
     "title": "分享此对话",
@@ -630,7 +676,15 @@
       "retrieval": "检索",
       "fullContext": "全文",
       "skipped": "未纳入",
-      "file": "文件"
+      "file": "文件",
+      "descriptions": {
+        "directRead": "图片等文件会直接作为视觉上下文提供给模型。",
+        "budget": "文件在全文注入预算内，系统已将提取文本纳入本轮上下文。",
+        "retrieval": "文件通过 RAG 检索，仅相关片段会纳入本轮上下文。",
+        "fullContext": "文件以全文注入方式纳入本轮上下文。",
+        "skipped": "文件未纳入本轮上下文，通常是超出预算或没有可用提取文本。",
+        "file": "文件已参与本轮上下文处理。"
+      }
     },
     "rag": {
       "sourceFallback": "片段来源 {fileID}",
@@ -755,7 +809,8 @@
       "fileContext": "文件上下文",
       "contextCompaction": "上下文压缩",
       "requestResult": "请求结果",
-      "upstreamRequestTriggered": "模型请求已触发"
+      "upstreamRequestTriggered": "模型请求已触发",
+      "skillContext": "Skill 上下文"
     },
     "process": {
       "titleActive": "处理中",
@@ -999,5 +1054,30 @@
     "advisor": "Advisor",
     "toolSearchRegex": "工具搜索（Regex）",
     "toolSearchBm25": "工具搜索（BM25）"
+  },
+  "screenshot": {
+    "captureFull": "完整会话截图",
+    "captureSelect": "选择消息截图",
+    "selectMessage": "选择此消息",
+    "selectedCount": "已选 {count} 条消息",
+    "selectAll": "全选",
+    "clearSelection": "取消",
+    "captureSelected": "生成",
+    "exitSelection": "退出选择",
+    "generating": "正在生成截图…",
+    "ready": "截图已生成",
+    "failed": "截图生成失败",
+    "loadLimitReached": "会话过长，请选择部分消息进行截图。",
+    "tooLarge": "会话内容过大，请选择部分消息进行截图。",
+    "emptySelection": "请至少选择一条消息",
+    "previewTitle": "会话截图",
+    "previewDescription": "预览生成的图片，可下载或复制到剪贴板。",
+    "close": "关闭",
+    "copy": "复制",
+    "download": "下载",
+    "downloaded": "图片已下载",
+    "copied": "图片已复制到剪贴板",
+    "copyFailed": "复制图片失败",
+    "copyUnsupported": "当前浏览器不支持复制图片"
   }
 }

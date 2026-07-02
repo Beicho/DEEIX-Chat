@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	domainchannel "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/channel"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/dberror"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"gorm.io/gorm"
@@ -19,29 +20,13 @@ func translateError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if dberror.IsRecordNotFound(err) {
 		return repository.ErrNotFound
 	}
-	if isUniqueConstraintError(err) {
+	if dberror.IsUniqueConstraint(err) {
 		return repository.ErrDuplicate
 	}
 	return err
-}
-
-type sqlStateError interface {
-	SQLState() string
-}
-
-func isUniqueConstraintError(err error) bool {
-	if errors.Is(err, gorm.ErrDuplicatedKey) {
-		return true
-	}
-	var stateErr sqlStateError
-	if errors.As(err, &stateErr) && stateErr.SQLState() == "23505" {
-		return true
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint")
 }
 
 // Repo 封装上游域数据访问。
@@ -171,16 +156,7 @@ func (r *Repo) ListUpstreams(ctx context.Context, input repository.ListChannelUp
 		Select(
 			"u.*, COALESCE(stats.models_count, 0) AS models_count, COALESCE(stats.active_models_count, 0) AS active_models_count",
 		).
-		Joins(
-			`LEFT JOIN (
-				SELECT um.upstream_id,
-					COUNT(DISTINCT um.id) AS models_count,
-					COUNT(DISTINCT CASE WHEN r.status = 'active' AND um.status = 'active' THEN um.id END) AS active_models_count
-				FROM llm_upstream_models um
-				LEFT JOIN llm_model_routes r ON r.upstream_model_id = um.id
-				GROUP BY um.upstream_id
-			) AS stats ON stats.upstream_id = u.id`,
-		)
+		Joins(upstreamListStatsJoinSQL())
 	listQuery = applyUpstreamListFilters(listQuery, input)
 	if err := listQuery.
 		Order(upstreamListOrder(input.Sort)).
@@ -190,6 +166,38 @@ func (r *Repo) ListUpstreams(ctx context.Context, input repository.ListChannelUp
 		return nil, 0, translateError(err)
 	}
 	return items, total, nil
+}
+
+func (r *Repo) GetUpstreamListRowByID(ctx context.Context, upstreamID uint) (*UpstreamListRow, error) {
+	var item UpstreamListRow
+	result := r.db.WithContext(ctx).
+		Table("llm_upstreams AS u").
+		Select(
+			"u.*, COALESCE(stats.models_count, 0) AS models_count, COALESCE(stats.active_models_count, 0) AS active_models_count",
+		).
+		Joins(upstreamListStatsJoinSQL()).
+		Where("u.id = ?", upstreamID).
+		Scan(&item)
+	if result.Error != nil {
+		return nil, translateError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, ErrUpstreamNotFound
+	}
+	return &item, nil
+}
+
+func upstreamListStatsJoinSQL() string {
+	return `LEFT JOIN (
+		SELECT um.upstream_id,
+			COUNT(DISTINCT um.id) AS models_count,
+			COUNT(DISTINCT CASE WHEN u.status = 'active' AND r.status = 'active' AND um.status = 'active' AND pm.status = 'active' THEN um.id END) AS active_models_count
+		FROM llm_upstream_models um
+		LEFT JOIN llm_upstreams u ON u.id = um.upstream_id
+		LEFT JOIN llm_model_routes r ON r.upstream_model_id = um.id
+		LEFT JOIN llm_platform_models pm ON pm.id = r.platform_model_id
+		GROUP BY um.upstream_id
+	) AS stats ON stats.upstream_id = u.id`
 }
 
 func applyUpstreamListFilters(query *gorm.DB, input repository.ListChannelUpstreamsInput) *gorm.DB {
@@ -283,6 +291,18 @@ func (r *Repo) UpdateModel(ctx context.Context, modelID uint, input repository.U
 	if input.Description != nil {
 		updates["description"] = *input.Description
 	}
+	if input.CbPolicyMode != nil {
+		updates["cb_policy_mode"] = *input.CbPolicyMode
+	}
+	if input.CbFailureThreshold != nil {
+		updates["cb_failure_threshold"] = *input.CbFailureThreshold
+	}
+	if input.CbDurationMin != nil {
+		updates["cb_duration_min"] = *input.CbDurationMin
+	}
+	if input.CbWindowMin != nil {
+		updates["cb_window_min"] = *input.CbWindowMin
+	}
 	if len(updates) == 0 {
 		return nil
 	}
@@ -299,24 +319,21 @@ func (r *Repo) UpdateModel(ctx context.Context, modelID uint, input repository.U
 	return nil
 }
 
-// ReorderModels 按指定子序列调整模型顺序，并归一化全量 sort_order。
+// ReorderModels 按指定子序列调整模型顺序，仅更新提交的模型。
 func (r *Repo) ReorderModels(ctx context.Context, orderedModelIDs []uint) error {
 	if len(orderedModelIDs) == 0 {
 		return repository.ErrInvalidInput
 	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var rows []model.LLMPlatformModel
+		var existingRows []model.LLMPlatformModel
 		if err := tx.
 			Select("id").
-			Order("sort_order ASC, id ASC").
-			Find(&rows).Error; err != nil {
+			Where("id IN ?", orderedModelIDs).
+			Find(&existingRows).Error; err != nil {
 			return translateError(err)
 		}
-
-		allIDs := make([]uint, 0, len(rows))
-		existingIDs := make(map[uint]struct{}, len(rows))
-		for _, row := range rows {
-			allIDs = append(allIDs, row.ID)
+		existingIDs := make(map[uint]struct{}, len(existingRows))
+		for _, row := range existingRows {
 			existingIDs[row.ID] = struct{}{}
 		}
 
@@ -331,21 +348,7 @@ func (r *Repo) ReorderModels(ctx context.Context, orderedModelIDs []uint) error 
 			reorderedIDs[modelID] = struct{}{}
 		}
 
-		nextIDs := make([]uint, 0, len(allIDs))
-		reorderedIndex := 0
-		for _, modelID := range allIDs {
-			if _, exists := reorderedIDs[modelID]; exists {
-				nextIDs = append(nextIDs, orderedModelIDs[reorderedIndex])
-				reorderedIndex++
-				continue
-			}
-			nextIDs = append(nextIDs, modelID)
-		}
-		if reorderedIndex != len(orderedModelIDs) {
-			return repository.ErrInvalidInput
-		}
-
-		for index, modelID := range nextIDs {
+		for index, modelID := range orderedModelIDs {
 			sortOrder := (index + 1) * 100
 			if err := tx.
 				Model(&model.LLMPlatformModel{}).
@@ -446,7 +449,7 @@ func (r *Repo) modelListQuery(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx).
 		Table("llm_platform_models AS m").
 		Select(
-			"m.id, m.name AS platform_model_name, m.vendor, m.kinds_json, m.icon, m.capabilities_json, m.system_prompt, m.access_scope, m.status, m.description, m.sort_order, m.created_at, m.updated_at, " +
+			"m.id, m.name AS platform_model_name, m.vendor, m.kinds_json, m.icon, m.capabilities_json, m.system_prompt, m.access_scope, m.status, m.description, m.cb_policy_mode, m.cb_failure_threshold, m.cb_duration_min, m.cb_window_min, m.sort_order, m.created_at, m.updated_at, " +
 				"COALESCE(stats.source_count, 0) AS source_count, COALESCE(stats.active_source_count, 0) AS active_source_count, '[]' AS protocols_json",
 		).
 		Joins(
@@ -514,7 +517,22 @@ func (r *Repo) applyModelListProtocols(ctx context.Context, items []ModelListRow
 }
 
 func applyModelListFilters(query *gorm.DB, input repository.ListChannelModelsInput) *gorm.DB {
-	if input.OnlyActive {
+	if input.OnlyAvailable {
+		query = query.Where("m.status = ?", "active")
+		query = query.Where("COALESCE(NULLIF(TRIM(m.access_scope), ''), 'public') = ?", "public")
+		query = query.Where(
+			`EXISTS (
+				SELECT 1
+				FROM llm_model_routes r
+				JOIN llm_upstream_models um ON um.id = r.upstream_model_id
+				JOIN llm_upstreams u ON u.id = um.upstream_id
+				WHERE r.platform_model_id = m.id
+					AND r.status = 'active'
+					AND um.status = 'active'
+					AND u.status = 'active'
+			)`,
+		)
+	} else if input.OnlyActive {
 		query = query.Where("m.status = ?", "active")
 	} else if status := strings.TrimSpace(input.Status); status == "active" || status == "inactive" {
 		query = query.Where("m.status = ?", status)
@@ -554,12 +572,30 @@ func modelListOrder(sort string) string {
 	case "sourceCount_desc":
 		return "source_count DESC, m.id DESC"
 	case "sortOrder_asc":
-		return "m.sort_order ASC, m.id ASC"
+		return modelDefaultDisplayOrder()
 	case "updated_desc":
 		return "m.updated_at DESC, m.id DESC"
 	default:
-		return "m.sort_order ASC, m.id ASC"
+		return modelDefaultDisplayOrder()
 	}
+}
+
+func modelDefaultDisplayOrder() string {
+	availabilityRank := modelAvailabilityRankExpression()
+	vendorKey := modelVendorOrderKey("m.")
+	vendorGroupOrder := "MIN(m.sort_order) OVER (PARTITION BY " + availabilityRank + ", " + vendorKey + ")"
+	return availabilityRank + " ASC, " +
+		vendorGroupOrder + " ASC, " +
+		vendorKey + " ASC, " +
+		"m.sort_order ASC, m.id ASC"
+}
+
+func modelAvailabilityRankExpression() string {
+	return "CASE WHEN m.status = 'active' AND COALESCE(stats.active_source_count, 0) > 0 THEN 0 WHEN COALESCE(stats.source_count, 0) > 0 THEN 1 ELSE 2 END"
+}
+
+func modelVendorOrderKey(prefix string) string {
+	return "COALESCE(NULLIF(TRIM(LOWER(" + prefix + "vendor)), ''), LOWER(" + prefix + "name))"
 }
 
 // ---------------------------------------------------------------------------
@@ -1085,7 +1121,7 @@ func (r *Repo) ListModelUpstreamSources(ctx context.Context, platformModelName s
 	if err := r.db.WithContext(ctx).
 		Table("llm_model_routes AS r").
 		Select(
-			"r.*, um.upstream_id, u.name AS upstream_name, u.base_url AS base_url, "+
+			"r.*, um.upstream_id, u.name AS upstream_name, u.status AS upstream_status, u.base_url AS base_url, "+
 				"um.binding_code, um.upstream_model_name, um.vendor AS upstream_model_vendor, um.icon AS upstream_model_icon, "+
 				"um.kinds_json AS upstream_model_kinds_json, um.suggested_protocol, um.status AS upstream_model_status",
 		).
@@ -1108,7 +1144,7 @@ func (r *Repo) GetModelUpstreamSourceByRouteID(ctx context.Context, platformMode
 	if err := r.db.WithContext(ctx).
 		Table("llm_model_routes AS r").
 		Select(
-			"r.*, um.upstream_id, u.name AS upstream_name, u.base_url AS base_url, "+
+			"r.*, um.upstream_id, u.name AS upstream_name, u.status AS upstream_status, u.base_url AS base_url, "+
 				"um.binding_code, um.upstream_model_name, um.vendor AS upstream_model_vendor, um.icon AS upstream_model_icon, "+
 				"um.kinds_json AS upstream_model_kinds_json, um.suggested_protocol, um.status AS upstream_model_status",
 		).
@@ -1128,37 +1164,41 @@ func (r *Repo) GetModelUpstreamSourceByRouteID(ctx context.Context, platformMode
 // routeScanRow 是 ListActiveRoutesByModel 查询的原始扫描结构体。
 // 仅限 infra 层内部使用，扫描后映射到 UpstreamRouteRow。
 type routeScanRow struct {
-	RouteID                    uint
-	UpstreamModelID            uint
-	UpstreamID                 uint
-	UpstreamName               string
-	PlatformModelID            uint
-	PlatformModelName          string
-	ModelVendor                string
-	ModelIcon                  string
-	ModelKindsJSON             string
-	ModelCapabilitiesJSON      string
-	ModelSystemPrompt          string
-	Protocol                   string
-	BaseURL                    string
-	APIKeysEnc                 string
-	ConnectTimeoutMS           int
-	ReadTimeoutMS              int
-	StreamIdleTimeoutMS        int
-	HeadersJSON                string
-	RouteHeadersJSON           string
-	BindingCode                string
-	UpstreamModelName          string
-	Weight                     int
-	RoutePriority              int
-	UpstreamCbFailureThreshold int
-	UpstreamCbModelThreshold   int
-	UpstreamCbThresholdLogic   string
-	UpstreamCbDurationMin      int
-	UpstreamCbWindowMin        int
-	ModelCbFailureThreshold    int
-	ModelCbDurationMin         int
-	ModelCbWindowMin           int
+	RouteID                         uint
+	UpstreamModelID                 uint
+	UpstreamID                      uint
+	UpstreamName                    string
+	PlatformModelID                 uint
+	PlatformModelName               string
+	ModelVendor                     string
+	ModelIcon                       string
+	ModelKindsJSON                  string
+	ModelCapabilitiesJSON           string
+	ModelSystemPrompt               string
+	Protocol                        string
+	BaseURL                         string
+	APIKeysEnc                      string
+	ConnectTimeoutMS                int
+	ReadTimeoutMS                   int
+	StreamIdleTimeoutMS             int
+	HeadersJSON                     string
+	RouteHeadersJSON                string
+	BindingCode                     string
+	UpstreamModelName               string
+	Weight                          int
+	RoutePriority                   int
+	UpstreamCbFailureThreshold      int
+	UpstreamCbModelThreshold        int
+	UpstreamCbThresholdLogic        string
+	UpstreamCbDurationMin           int
+	UpstreamCbWindowMin             int
+	PlatformModelCbPolicyMode       string
+	PlatformModelCbFailureThreshold int
+	PlatformModelCbDurationMin      int
+	PlatformModelCbWindowMin        int
+	ModelCbFailureThreshold         int
+	ModelCbDurationMin              int
+	ModelCbWindowMin                int
 }
 
 // ListActiveRoutesByModel 按平台模型名查询可用路由。
@@ -1178,6 +1218,10 @@ func (r *Repo) ListActiveRoutesByModel(ctx context.Context, platformModelName st
 				"u.cb_threshold_logic AS upstream_cb_threshold_logic, "+
 				"u.cb_duration_min AS upstream_cb_duration_min, "+
 				"u.cb_window_min AS upstream_cb_window_min, "+
+				"pm.cb_policy_mode AS platform_model_cb_policy_mode, "+
+				"pm.cb_failure_threshold AS platform_model_cb_failure_threshold, "+
+				"pm.cb_duration_min AS platform_model_cb_duration_min, "+
+				"pm.cb_window_min AS platform_model_cb_window_min, "+
 				"r.cb_failure_threshold AS model_cb_failure_threshold, "+
 				"r.cb_duration_min AS model_cb_duration_min, "+
 				"r.cb_window_min AS model_cb_window_min",
@@ -1194,37 +1238,41 @@ func (r *Repo) ListActiveRoutesByModel(ctx context.Context, platformModelName st
 	rows := make([]UpstreamRouteRow, 0, len(scanned))
 	for _, s := range scanned {
 		rows = append(rows, UpstreamRouteRow{
-			RouteID:                    s.RouteID,
-			UpstreamModelID:            s.UpstreamModelID,
-			UpstreamID:                 s.UpstreamID,
-			UpstreamName:               s.UpstreamName,
-			PlatformModelID:            s.PlatformModelID,
-			PlatformModelName:          s.PlatformModelName,
-			ModelVendor:                s.ModelVendor,
-			ModelIcon:                  s.ModelIcon,
-			ModelKindsJSON:             s.ModelKindsJSON,
-			ModelCapabilitiesJSON:      s.ModelCapabilitiesJSON,
-			ModelSystemPrompt:          s.ModelSystemPrompt,
-			Protocol:                   s.Protocol,
-			BaseURL:                    s.BaseURL,
-			APIKeysEnc:                 s.APIKeysEnc,
-			ConnectTimeoutMS:           s.ConnectTimeoutMS,
-			ReadTimeoutMS:              s.ReadTimeoutMS,
-			StreamIdleTimeoutMS:        s.StreamIdleTimeoutMS,
-			HeadersJSON:                s.HeadersJSON,
-			RouteHeadersJSON:           s.RouteHeadersJSON,
-			BindingCode:                s.BindingCode,
-			UpstreamModelName:          s.UpstreamModelName,
-			Weight:                     s.Weight,
-			RoutePriority:              s.RoutePriority,
-			UpstreamCbFailureThreshold: s.UpstreamCbFailureThreshold,
-			UpstreamCbModelThreshold:   s.UpstreamCbModelThreshold,
-			UpstreamCbThresholdLogic:   s.UpstreamCbThresholdLogic,
-			UpstreamCbDurationMin:      s.UpstreamCbDurationMin,
-			UpstreamCbWindowMin:        s.UpstreamCbWindowMin,
-			ModelCbFailureThreshold:    s.ModelCbFailureThreshold,
-			ModelCbDurationMin:         s.ModelCbDurationMin,
-			ModelCbWindowMin:           s.ModelCbWindowMin,
+			RouteID:                         s.RouteID,
+			UpstreamModelID:                 s.UpstreamModelID,
+			UpstreamID:                      s.UpstreamID,
+			UpstreamName:                    s.UpstreamName,
+			PlatformModelID:                 s.PlatformModelID,
+			PlatformModelName:               s.PlatformModelName,
+			ModelVendor:                     s.ModelVendor,
+			ModelIcon:                       s.ModelIcon,
+			ModelKindsJSON:                  s.ModelKindsJSON,
+			ModelCapabilitiesJSON:           s.ModelCapabilitiesJSON,
+			ModelSystemPrompt:               s.ModelSystemPrompt,
+			Protocol:                        s.Protocol,
+			BaseURL:                         s.BaseURL,
+			APIKeysEnc:                      s.APIKeysEnc,
+			ConnectTimeoutMS:                s.ConnectTimeoutMS,
+			ReadTimeoutMS:                   s.ReadTimeoutMS,
+			StreamIdleTimeoutMS:             s.StreamIdleTimeoutMS,
+			HeadersJSON:                     s.HeadersJSON,
+			RouteHeadersJSON:                s.RouteHeadersJSON,
+			BindingCode:                     s.BindingCode,
+			UpstreamModelName:               s.UpstreamModelName,
+			Weight:                          s.Weight,
+			RoutePriority:                   s.RoutePriority,
+			UpstreamCbFailureThreshold:      s.UpstreamCbFailureThreshold,
+			UpstreamCbModelThreshold:        s.UpstreamCbModelThreshold,
+			UpstreamCbThresholdLogic:        s.UpstreamCbThresholdLogic,
+			UpstreamCbDurationMin:           s.UpstreamCbDurationMin,
+			UpstreamCbWindowMin:             s.UpstreamCbWindowMin,
+			PlatformModelCbPolicyMode:       s.PlatformModelCbPolicyMode,
+			PlatformModelCbFailureThreshold: s.PlatformModelCbFailureThreshold,
+			PlatformModelCbDurationMin:      s.PlatformModelCbDurationMin,
+			PlatformModelCbWindowMin:        s.PlatformModelCbWindowMin,
+			ModelCbFailureThreshold:         s.ModelCbFailureThreshold,
+			ModelCbDurationMin:              s.ModelCbDurationMin,
+			ModelCbWindowMin:                s.ModelCbWindowMin,
 		})
 	}
 	return rows, nil
@@ -1235,9 +1283,11 @@ func (r *Repo) ListActiveRouteBindingCodesForUpstream(ctx context.Context, upstr
 	var codes []string
 	if err := r.db.WithContext(ctx).
 		Table("llm_model_routes AS r").
-		Select("um.binding_code").
+		Distinct("um.binding_code").
 		Joins("JOIN llm_upstream_models um ON um.id = r.upstream_model_id").
-		Where("um.upstream_id = ? AND r.status = ? AND um.status = ?", upstreamID, "active", "active").
+		Joins("JOIN llm_platform_models pm ON pm.id = r.platform_model_id").
+		Where("um.upstream_id = ? AND r.status = ? AND um.status = ? AND pm.status = ?", upstreamID, "active", "active", "active").
+		Order("um.binding_code ASC").
 		Pluck("um.binding_code", &codes).Error; err != nil {
 		return nil, translateError(err)
 	}
@@ -1424,19 +1474,23 @@ func toUpstreamModel(item *domainchannel.Upstream) model.LLMUpstream {
 
 func toPlatformModelDomain(item model.LLMPlatformModel) domainchannel.PlatformModel {
 	return domainchannel.PlatformModel{
-		ID:                item.ID,
-		PlatformModelName: item.Name,
-		Vendor:            item.Vendor,
-		KindsJSON:         item.KindsJSON,
-		Icon:              item.Icon,
-		CapabilitiesJSON:  item.CapabilitiesJSON,
-		SystemPrompt:      item.SystemPrompt,
-		AccessScope:       item.AccessScope,
-		Status:            item.Status,
-		Description:       item.Description,
-		SortOrder:         item.SortOrder,
-		CreatedAt:         item.CreatedAt,
-		UpdatedAt:         item.UpdatedAt,
+		ID:                 item.ID,
+		PlatformModelName:  item.Name,
+		Vendor:             item.Vendor,
+		KindsJSON:          item.KindsJSON,
+		Icon:               item.Icon,
+		CapabilitiesJSON:   item.CapabilitiesJSON,
+		SystemPrompt:       item.SystemPrompt,
+		AccessScope:        item.AccessScope,
+		Status:             item.Status,
+		Description:        item.Description,
+		CbPolicyMode:       item.CbPolicyMode,
+		CbFailureThreshold: item.CbFailureThreshold,
+		CbDurationMin:      item.CbDurationMin,
+		CbWindowMin:        item.CbWindowMin,
+		SortOrder:          item.SortOrder,
+		CreatedAt:          item.CreatedAt,
+		UpdatedAt:          item.UpdatedAt,
 	}
 }
 
@@ -1445,16 +1499,20 @@ func toPlatformModelModel(item *domainchannel.PlatformModel) model.LLMPlatformMo
 		return model.LLMPlatformModel{}
 	}
 	return model.LLMPlatformModel{
-		Name:             item.PlatformModelName,
-		Vendor:           item.Vendor,
-		KindsJSON:        item.KindsJSON,
-		Icon:             item.Icon,
-		CapabilitiesJSON: item.CapabilitiesJSON,
-		SystemPrompt:     item.SystemPrompt,
-		AccessScope:      item.AccessScope,
-		Status:           item.Status,
-		Description:      item.Description,
-		SortOrder:        item.SortOrder,
+		Name:               item.PlatformModelName,
+		Vendor:             item.Vendor,
+		KindsJSON:          item.KindsJSON,
+		Icon:               item.Icon,
+		CapabilitiesJSON:   item.CapabilitiesJSON,
+		SystemPrompt:       item.SystemPrompt,
+		AccessScope:        item.AccessScope,
+		Status:             item.Status,
+		Description:        item.Description,
+		CbPolicyMode:       item.CbPolicyMode,
+		CbFailureThreshold: item.CbFailureThreshold,
+		CbDurationMin:      item.CbDurationMin,
+		CbWindowMin:        item.CbWindowMin,
+		SortOrder:          item.SortOrder,
 	}
 }
 

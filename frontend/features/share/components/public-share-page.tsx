@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 import { ChatMessageBot } from "@/features/chat/components/message/message-bot";
 import { ChatMessageUser } from "@/features/chat/components/message/message-user";
-import { StreamdownRender } from "@/features/chat/components/markdown/streamdown-render";
+import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 import {
   buildChildrenIndex,
   buildVisibleMessages,
@@ -24,7 +24,7 @@ import type {
   PublicSharedMessageDTO,
 } from "@/shared/api/conversation.types";
 import { fetchSharedFileContent, type FileContentResult } from "@/shared/api/file";
-import type { PreviewDialogFile } from "@/features/files/components/preview/file-preview-dialog";
+import type { PreviewDialogFile } from "@/shared/components/file-preview/file-preview-dialog";
 import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -112,11 +112,25 @@ function toReadOnlyMessageDTO(item: PublicSharedMessageDTO): MessageDTO {
   };
 }
 
-function mapPublicSharedMessage(item: PublicSharedMessageDTO, fallbackModel: string): ChatAreaMessage {
+function rewriteSharedFileContentURLs(content: string, shareID: string): string {
+  const normalizedShareID = shareID.trim();
+  if (!normalizedShareID || !content.includes("/api/v1/files/")) {
+    return content;
+  }
+  const encodedShareID = encodeURIComponent(normalizedShareID);
+  return content.replace(
+    /(^|[\s("'=])\/api\/v1\/files\/([^/?#)\s"'<>]+)\/content([?#][^)\s"'<>]*)?/g,
+    (_match, prefix: string, fileID: string, suffix: string = "") =>
+      `${prefix}/api/v1/shared-conversations/${encodedShareID}/files/${encodeURIComponent(fileID)}/content${suffix}`,
+  );
+}
+
+function mapPublicSharedMessage(item: PublicSharedMessageDTO, fallbackModel: string, shareID: string): ChatAreaMessage {
   const message = mapServerMessage(toReadOnlyMessageDTO(item));
   const platformModelName = item.platformModelName?.trim() || fallbackModel.trim();
   return {
     ...message,
+    content: rewriteSharedFileContentURLs(message.content, shareID),
     platformModelName,
     billingCost: undefined,
     branchNavigator: undefined,
@@ -307,7 +321,7 @@ export function PublicSharePage() {
   }, [authSession?.accessToken]);
 
   const messages = React.useMemo(
-    () => data?.messages.map((message) => mapPublicSharedMessage(message, data.model)) ?? [],
+    () => data?.messages.map((message) => mapPublicSharedMessage(message, data.model, data.shareID)) ?? [],
     [data],
   );
   const defaultSelectionKey = React.useMemo(

@@ -11,6 +11,7 @@ import type {
   ConversationOptions,
   MessageDTO,
 } from "@/shared/api/conversation.types";
+import type { SkillSummaryDTO } from "@/shared/api/skills.types";
 
 export function useChatRuntime({
   conversationID,
@@ -25,6 +26,7 @@ export function useChatRuntime({
   codeSandboxEnabled,
   researchMaxLLMCalls,
   researchMaxToolCalls,
+  selectedSkills,
   htmlVisualPromptEnabled,
   htmlVisualColorMode,
   options,
@@ -57,6 +59,7 @@ export function useChatRuntime({
   codeSandboxEnabled: boolean;
   researchMaxLLMCalls: number;
   researchMaxToolCalls: number;
+  selectedSkills: SkillSummaryDTO[];
   htmlVisualPromptEnabled: boolean;
   htmlVisualColorMode: "light" | "dark";
   options: ConversationOptions;
@@ -104,6 +107,7 @@ export function useChatRuntime({
     codeSandboxEnabled,
     researchMaxLLMCalls,
     researchMaxToolCalls,
+    selectedSkills,
     htmlVisualPromptEnabled,
     htmlVisualColorMode,
     options,
@@ -133,6 +137,7 @@ export function useChatRuntime({
     resetToken,
     activeGenerationRunsRef,
     failedGenerationRunsRef,
+    resumeGenerationActive: Boolean(resumingRunID),
   });
 
   React.useEffect(() => {
@@ -154,28 +159,6 @@ export function useChatRuntime({
     setShowConversationLayout(false);
   }, [resetToken]);
 
-  const streamingTraceText = React.useMemo(() => {
-    const trace = submitState.pendingExchange?.assistantProcessTrace;
-    if (!trace) {
-      return "";
-    }
-
-    const fragments = [
-      trace.status,
-      trace.upstreamThink?.summary,
-      trace.upstreamThink?.contentMarkdown,
-      trace.upstreamThink?.updatedAt,
-      trace.process?.summary,
-      trace.process?.contentMarkdown,
-      trace.process?.updatedAt,
-      trace.tools?.summary,
-      trace.tools?.contentMarkdown,
-      trace.tools?.updatedAt,
-    ];
-
-    return fragments.filter(Boolean).join("\n");
-  }, [submitState.pendingExchange?.assistantProcessTrace]);
-
   return {
     currentLeafMessage: branchState.currentLeafMessage,
     onCycleMessageBranch: submitState.onCycleMessageBranch,
@@ -187,10 +170,11 @@ export function useChatRuntime({
     onRetryUserMessage: submitState.onRetryUserMessage,
     onSendMessage: submitState.onSendMessage,
     onStopMessage: submitState.onStopMessage,
+    onDeleteQueuedMessage: submitState.onDeleteQueuedMessage,
+    onEditQueuedMessage: submitState.onEditQueuedMessage,
+    onGuideQueuedMessage: submitState.onGuideQueuedMessage,
+    queuedMessages: submitState.queuedMessages,
     sending: submitState.sending,
-    showPendingAssistant: branchState.showPendingAssistant,
-    streamingText: submitState.streamingText,
-    streamingTraceText,
     visibleMessageCount: branchState.visibleMessageCount,
     visibleMessages: branchState.visibleMessages,
     isConversationMode: showConversationLayout || branchState.visibleMessageCount > 0,

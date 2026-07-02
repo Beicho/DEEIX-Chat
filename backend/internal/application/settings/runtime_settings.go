@@ -102,6 +102,8 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.EmailVerificationEnabled = toBool(item.Value, cfg.EmailVerificationEnabled)
 	case "auth:invite_registration_required":
 		cfg.InviteRegistrationRequired = toBool(item.Value, cfg.InviteRegistrationRequired)
+	case "auth:password_reset_enabled":
+		cfg.PasswordResetEnabled = toBool(item.Value, cfg.PasswordResetEnabled)
 	case "auth:smtp_host":
 		cfg.SMTPHost = strings.TrimSpace(item.Value)
 	case "auth:smtp_port":
@@ -132,6 +134,8 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.ContextMaxTurns = toInt(item.Value, cfg.ContextMaxTurns)
 	case "chat:context_max_input_tokens":
 		cfg.ContextMaxInputTokens = toInt(item.Value, cfg.ContextMaxInputTokens)
+	case "chat:context_compact_enabled":
+		cfg.ContextCompactEnabled = toBool(item.Value, cfg.ContextCompactEnabled)
 	case "chat:context_compact_trigger_tokens":
 		cfg.ContextCompactTrigger = toInt(item.Value, cfg.ContextCompactTrigger)
 	case "chat:context_compact_preserve_recent_turns":
@@ -144,6 +148,8 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.ConversationLabelsPrompt = item.Value
 	case "chat:default_system_prompt":
 		cfg.DefaultSystemPrompt = item.Value
+	case "chat:skills_prompt":
+		cfg.SkillsPrompt = item.Value
 	case "chat:model_option_policy_mode":
 		cfg.ModelOptionPolicyMode = strings.TrimSpace(item.Value)
 	case "chat:model_option_allowed_paths":
@@ -384,6 +390,8 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.MCPMaxLLMCallsPerRun = toInt(item.Value, cfg.MCPMaxLLMCallsPerRun)
 	case "mcp:mcp_max_tool_calls_per_run":
 		cfg.MCPMaxToolCallsPerRun = toInt(item.Value, cfg.MCPMaxToolCallsPerRun)
+	case "mcp:mcp_tool_prompt":
+		cfg.MCPToolPrompt = item.Value
 	case "mcp:web_search_provider":
 		cfg.WebSearchProvider = strings.TrimSpace(item.Value)
 	case "mcp:web_search_base_url":
@@ -427,6 +435,9 @@ func (r *RuntimeSettings) normalizeConfig(cfg *config.Config) {
 	if !cfg.EmailRegistrationEnabled {
 		cfg.TurnstileRegistrationEnabled = false
 		cfg.InviteRegistrationRequired = false
+	}
+	if !cfg.EmailVerificationEnabled || (!cfg.UsernameLoginEnabled && !cfg.EmailLoginEnabled) {
+		cfg.PasswordResetEnabled = false
 	}
 	if !cfg.EmbeddingEnabled || strings.TrimSpace(cfg.EmbeddingHost) == "" || strings.TrimSpace(cfg.RAGModel) == "" {
 		cfg.RAGEnabled = false

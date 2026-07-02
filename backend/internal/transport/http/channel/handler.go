@@ -901,6 +901,7 @@ func (h *Handler) ImportUpstreamModels(c *gin.Context) {
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
 // @Param only_active query bool false "仅查询启用模型"
+// @Param only_available query bool false "仅查询公开且可路由模型"
 // @Param q query string false "搜索关键词"
 // @Param status query string false "状态：active/inactive"
 // @Param vendor query string false "模型厂商"
@@ -912,12 +913,15 @@ func (h *Handler) ImportUpstreamModels(c *gin.Context) {
 func (h *Handler) ListModels(c *gin.Context) {
 	page, pageSize := pageParams(c)
 	onlyActive := c.Query("only_active") == "true"
-	items, total, err := h.service.ListModels(c.Request.Context(), page, pageSize, onlyActive, appchannel.ListModelsInput{
-		Query:    c.Query("q"),
-		Status:   c.Query("status"),
-		Vendor:   c.Query("vendor"),
-		Protocol: c.Query("protocol"),
-		Sort:     c.Query("sort"),
+	onlyAvailable := c.Query("only_available") == "true"
+	items, total, err := h.service.ListModels(c.Request.Context(), page, pageSize, appchannel.ListModelsInput{
+		OnlyActive:    onlyActive,
+		OnlyAvailable: onlyAvailable,
+		Query:         c.Query("q"),
+		Status:        c.Query("status"),
+		Vendor:        c.Query("vendor"),
+		Protocol:      c.Query("protocol"),
+		Sort:          c.Query("sort"),
 	})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "list models failed")
@@ -951,15 +955,19 @@ func (h *Handler) CreateModel(c *gin.Context) {
 	}
 
 	item, err := h.service.CreateModel(c.Request.Context(), appchannel.CreateModelInput{
-		PlatformModelName: req.PlatformModelName,
-		Vendor:            req.Vendor,
-		KindsJSON:         req.KindsJSON,
-		Icon:              req.Icon,
-		CapabilitiesJSON:  req.CapabilitiesJSON,
-		SystemPrompt:      req.SystemPrompt,
-		AccessScope:       req.AccessScope,
-		Status:            req.Status,
-		Description:       req.Description,
+		PlatformModelName:  req.PlatformModelName,
+		Vendor:             req.Vendor,
+		KindsJSON:          req.KindsJSON,
+		Icon:               req.Icon,
+		CapabilitiesJSON:   req.CapabilitiesJSON,
+		SystemPrompt:       req.SystemPrompt,
+		AccessScope:        req.AccessScope,
+		Status:             req.Status,
+		Description:        req.Description,
+		CbPolicyMode:       req.CbPolicyMode,
+		CbFailureThreshold: req.CbFailureThreshold,
+		CbDurationMin:      req.CbDurationMin,
+		CbWindowMin:        req.CbWindowMin,
 	})
 	if err != nil {
 		switch {
@@ -1011,15 +1019,19 @@ func (h *Handler) UpdateModel(c *gin.Context) {
 	}
 
 	item, err := h.service.UpdateModel(c.Request.Context(), modelID, appchannel.UpdateModelInput{
-		PlatformModelName: req.PlatformModelName,
-		Vendor:            req.Vendor,
-		KindsJSON:         req.KindsJSON,
-		Icon:              req.Icon,
-		CapabilitiesJSON:  req.CapabilitiesJSON,
-		SystemPrompt:      req.SystemPrompt,
-		AccessScope:       req.AccessScope,
-		Status:            req.Status,
-		Description:       req.Description,
+		PlatformModelName:  req.PlatformModelName,
+		Vendor:             req.Vendor,
+		KindsJSON:          req.KindsJSON,
+		Icon:               req.Icon,
+		CapabilitiesJSON:   req.CapabilitiesJSON,
+		SystemPrompt:       req.SystemPrompt,
+		AccessScope:        req.AccessScope,
+		Status:             req.Status,
+		Description:        req.Description,
+		CbPolicyMode:       req.CbPolicyMode,
+		CbFailureThreshold: req.CbFailureThreshold,
+		CbDurationMin:      req.CbDurationMin,
+		CbWindowMin:        req.CbWindowMin,
 	})
 	if err != nil {
 		switch {
@@ -1275,12 +1287,15 @@ func (h *Handler) BindModelUpstreamSource(c *gin.Context) {
 	}
 
 	item, err := h.service.BindModelUpstreamSource(c.Request.Context(), modelID, appchannel.BindModelUpstreamSourceInput{
-		UpstreamID:      req.UpstreamID,
-		UpstreamModelID: req.UpstreamModelID,
-		Protocol:        req.Protocol,
-		Status:          req.Status,
-		Priority:        req.Priority,
-		Weight:          req.Weight,
+		UpstreamID:         req.UpstreamID,
+		UpstreamModelID:    req.UpstreamModelID,
+		Protocol:           req.Protocol,
+		Status:             req.Status,
+		Priority:           req.Priority,
+		Weight:             req.Weight,
+		CbFailureThreshold: req.CbFailureThreshold,
+		CbDurationMin:      req.CbDurationMin,
+		CbWindowMin:        req.CbWindowMin,
 	})
 	if err != nil {
 		switch {
@@ -1342,10 +1357,13 @@ func (h *Handler) UpdateModelUpstreamSource(c *gin.Context) {
 	}
 
 	item, err := h.service.UpdateModelUpstreamSource(c.Request.Context(), modelID, routeID, appchannel.UpdateModelUpstreamSourceInput{
-		Protocol: req.Protocol,
-		Status:   req.Status,
-		Priority: req.Priority,
-		Weight:   req.Weight,
+		Protocol:           req.Protocol,
+		Status:             req.Status,
+		Priority:           req.Priority,
+		Weight:             req.Weight,
+		CbFailureThreshold: req.CbFailureThreshold,
+		CbDurationMin:      req.CbDurationMin,
+		CbWindowMin:        req.CbWindowMin,
 	})
 	if err != nil {
 		switch {
@@ -1447,6 +1465,7 @@ func (h *Handler) UpdateLLMSetting(c *gin.Context) {
 func pageParams(c *gin.Context) (int, int) {
 	page := 1
 	pageSize := 20
+	const maxPageSize = 1000
 	if raw := c.Query("page"); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
 			page = parsed
@@ -1454,8 +1473,8 @@ func pageParams(c *gin.Context) (int, int) {
 	}
 	if raw := c.Query("page_size"); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			if parsed > 100 {
-				parsed = 100
+			if parsed > maxPageSize {
+				parsed = maxPageSize
 			}
 			pageSize = parsed
 		}
@@ -1464,7 +1483,7 @@ func pageParams(c *gin.Context) (int, int) {
 }
 
 func uintParam(c *gin.Context, key string) (uint, error) {
-	value, err := strconv.ParseUint(c.Param(key), 10, 64)
+	value, err := strconv.ParseUint(c.Param(key), 10, strconv.IntSize)
 	if err != nil {
 		return 0, err
 	}

@@ -36,6 +36,7 @@ import { logout, patchMe } from "@/shared/api/auth"
 import { useAuthSession } from "@/shared/auth/auth-session-context"
 import { clearSessionAndRedirectToLogin } from "@/shared/auth/session"
 import { dispatchUserProfileUpdated } from "@/shared/auth/user-profile-events"
+import { dispatchOpenAnnouncements, getAnnouncementUnread, subscribeAnnouncementUnreadChanged } from "@/shared/events/announcement-events"
 import { useAppLocale } from "@/i18n/app-i18n-provider"
 import { APP_LOCALE_LABELS, APP_LOCALES, type AppLocale } from "@/i18n/config"
 
@@ -57,8 +58,11 @@ export function NavUser({
   const [open, setOpen] = React.useState(false)
   const [loggingOut, setLoggingOut] = React.useState(false)
   const [savingLocale, setSavingLocale] = React.useState<AppLocale | null>(null)
+  const [hasUnreadAnnouncement, setHasUnreadAnnouncement] = React.useState(() => getAnnouncementUnread())
   const skipTriggerFocusRef = React.useRef(false)
   const isAdmin = user.role === "admin" || user.role === "superadmin"
+
+  React.useEffect(() => subscribeAnnouncementUnreadChanged(setHasUnreadAnnouncement), [])
 
   const onLogout = React.useCallback(async () => {
     if (loggingOut) {
@@ -86,6 +90,13 @@ export function NavUser({
     },
     [router],
   )
+
+  const openAnnouncementsFromMenu = React.useCallback((event: Event) => {
+    event.preventDefault()
+    skipTriggerFocusRef.current = true
+    setOpen(false)
+    dispatchOpenAnnouncements()
+  }, [])
 
   const onLocaleSelect = React.useCallback(
     async (nextLocale: AppLocale) => {
@@ -132,7 +143,6 @@ export function NavUser({
               </Avatar>
               <div className="grid min-w-0 flex-1 gap-0.5 overflow-hidden pl-1.5 text-left text-sm leading-tight transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:hidden">
                 <span className="truncate font-medium text-foreground/95">{user.name}</span>
-                <span className="truncate text-xs text-foreground/90">{user.email}</span>
               </div>
               <ChevronDown className="ml-auto size-4 stroke-1 transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:hidden" />
             </button>
@@ -161,6 +171,12 @@ export function NavUser({
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={navigateFromMenu("/setting/general")}>
                 {t("settings")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={openAnnouncementsFromMenu}>
+                <span className="min-w-0 flex-1 truncate">{t("announcements")}</span>
+                <span className="ml-auto flex size-4 shrink-0 items-center justify-center">
+                  {hasUnreadAnnouncement ? <span aria-hidden="true" className="size-1.5 rounded-full bg-red-500" /> : null}
+                </span>
               </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger className="focus:bg-accent/40 data-[state=open]:bg-accent/40">

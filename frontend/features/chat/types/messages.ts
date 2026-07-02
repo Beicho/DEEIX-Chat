@@ -131,7 +131,7 @@ export type ChatAreaMessage = {
   role: "user" | "assistant" | "system";
   contentType?: string;
   content: string;
-  branchReason: "default" | "retry" | "edit";
+  branchReason: "default" | "retry" | "edit" | "arena";
   status?: string;
   runID?: string;
   platformModelName?: string;

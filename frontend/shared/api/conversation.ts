@@ -3,6 +3,7 @@ import { apiRequest, ApiError, pathParam } from "@/shared/api/http-client";
 import type { PagePayload } from "@/shared/api/common.types";
 import type {
   ConversationDTO,
+  ConversationDefaultModelCandidateDTO,
   ConversationExportDTO,
   ConversationImportResultDTO,
   ConversationTakeoutDTO,
@@ -324,6 +325,7 @@ type ListConversationsOptions = {
   starred?: ConversationStarredFilter;
   share?: ConversationShareFilter;
   project?: ConversationProjectFilter;
+  query?: string;
 };
 
 type ListConversationProjectsOptions = {
@@ -360,6 +362,7 @@ export async function listConversations(
   const starred = options.starred?.trim() || "all";
   const share = options.share?.trim() || "all";
   const project = options.project?.trim() || "all";
+  const query = options.query?.trim() || "";
   const params = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
@@ -368,6 +371,9 @@ export async function listConversations(
     share,
     project,
   });
+  if (query) {
+    params.set("q", query);
+  }
   const data = await authedRequest<PagePayload<ConversationDTO>>(
     `/api/v1/conversations?${params.toString()}`,
     {
@@ -404,6 +410,18 @@ export async function searchConversations(
     total: data.total ?? 0,
     results: data.results ?? [],
   };
+}
+
+export async function getConversationDefaultModelCandidate(
+  accessToken: string,
+): Promise<ConversationDefaultModelCandidateDTO> {
+  return authedRequest<ConversationDefaultModelCandidateDTO>(
+    "/api/v1/conversations/default-model-candidate",
+    {
+      accessToken,
+    },
+    true,
+  );
 }
 
 export async function listConversationProjects(
@@ -640,6 +658,20 @@ export async function renameConversation(
       method: "PATCH",
       accessToken,
       body: payload,
+    },
+    true,
+  );
+}
+
+export async function regenerateConversationTitle(
+  accessToken: string,
+  conversationPublicID: string,
+): Promise<ConversationDTO> {
+  return authedRequest<ConversationDTO>(
+    `/api/v1/conversations/${pathParam(conversationPublicID)}/title/regenerate`,
+    {
+      method: "POST",
+      accessToken,
     },
     true,
   );

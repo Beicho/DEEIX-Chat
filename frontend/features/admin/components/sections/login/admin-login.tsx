@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight, ChevronDown, Copy, GripVertical, Pencil, Plus, Save, Trash2 } from "lucide-react";
+import { ArrowRight, ChevronDown, GripVertical, Pencil, Plus, Save, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
-import { SettingsCollapsibleContent } from "../shared/settings-collapsible-content";
+import { CollapsibleMotionContent } from "@/shared/components/collapsible-motion-content";
 import { SettingsFieldEditor } from "../shared/settings-runtime-panel";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
@@ -28,9 +28,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { createAdminIdentityProvider, deleteAdminIdentityProvider, listAdminIdentityProviders, listAdminSettings, patchAdminSettings, reorderAdminIdentityProviders, updateAdminIdentityProvider } from "@/features/admin/api";
 import type { IdentityProviderPayload } from "@/features/admin/api/auth";
-import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableRow, TableSkeletonRows } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableLoadingRow, TableRow } from "@/components/ui/table";
 import { ApiError } from "@/shared/api/http-client";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { CopyActionButton } from "@/shared/components/copy-action";
 import { configuredSettingsMap } from "@/shared/lib/settings-meta";
 import type { IdentityProviderDTO } from "@/shared/api/auth.types";
 import type { PatchSettingItem } from "@/shared/api/settings.types";
@@ -60,7 +61,6 @@ import {
   providerToForm,
   PROVIDER_TEMPLATES,
   reorderProviders,
-  resolveErrorMessage,
   toEditorField,
   validateEmailVerificationSettings,
   validatePasswordLoginSettings,
@@ -69,6 +69,7 @@ import {
   type LoginSettingsGroup,
   type ProviderTemplate,
 } from "@/features/admin/model/login-settings";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 
 function RequiredMark() {
   return <span className="ml-0.5 text-destructive">*</span>;
@@ -118,7 +119,7 @@ export function AdminLoginSettingsPage() {
       setSavedMap(flattened);
       setProviders(providerPage.results);
     } catch (error) {
-      toast.error(t("toast.loadFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.loadFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setLoading(false);
     }
@@ -160,6 +161,9 @@ export function AdminLoginSettingsPage() {
       if (field.key === "email_registration_enabled" && value !== "true") {
         next["auth.turnstile_registration_enabled"] = "false";
       }
+      if (field.key === "email_verification_enabled" && value !== "true") {
+        next["auth.password_reset_enabled"] = "false";
+      }
       return next;
     });
   }, [t]);
@@ -167,6 +171,7 @@ export function AdminLoginSettingsPage() {
   const isFieldDisabled = React.useCallback((field: LoginSettingsField) => {
     if (loading || saving) return true;
     if (field.key === "email_registration_enabled" && settingsMap["auth.email_login_enabled"] === "false") return true;
+    if (field.key === "password_reset_enabled" && settingsMap["auth.email_verification_enabled"] === "false") return true;
     if (field.key === "turnstile_registration_enabled" && settingsMap["auth.email_registration_enabled"] === "false") return true;
     return false;
   }, [loading, saving, settingsMap]);
@@ -230,7 +235,7 @@ export function AdminLoginSettingsPage() {
         setSavedMap(flattened);
         toast.success(t("toast.settingsUpdated"));
       } catch (error) {
-        toast.error(t("toast.saveFailed"), { description: resolveErrorMessage(error) });
+        toast.error(t("toast.saveFailed"), { description: resolveAdminErrorMessage(error) });
       } finally {
         setSaving(false);
       }
@@ -278,7 +283,7 @@ export function AdminLoginSettingsPage() {
       const page = await listAdminIdentityProviders(token);
       setProviders(page.results);
     } catch (error) {
-      toast.error(t("toast.providerSaveFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.providerSaveFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -299,10 +304,10 @@ export function AdminLoginSettingsPage() {
       if (!force && error instanceof ApiError && error.status === 409) {
         setDeleteProviderTarget(null);
         setForceDeleteProviderTarget(provider);
-        setForceDeleteProviderMessage(resolveErrorMessage(error));
+        setForceDeleteProviderMessage(resolveAdminErrorMessage(error));
         return;
       }
-      toast.error(t("toast.providerDeleteFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.providerDeleteFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -333,7 +338,7 @@ export function AdminLoginSettingsPage() {
       toast.success(t("toast.providerControlUpdated"));
     } catch (error) {
       setProviders(previousProviders);
-      toast.error(t("toast.providerControlSaveFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.providerControlSaveFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -352,7 +357,7 @@ export function AdminLoginSettingsPage() {
       toast.success(t("toast.providerOrderUpdated"));
     } catch (error) {
       setProviders(previousProviders);
-      toast.error(t("toast.providerOrderSaveFailed"), { description: resolveErrorMessage(error) });
+      toast.error(t("toast.providerOrderSaveFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {
       setSaving(false);
     }
@@ -376,15 +381,6 @@ export function AdminLoginSettingsPage() {
   const oidcEndpointValue = oidcEndpointMode === "discovery" ? (providerForm.discoveryURL ?? "") : (providerForm.issuerURL ?? "");
   const callbackSlug = providerForm.slug?.trim() || normalizeProviderSlugPreview(providerForm.name) || "provider";
   const callbackURL = `${frontendOrigin || "http://localhost:3000"}/auth/callback?provider=${encodeURIComponent(callbackSlug)}`;
-
-  const copyCallbackURL = React.useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(callbackURL);
-      toast.success(t("toast.callbackCopied"));
-    } catch {
-      toast.error(commonT("errors.copyFailed"));
-    }
-  }, [callbackURL, commonT, t]);
 
   return (
     <SettingsPage>
@@ -451,7 +447,7 @@ export function AdminLoginSettingsPage() {
                             </SettingsFieldInset>
                           ) : null}
                           {field.key === "rate_limit_enabled" ? (
-                            <SettingsCollapsibleContent open={showRateLimitFields}>
+                            <CollapsibleMotionContent open={showRateLimitFields}>
                               <SettingsFieldInset className="mt-3 md:mt-4">
                                 <SettingsFieldList className="gap-3 md:gap-4">
                                   {rateLimitFields.map((rateLimitField) => {
@@ -470,10 +466,10 @@ export function AdminLoginSettingsPage() {
                                   })}
                                 </SettingsFieldList>
                               </SettingsFieldInset>
-                            </SettingsCollapsibleContent>
+                            </CollapsibleMotionContent>
                           ) : null}
                           {field.key === "turnstile_registration_enabled" ? (
-                            <SettingsCollapsibleContent open={showTurnstileFields}>
+                            <CollapsibleMotionContent open={showTurnstileFields}>
                               <SettingsFieldInset className="mt-3 md:mt-4">
                                 <SettingsFieldList className="gap-3 md:gap-4">
                                   {turnstileFields.map((turnstileField) => {
@@ -492,7 +488,7 @@ export function AdminLoginSettingsPage() {
                                   })}
                                 </SettingsFieldList>
                               </SettingsFieldInset>
-                            </SettingsCollapsibleContent>
+                            </CollapsibleMotionContent>
                           ) : null}
                         </React.Fragment>
                       );
@@ -545,7 +541,7 @@ export function AdminLoginSettingsPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {loading && providers.length === 0 ? <TableSkeletonRows colSpan={7} rowCount={6} /> : null}
+                          {loading && providers.length === 0 ? <TableLoadingRow colSpan={7} /> : null}
                           {providers.map((provider) => (
                             <TableRow
                               key={provider.publicID}
@@ -714,9 +710,16 @@ export function AdminLoginSettingsPage() {
               <span className="text-xs text-muted-foreground">{t("providerDialog.callbackURL")}</span>
               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                 <Input value={callbackURL} disabled readOnly />
-                <Button type="button" variant="ghost" size="icon" className="text-muted-foreground shadow-none" onClick={() => void copyCallbackURL()} aria-label={t("providerDialog.copyCallbackURL")} title={t("providerDialog.copyCallbackURL")}>
-                  <Copy className="size-3.5" />
-                </Button>
+                <CopyActionButton
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground shadow-none"
+                  value={callbackURL}
+                  messages={{ copied: t("toast.callbackCopied"), failed: commonT("errors.copyFailed") }}
+                  aria-label={t("providerDialog.copyCallbackURL")}
+                  title={t("providerDialog.copyCallbackURL")}
+                />
               </div>
             </label>
             <label className="col-span-2 space-y-1 text-sm">

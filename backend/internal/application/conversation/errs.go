@@ -31,6 +31,8 @@ var (
 	ErrInvalidFileName = errors.New("invalid file name")
 	// ErrFileNotFound 文件不存在。
 	ErrFileNotFound = errors.New("file not found")
+	// ErrFileInUse 文件正在被头像等资源使用。
+	ErrFileInUse = errors.New("file in use")
 	// ErrStorageQuotaExceeded 文件配额超限。
 	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
 	// ErrFileTooLarge 文件过大。
@@ -49,6 +51,12 @@ var (
 	ErrTooManyMessageFiles = errors.New("too many message files")
 	// ErrTooManySelectedTools 单条消息选择的 MCP 工具数超限。
 	ErrTooManySelectedTools = errors.New("too many selected tools")
+	// ErrTooManySelectedSkills 单条消息选择的 Skill 数超限。
+	ErrTooManySelectedSkills = errors.New("too many selected skills")
+	// ErrSkillNotFound 技能不存在或当前用户不可用。
+	ErrSkillNotFound = errors.New("skill not found")
+	// ErrInvalidSkillUse 技能使用入参不合法。
+	ErrInvalidSkillUse = errors.New("invalid skill use")
 	// ErrInvalidMessageBranch 消息分支参数无效。
 	ErrInvalidMessageBranch = errors.New("invalid message branch")
 	// ErrInvalidMessageContent 消息内容不合法。
@@ -71,6 +79,8 @@ var (
 	ErrUpstreamRequestFailed = errors.New("upstream request failed")
 	// ErrUpstreamEmptyResponse 上游返回空响应。
 	ErrUpstreamEmptyResponse = errors.New("upstream returned empty response")
+	// ErrToolRunFinalAnswerMissing 工具循环结束后上游仍未产出最终回答。
+	ErrToolRunFinalAnswerMissing = errors.New("tool run ended without a final answer")
 	// ErrMessageGenerationCanceled 用户主动停止生成。
 	ErrMessageGenerationCanceled = errors.New("message generation canceled")
 	// ErrInvalidMediaGenerationTask 媒体生成任务类型或输入不合法。

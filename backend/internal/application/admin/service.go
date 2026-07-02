@@ -12,18 +12,22 @@ import (
 	auditapp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/audit"
 	authapp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/auth"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/billing"
+	appconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/conversation"
+	applogcleanup "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/logcleanup"
 	systemeventapp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/systemevent"
 	userapp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/userview"
 	domainaudit "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/audit"
 	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
+	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	domainsystemevent "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/systemevent"
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
 
 type userService interface {
-	ListUsers(ctx context.Context, page int, pageSize int) ([]domainuser.User, int64, error)
+	ListUsers(ctx context.Context, page int, pageSize int, filter repository.UserListFilter) ([]domainuser.User, int64, error)
+	ListLatestSessionActivityByUserIDs(ctx context.Context, userIDs []uint) (map[uint]time.Time, error)
 	CountSuperAdmins(ctx context.Context) (int64, error)
 	CreateUser(
 		ctx context.Context,
@@ -93,6 +97,18 @@ type usageLogService interface {
 	GetAdminDashboardStats(ctx context.Context, now time.Time) (*domainbilling.AdminDashboardStats, error)
 }
 
+type orderLogService interface {
+	ListPaymentOrderLogs(ctx context.Context, page int, pageSize int, filter billing.PaymentOrderListFilter) ([]domainbilling.PaymentOrder, int64, error)
+}
+
+type conversationEventService interface {
+	ListConversationEventLogs(ctx context.Context, page int, pageSize int, filter appconversation.EventLogListFilter) ([]domainconversation.EventLog, int64, error)
+}
+
+type logCleanupService interface {
+	Cleanup(ctx context.Context, input applogcleanup.Input) (*applogcleanup.Result, error)
+}
+
 type authSecurityService interface {
 	GetCurrentTwoFactorStatus(ctx context.Context, userID uint) (*authapp.TwoFactorStatusResult, error)
 	ResetUserTwoFactorByAdmin(ctx context.Context, userID uint) error
@@ -104,6 +120,9 @@ type Service struct {
 	auditService         auditService
 	systemEventService   systemEventService
 	usageLogService      usageLogService
+	orderLogService      orderLogService
+	conversationEventSvc conversationEventService
+	logCleanupService    logCleanupService
 	authSecurityService  authSecurityService
 	subscriptionResolver subscriptionResolver
 }
@@ -160,14 +179,29 @@ func (s *Service) SetUsageLogService(service usageLogService) {
 	s.usageLogService = service
 }
 
+// SetOrderLogService 注入支付订单日志查询能力。
+func (s *Service) SetOrderLogService(service orderLogService) {
+	s.orderLogService = service
+}
+
+// SetConversationEventService 注入对话事件查询能力。
+func (s *Service) SetConversationEventService(service conversationEventService) {
+	s.conversationEventSvc = service
+}
+
+// SetLogCleanupService 注入日志清理能力。
+func (s *Service) SetLogCleanupService(service logCleanupService) {
+	s.logCleanupService = service
+}
+
 // SetSubscriptionResolver 注入订阅派生解析能力。
 func (s *Service) SetSubscriptionResolver(resolver subscriptionResolver) {
 	s.subscriptionResolver = resolver
 }
 
 // ListUsers 查询用户分页列表。
-func (s *Service) ListUsers(ctx context.Context, page int, pageSize int) ([]userview.UserView, int64, error) {
-	items, total, err := s.userService.ListUsers(ctx, page, pageSize)
+func (s *Service) ListUsers(ctx context.Context, page int, pageSize int, filter repository.UserListFilter) ([]userview.UserView, int64, error) {
+	items, total, err := s.userService.ListUsers(ctx, page, pageSize, filter)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -182,7 +216,11 @@ func (s *Service) ListUsers(ctx context.Context, page int, pageSize int) ([]user
 // BuildUserView 构建单个用户的前端展示视图。
 func (s *Service) BuildUserView(ctx context.Context, item domainuser.User) (userview.UserView, error) {
 	if s.subscriptionResolver == nil {
-		return s.applyTwoFactorView(ctx, userview.FromUser(item, nil))
+		view, err := s.applyTwoFactorView(ctx, userview.FromUser(item, nil))
+		if err != nil {
+			return userview.UserView{}, err
+		}
+		return s.applyLastActiveView(ctx, view)
 	}
 
 	mode, err := s.subscriptionResolver.GetBillingMode(ctx)
@@ -194,33 +232,42 @@ func (s *Service) BuildUserView(ctx context.Context, item domainuser.User) (user
 		if accountErr != nil {
 			return userview.UserView{}, accountErr
 		}
-		account, ok := accounts[item.ID]
-		view := userview.FromUser(item, nil)
-		if ok {
-			view = userview.WithBillingAccount(view, &userview.BillingAccountState{
-				Currency:       account.Currency,
-				BalanceNanousd: account.BalanceNanousd,
-				Status:         account.Status,
-			})
+		view := userViewFromMode(item, nil, accounts[item.ID], true)
+		view, err = s.applyTwoFactorView(ctx, view)
+		if err != nil {
+			return userview.UserView{}, err
 		}
-		return s.applyTwoFactorView(ctx, view)
+		return s.applyLastActiveView(ctx, view)
 	}
 
 	subscription, err := s.subscriptionResolver.GetCurrentSubscriptionSnapshot(ctx, item.ID, time.Now())
 	if err != nil {
 		return userview.UserView{}, err
 	}
+	account := billing.UserBillingAccountSnapshot{}
+	includeAccount := false
+	if mode == "period" {
+		accounts, accountErr := s.subscriptionResolver.ListBillingAccountSnapshots(ctx, []uint{item.ID})
+		if accountErr != nil {
+			return userview.UserView{}, accountErr
+		}
+		account = accounts[item.ID]
+		includeAccount = true
+	}
 	if subscription == nil {
-		return s.applyTwoFactorView(ctx, userview.FromUser(item, nil))
+		view, err := s.applyTwoFactorView(ctx, userViewFromMode(item, nil, account, includeAccount))
+		if err != nil {
+			return userview.UserView{}, err
+		}
+		return s.applyLastActiveView(ctx, view)
 	}
 
-	return s.applyTwoFactorView(ctx, userview.FromUser(item, &userview.SubscriptionState{
-		PlanID:    subscription.PlanID,
-		PlanName:  subscription.PlanName,
-		Tier:      subscription.Tier,
-		Status:    subscription.Status,
-		ExpiresAt: subscription.ExpiresAt,
-	}))
+	view := userViewFromMode(item, subscription, account, includeAccount)
+	view, err = s.applyTwoFactorView(ctx, view)
+	if err != nil {
+		return userview.UserView{}, err
+	}
+	return s.applyLastActiveView(ctx, view)
 }
 
 // BuildUserViews 批量构建用户展示视图。
@@ -238,7 +285,7 @@ func (s *Service) BuildUserViews(ctx context.Context, items []domainuser.User) (
 			}
 			results = append(results, view)
 		}
-		return results, nil
+		return s.applyLastActiveViews(ctx, results)
 	}
 
 	userIDs := make([]uint, 0, len(items))
@@ -256,50 +303,99 @@ func (s *Service) BuildUserViews(ctx context.Context, items []domainuser.User) (
 			return nil, accountErr
 		}
 		for _, item := range items {
-			account := accounts[item.ID]
-			view, viewErr := s.applyTwoFactorView(ctx, userview.WithBillingAccount(userview.FromUser(item, nil), &userview.BillingAccountState{
-				Currency:       account.Currency,
-				BalanceNanousd: account.BalanceNanousd,
-				Status:         account.Status,
-			}))
+			view, viewErr := s.applyTwoFactorView(ctx, userViewFromMode(item, nil, accounts[item.ID], true))
 			if viewErr != nil {
 				return nil, viewErr
 			}
 			results = append(results, view)
 		}
-		return results, nil
+		return s.applyLastActiveViews(ctx, results)
 	}
 
 	subscriptions, err := s.subscriptionResolver.ListCurrentSubscriptionSnapshots(ctx, userIDs, time.Now())
 	if err != nil {
 		return nil, err
 	}
+	accounts := map[uint]billing.UserBillingAccountSnapshot{}
+	if mode == "period" {
+		accounts, err = s.subscriptionResolver.ListBillingAccountSnapshots(ctx, userIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	for _, item := range items {
-		subscription, ok := subscriptions[item.ID]
-		if !ok {
-			view, viewErr := s.applyTwoFactorView(ctx, userview.FromUser(item, nil))
-			if viewErr != nil {
-				return nil, viewErr
-			}
-			results = append(results, view)
-			continue
+		subscription, _ := subscriptions[item.ID]
+		var snapshot *billing.UserSubscriptionSnapshot
+		if subscription.PlanID != nil || strings.TrimSpace(subscription.PlanName) != "" || strings.TrimSpace(subscription.Tier) != "" || strings.TrimSpace(subscription.Status) != "" || subscription.ExpiresAt != nil {
+			snapshot = &subscription
 		}
-
-		view, viewErr := s.applyTwoFactorView(ctx, userview.FromUser(item, &userview.SubscriptionState{
-			PlanID:    subscription.PlanID,
-			PlanName:  subscription.PlanName,
-			Tier:      subscription.Tier,
-			Status:    subscription.Status,
-			ExpiresAt: subscription.ExpiresAt,
-		}))
+		view, viewErr := s.applyTwoFactorView(ctx, userViewFromMode(item, snapshot, accounts[item.ID], mode == "period"))
 		if viewErr != nil {
 			return nil, viewErr
 		}
 		results = append(results, view)
 	}
 
-	return results, nil
+	return s.applyLastActiveViews(ctx, results)
+}
+
+func (s *Service) applyLastActiveView(ctx context.Context, view userview.UserView) (userview.UserView, error) {
+	activities, err := s.userService.ListLatestSessionActivityByUserIDs(ctx, []uint{view.ID})
+	if err != nil {
+		return userview.UserView{}, err
+	}
+	if value, ok := activities[view.ID]; ok {
+		return userview.WithLastActiveAt(view, &value), nil
+	}
+	return view, nil
+}
+
+func userViewFromMode(
+	item domainuser.User,
+	subscription *billing.UserSubscriptionSnapshot,
+	account billing.UserBillingAccountSnapshot,
+	includeAccount bool,
+) userview.UserView {
+	var subscriptionState *userview.SubscriptionState
+	if subscription != nil {
+		subscriptionState = &userview.SubscriptionState{
+			PlanID:    subscription.PlanID,
+			PlanName:  subscription.PlanName,
+			Tier:      subscription.Tier,
+			Status:    subscription.Status,
+			ExpiresAt: subscription.ExpiresAt,
+		}
+	}
+	view := userview.FromUser(item, subscriptionState)
+	if !includeAccount {
+		return view
+	}
+	return userview.WithBillingAccount(view, &userview.BillingAccountState{
+		Currency:       account.Currency,
+		BalanceNanousd: account.BalanceNanousd,
+		Status:         account.Status,
+	})
+}
+
+func (s *Service) applyLastActiveViews(ctx context.Context, views []userview.UserView) ([]userview.UserView, error) {
+	if len(views) == 0 {
+		return views, nil
+	}
+	userIDs := make([]uint, 0, len(views))
+	for _, view := range views {
+		userIDs = append(userIDs, view.ID)
+	}
+	activities, err := s.userService.ListLatestSessionActivityByUserIDs(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+	for index, view := range views {
+		if value, ok := activities[view.ID]; ok {
+			views[index] = userview.WithLastActiveAt(view, &value)
+		}
+	}
+	return views, nil
 }
 
 func (s *Service) applyTwoFactorView(ctx context.Context, view userview.UserView) (userview.UserView, error) {
@@ -353,45 +449,6 @@ func (s *Service) CreateUser(
 		subscriptionTier,
 		subscriptionExpiresAt,
 	)
-}
-
-// ListAuditLogs 查询审计日志分页列表。
-func (s *Service) ListAuditLogs(ctx context.Context, page int, pageSize int, filter auditapp.ListFilter) ([]domainaudit.Log, int64, error) {
-	return s.auditService.List(ctx, page, pageSize, filter)
-}
-
-// ListUsageLogs 查询管理员调用日志。
-func (s *Service) ListUsageLogs(ctx context.Context, page int, pageSize int, filter billing.UsageLogListFilter) ([]domainbilling.UsageLedger, int64, error) {
-	if s.usageLogService == nil {
-		return []domainbilling.UsageLedger{}, 0, nil
-	}
-	return s.usageLogService.ListUsageLogs(ctx, page, pageSize, filter)
-}
-
-// GetDashboardStats 查询管理员首页聚合指标。
-func (s *Service) GetDashboardStats(ctx context.Context, now time.Time) (*domainbilling.AdminDashboardStats, error) {
-	if s.usageLogService == nil {
-		return &domainbilling.AdminDashboardStats{}, nil
-	}
-	return s.usageLogService.GetAdminDashboardStats(ctx, now)
-}
-
-func (s *Service) ListMultiAccountCandidates(ctx context.Context, limit int) ([]domainuser.MultiAccountCandidate, error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	return s.userService.ListMultiAccountCandidates(ctx, limit)
-}
-
-// ListSystemEvents 查询系统事件分页列表。
-func (s *Service) ListSystemEvents(ctx context.Context, page int, pageSize int, filter systemeventapp.ListFilter) ([]domainsystemevent.Event, int64, error) {
-	if s.systemEventService == nil {
-		return []domainsystemevent.Event{}, 0, nil
-	}
-	return s.systemEventService.List(ctx, page, pageSize, filter)
 }
 
 // ResolveUserLabels 批量解析日志展示用的用户名称。
@@ -1121,3 +1178,27 @@ func (s *Service) ListUserAuthEventsByAdmin(
 ) ([]domainuser.AuthEvent, int64, error) {
 	return s.userService.ListAuthEvents(ctx, userID, eventType, result, page, pageSize)
 }
+
+// WriteAuditLog 写通用审计日志。
+func (s *Service) WriteAuditLog(ctx context.Context, requestID string, actorUserID uint, action string, resource string, resourceID string, ip string, userAgent string, detail interface{}) {
+	s.auditService.Write(ctx, requestID, actorUserID, action, resource, resourceID, ip, userAgent, detail)
+}
+
+// GetDashboardStats 查询管理员首页聚合指标。
+func (s *Service) GetDashboardStats(ctx context.Context, now time.Time) (*domainbilling.AdminDashboardStats, error) {
+	if s.usageLogService == nil {
+		return &domainbilling.AdminDashboardStats{}, nil
+	}
+	return s.usageLogService.GetAdminDashboardStats(ctx, now)
+}
+
+func (s *Service) ListMultiAccountCandidates(ctx context.Context, limit int) ([]domainuser.MultiAccountCandidate, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	return s.userService.ListMultiAccountCandidates(ctx, limit)
+}
+

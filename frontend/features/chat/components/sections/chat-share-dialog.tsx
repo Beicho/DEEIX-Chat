@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Copy, ExternalLink, ImageDown, Share2 } from "lucide-react";
+import { ExternalLink, ImageDown, Share2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
@@ -35,6 +35,7 @@ import {
 import type { ConversationShareDTO, CreateConversationShareRequest } from "@/shared/api/conversation.types";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
+import { CopyActionButton } from "@/shared/components/copy-action";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import {
   buildConversationNativeShareData,
@@ -268,26 +269,6 @@ export function ConversationShareDialog({
     [applyShare, buildSharePayload, conversationPublicID, hasDefaultBranch, resolveErrorMessage, t, tCommon, working],
   );
 
-  const copyLink = React.useCallback(async (): Promise<boolean> => {
-    if (!currentURL) {
-      return false;
-    }
-    try {
-      await navigator.clipboard.writeText(currentURL);
-      toast.success(t("linkCopied"));
-      return true;
-    } catch {
-      toast.error(t("copyFailed"));
-      return false;
-    }
-  }, [currentURL, t]);
-
-  const copyLinkAndClose = React.useCallback(async () => {
-    const copied = await copyLink();
-    if (copied) {
-      onOpenChange(false);
-    }
-  }, [copyLink, onOpenChange]);
 
   const openLink = React.useCallback(() => {
     if (!currentURL) {
@@ -338,16 +319,16 @@ export function ConversationShareDialog({
                 value={currentURL || t("emptyLink")}
                 className={!currentURL ? "text-muted-foreground" : undefined}
               />
-              <Button
+              <CopyActionButton
                 type="button"
                 variant="ghost"
                 size="icon"
                 disabled={!active}
-                onClick={() => void copyLink()}
+                value={currentURL}
+                messages={{ copied: t("linkCopied"), failed: t("copyFailed") }}
+                iconClassName="size-4"
                 aria-label={t("copyLink")}
-              >
-                <Copy className="size-4" />
-              </Button>
+              />
               <Button
                 type="button"
                 variant="ghost"
@@ -496,13 +477,15 @@ export function ConversationShareDialog({
               >
                 {working === "regenerate" ? <SpinnerLabel>{t("regenerating")}</SpinnerLabel> : t("regenerate")}
               </Button>
-              <Button
+              <CopyActionButton
                 type="button"
-                onClick={() => void copyLinkAndClose()}
+                value={currentURL}
+                messages={{ copied: t("linkCopied"), failed: t("copyFailed") }}
+                onCopied={() => onOpenChange(false)}
                 disabled={Boolean(working) || loading || !active}
               >
                 {t("copyAndClose")}
-              </Button>
+              </CopyActionButton>
             </>
           ) : (
             <>

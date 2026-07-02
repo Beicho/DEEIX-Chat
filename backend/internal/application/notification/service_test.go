@@ -398,7 +398,7 @@ type fakeUserProvider struct {
 	users []domainuser.User
 }
 
-func (p *fakeUserProvider) ListUsers(_ context.Context, page int, pageSize int) ([]domainuser.User, int64, error) {
+func (p *fakeUserProvider) ListUsers(_ context.Context, page int, pageSize int, _ repository.UserListFilter) ([]domainuser.User, int64, error) {
 	if page <= 0 {
 		page = 1
 	}

@@ -223,6 +223,41 @@ func TestBrandingSettingsAreValidDynamicSettings(t *testing.T) {
 	}
 }
 
+func TestValidatePasswordResetRequiresEmailVerification(t *testing.T) {
+	repo := &testSettingsRepo{byNamespace: map[string][]domainsettings.SystemSetting{
+		"auth": {
+			{Namespace: "auth", Key: "username_login_enabled", Value: "true"},
+			{Namespace: "auth", Key: "email_login_enabled", Value: "true"},
+			{Namespace: "auth", Key: "third_party_login_enabled", Value: "true"},
+			{Namespace: "auth", Key: "email_verification_enabled", Value: "false"},
+			{Namespace: "auth", Key: "password_reset_enabled", Value: "false"},
+		},
+	}}
+	service := NewService(repo, "test-data-encryption-key")
+
+	if _, err := service.applyAuthSettingDependencies(context.Background(), []PatchItem{
+		{Namespace: "auth", Key: "password_reset_enabled", Value: "true"},
+	}); err == nil {
+		t.Fatal("expected password reset to require email verification")
+	}
+}
+
+func TestRuntimeSettingsNormalizeConfigDisablesPasswordReset(t *testing.T) {
+	runtimeSettings := NewRuntimeSettings(nil, nil, "test-data-encryption-key")
+	cfg := config.Config{
+		UsernameLoginEnabled:     true,
+		EmailLoginEnabled:        true,
+		EmailVerificationEnabled: false,
+		PasswordResetEnabled:     true,
+	}
+
+	runtimeSettings.normalizeConfig(&cfg)
+
+	if cfg.PasswordResetEnabled {
+		t.Fatal("expected password reset disabled when email verification is disabled")
+	}
+}
+
 func TestValidateModelOptionPolicySettings(t *testing.T) {
 	if err := validatePatchItem(PatchItem{Namespace: "chat", Key: "model_option_policy_mode", Value: "allowlist"}); err != nil {
 		t.Fatalf("expected allowlist mode to pass, got %v", err)
@@ -264,6 +299,17 @@ func TestRuntimeSettingsNormalizeConfigResetsInvalidModerationAction(t *testing.
 	}
 }
 
+func TestValidateBillingDisplayCurrencySetting(t *testing.T) {
+	for _, currency := range []string{"USD", "CNY"} {
+		if err := validatePatchItem(PatchItem{Namespace: "billing", Key: "display_currency", Value: currency}); err != nil {
+			t.Fatalf("expected %s to pass, got %v", currency, err)
+		}
+	}
+	if err := validatePatchItem(PatchItem{Namespace: "billing", Key: "display_currency", Value: "EUR"}); err == nil {
+		t.Fatal("expected unsupported display currency to fail")
+	}
+}
+
 func TestValidateMCPSelectedToolsSetting(t *testing.T) {
 	if err := validatePatchItem(PatchItem{Namespace: "mcp", Key: "mcp_max_selected_tools_per_message", Value: "32"}); err != nil {
 		t.Fatalf("expected selected tool limit to pass, got %v", err)
@@ -273,6 +319,32 @@ func TestValidateMCPSelectedToolsSetting(t *testing.T) {
 	}
 	if err := validatePatchItem(PatchItem{Namespace: "mcp", Key: "mcp_max_selected_tools_per_message", Value: "129"}); err == nil {
 		t.Fatal("expected selected tool limit above safe maximum to fail")
+	}
+}
+
+func TestValidateCustomPromptSettings(t *testing.T) {
+	for _, item := range []PatchItem{
+		{Namespace: "mcp", Key: "mcp_tool_prompt", Value: "Use MCP tools carefully."},
+		{Namespace: "chat", Key: "skills_prompt", Value: "Use selected skills only when relevant."},
+	} {
+		if err := validatePatchItem(item); err != nil {
+			t.Fatalf("expected %s:%s to pass, got %v", item.Namespace, item.Key, err)
+		}
+	}
+}
+
+func TestRuntimeSettingsAppliesCustomPromptSettings(t *testing.T) {
+	runtimeSettings := NewRuntimeSettings(nil, nil, "test-data-encryption-key")
+	cfg := config.Config{}
+
+	runtimeSettings.applyItem(&cfg, domainsettings.SystemSetting{Namespace: "mcp", Key: "mcp_tool_prompt", Value: "Use MCP tools carefully."})
+	runtimeSettings.applyItem(&cfg, domainsettings.SystemSetting{Namespace: "chat", Key: "skills_prompt", Value: "Use selected skills only when relevant."})
+
+	if cfg.MCPToolPrompt != "Use MCP tools carefully." {
+		t.Fatalf("expected MCP tool prompt to be applied, got %q", cfg.MCPToolPrompt)
+	}
+	if cfg.SkillsPrompt != "Use selected skills only when relevant." {
+		t.Fatalf("expected skills prompt to be applied, got %q", cfg.SkillsPrompt)
 	}
 }
 
@@ -350,8 +422,8 @@ func TestRuntimeSettingsDisablesFullContextLimits(t *testing.T) {
 	runtimeSettings := NewRuntimeSettings(nil, nil, "test-data-encryption-key")
 	cfg := config.Config{
 		FileFullContextLimitEnabled: true,
-		FileFullContextMaxBytes:     51200,
-		FileFullContextMaxTokens:    12000,
+		FileFullContextMaxBytes:     65536,
+		FileFullContextMaxTokens:    65536,
 		FileFullContextPDFMaxPages:  20,
 	}
 
@@ -375,8 +447,8 @@ func TestRuntimeSettingsTreatsEmptyFullContextLimitsAsUnlimited(t *testing.T) {
 	runtimeSettings := NewRuntimeSettings(nil, nil, "test-data-encryption-key")
 	cfg := config.Config{
 		FileFullContextLimitEnabled: true,
-		FileFullContextMaxBytes:     51200,
-		FileFullContextMaxTokens:    12000,
+		FileFullContextMaxBytes:     65536,
+		FileFullContextMaxTokens:    65536,
 		FileFullContextPDFMaxPages:  20,
 	}
 

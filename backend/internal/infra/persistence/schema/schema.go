@@ -66,6 +66,8 @@ func Models() []interface{} {
 		&model.Announcement{},
 		&model.AnnouncementUserState{},
 		&model.Notification{},
+		&model.PromptPreset{},
+		&model.Skill{},
 		&model.SystemSetting{},
 		&model.UserSetting{},
 		&model.DeviceFingerprint{},
@@ -85,7 +87,42 @@ func Migrate(db *gorm.DB) error {
 			return err
 		}
 	}
-	return db.AutoMigrate(Models()...)
+	if err := db.AutoMigrate(Models()...); err != nil {
+		return err
+	}
+	return backfillUsageLedgerBillingAt(db)
+}
+
+func backfillUsageLedgerBillingAt(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&model.UsageLedger{}) || !db.Migrator().HasColumn(&model.UsageLedger{}, "billing_at") {
+		return nil
+	}
+	return db.Model(&model.UsageLedger{}).
+		Where("billing_at IS NULL").
+		Update("billing_at", gorm.Expr("created_at")).Error
+}
+
+// CleanupRemovedColumns drops columns that were removed from the Gorm models.
+func CleanupRemovedColumns(db *gorm.DB) error {
+	if err := dropColumns(db, &model.PromptPreset{}, []string{"use_count", "last_used_at", "category", "tags_json"}); err != nil {
+		return err
+	}
+	return dropColumns(db, &model.Skill{}, []string{"content", "sections_json"})
+}
+
+func dropColumns(db *gorm.DB, table interface{}, columns []string) error {
+	if !db.Migrator().HasTable(table) {
+		return nil
+	}
+	for _, column := range columns {
+		if !db.Migrator().HasColumn(table, column) {
+			continue
+		}
+		if err := db.Migrator().DropColumn(table, column); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SeedLLMSettings inserts default LLM runtime settings if they do not exist.

@@ -145,6 +145,8 @@ func migrate(db *gorm.DB, cfg config.Config) error {
 		"system_announcements":           "站点公告表",
 		"announcement_user_states":       "用户公告展示状态表",
 		"notifications":                  "用户站内通知表",
+		"prompt_presets":                 "内置与用户自定义预制提示词表",
+		"skills":                         "内置与用户自定义技能提示词表",
 		"system_settings":                "系统动态配置表",
 		"user_settings":                  "用户个人偏好配置表",
 		"device_fingerprints":            "设备指纹记录表",
@@ -179,6 +181,9 @@ func migrate(db *gorm.DB, cfg config.Config) error {
 		return err
 	}
 	if err := applyAnnouncementBaseline(db); err != nil {
+		return err
+	}
+	if err := schema.CleanupRemovedColumns(db); err != nil {
 		return err
 	}
 	if err := applyVectorBaseline(db, vectorBaselineRequired(cfg)); err != nil {
@@ -236,8 +241,19 @@ func applyLLMBaselineIndexes(db *gorm.DB) error {
 
 func applyBillingBaselineIndexes(db *gorm.DB) error {
 	statements := []string{
+		`ALTER TABLE "billing_usage_ledgers"
+		ADD COLUMN IF NOT EXISTS "billing_at" timestamptz`,
+		`UPDATE "billing_usage_ledgers"
+		SET "billing_at" = "created_at"
+		WHERE "billing_at" IS NULL`,
+		`ALTER TABLE "billing_usage_ledgers"
+		ALTER COLUMN "billing_at" SET NOT NULL`,
+		`COMMENT ON COLUMN "billing_usage_ledgers"."billing_at" IS '计费归属时间'`,
 		`CREATE INDEX IF NOT EXISTS idx_billing_usage_ledgers_user_date_model
 		ON "billing_usage_ledgers" ("user_id", "usage_date", "platform_model_name")`,
+		`CREATE INDEX IF NOT EXISTS idx_billing_usage_ledgers_user_billing_billable
+		ON "billing_usage_ledgers" ("user_id", "billing_at")
+		WHERE is_free_model = FALSE`,
 		`CREATE INDEX IF NOT EXISTS idx_billing_usage_ledgers_user_created_billable
 		ON "billing_usage_ledgers" ("user_id", "created_at")
 		WHERE is_free_model = FALSE`,
@@ -316,6 +332,9 @@ func applyIdentityBaselineConstraints(db *gorm.DB) error {
 		ON "identity_users" ("suspended_at")`,
 		`CREATE INDEX IF NOT EXISTS idx_identity_users_suspended_by
 		ON "identity_users" ("suspended_by")`,
+		`CREATE INDEX IF NOT EXISTS idx_identity_users_file_avatar_url
+		ON "identity_users" ("avatar_url")
+		WHERE "avatar_url" LIKE 'file:%'`,
 		`DROP INDEX IF EXISTS uk_identity_users_single_superadmin`,
 	}
 	for _, statement := range statements {
@@ -397,6 +416,24 @@ func applyConversationBaselineIndexes(db *gorm.DB) error {
 		`COMMENT ON COLUMN "chat_runs"."task_type" IS '任务类型'`,
 		`CREATE INDEX IF NOT EXISTS idx_chat_runs_task_type
 		ON "chat_runs" ("task_type")`,
+		`ALTER TABLE "chat_context_records"
+		ADD COLUMN IF NOT EXISTS "covered_until_message_id" bigint NOT NULL DEFAULT 0`,
+		`COMMENT ON COLUMN "chat_context_records"."covered_until_message_id" IS '快照覆盖到的最后消息ID'`,
+		`ALTER TABLE "chat_context_records"
+		ADD COLUMN IF NOT EXISTS "covered_until_public_id" varchar(32) NOT NULL DEFAULT ''`,
+		`COMMENT ON COLUMN "chat_context_records"."covered_until_public_id" IS '快照覆盖到的最后消息公开ID'`,
+		`ALTER TABLE "chat_context_records"
+		ADD COLUMN IF NOT EXISTS "coverage_path_hash" varchar(64) NOT NULL DEFAULT ''`,
+		`COMMENT ON COLUMN "chat_context_records"."coverage_path_hash" IS '快照覆盖分支路径Hash'`,
+		`ALTER TABLE "chat_context_records"
+		ADD COLUMN IF NOT EXISTS "covered_message_count" integer NOT NULL DEFAULT 0`,
+		`COMMENT ON COLUMN "chat_context_records"."covered_message_count" IS '快照覆盖消息数'`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_context_records_covered_until_message_id
+		ON "chat_context_records" ("covered_until_message_id")`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_context_records_covered_until_public_id
+		ON "chat_context_records" ("covered_until_public_id")`,
+		`CREATE INDEX IF NOT EXISTS idx_chat_context_records_coverage_path_hash
+		ON "chat_context_records" ("coverage_path_hash")`,
 		`ALTER TABLE "chat_run_events"
 		ALTER COLUMN "event_id" TYPE varchar(255),
 		ALTER COLUMN "parent_event_id" TYPE varchar(255),

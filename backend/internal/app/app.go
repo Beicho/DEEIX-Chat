@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/admin"
+	appalerting "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/alerting"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/announcement"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/audit"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/auth"
-	appalerting "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/alerting"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/billing"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/collaboration"
@@ -21,15 +21,18 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/conversation"
 	appembedding "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/embedding"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/extraction"
+	applogcleanup "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/logcleanup"
 	appmcp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/mcp"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/memory"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/notification"
 	appstorage "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/objectstorage"
 	appprocessing "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/processing"
+	apppromptpreset "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/promptpreset"
 	apprag "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/rag"
 	appruntime "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/runtime"
 	appsecurity "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/security"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/settings"
+	appskill "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/skill"
 	appsystemevent "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/systemevent"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/usersettings"
@@ -47,11 +50,14 @@ import (
 	channelrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/channel"
 	collaborationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/collaboration"
 	conversationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/conversation"
+	logcleanuprepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/logcleanup"
 	mcprepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/mcp"
 	memoryrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/memory"
 	notificationrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/notification"
+	promptpresetrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/promptpreset"
 	securityrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/security"
 	settingsrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/settings"
+	skillrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/skill"
 	systemeventrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/systemevent"
 	userrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/user"
 	usersettingsrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/usersettings"
@@ -68,9 +74,12 @@ import (
 	mcphttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/mcp"
 	memoryhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/memory"
 	notificationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/notification"
+	promptpresethttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/promptpreset"
 	securityhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/security"
 	settingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/settings"
+	skillhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/skill"
 	statushttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/status"
+	userhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/user"
 	usersettingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/usersettings"
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -89,6 +98,24 @@ type App struct {
 	backgroundCancel context.CancelFunc
 }
 
+type avatarContentOpener struct {
+	conversationService *conversation.Service
+}
+
+func (o avatarContentOpener) OpenAvatarFileContent(ctx context.Context, userID uint, fileID string) (*user.AvatarFileContent, error) {
+	content, err := o.conversationService.OpenFileContent(ctx, userID, fileID)
+	if err != nil {
+		return nil, err
+	}
+	return &user.AvatarFileContent{
+		Reader:      content.Reader,
+		ContentType: content.ContentType,
+		SizeBytes:   content.SizeBytes,
+		ModTime:     content.ModTime,
+		FileName:    content.File.FileName,
+	}, nil
+}
+
 // NewApp 创建应用。
 func NewApp() (*App, error) {
 	cfg := config.Load()
@@ -103,6 +130,7 @@ func NewApp() (*App, error) {
 		Endpoint:     cfg.OTelExporterOTLPEndpoint,
 		Headers:      cfg.OTelExporterOTLPHeaders,
 		Insecure:     cfg.OTelExporterOTLPInsecure,
+		Protocol:     cfg.OTelExporterOTLPProtocol,
 		SamplingRate: cfg.OTelSamplingRate,
 	}); err != nil {
 		return nil, fmt.Errorf("init tracing: %w", err)
@@ -125,6 +153,8 @@ func NewApp() (*App, error) {
 
 	auditRepo := auditrepo.NewRepo(db)
 	auditService := audit.NewService(auditRepo, log)
+	logCleanupRepo := logcleanuprepo.NewRepo(db)
+	logCleanupService := applogcleanup.NewService(logCleanupRepo, auditService)
 	systemEventRepo := systemeventrepo.NewRepo(db)
 	systemEventService := appsystemevent.NewService(systemEventRepo)
 
@@ -261,9 +291,14 @@ func NewApp() (*App, error) {
 	conversationService.SetObjectStoreProvider(objectStoreProvider)
 	conversationService.SetMCPRepository(mcpRepo)
 	conversationService.SetModerationUserEnforcer(userService)
+	userService.SetAvatarContentOpener(avatarContentOpener{conversationService: conversationService})
+	userService.SetAvatarFileValidator(conversationService)
+	authService.SetAvatarFileValidator(conversationService)
 	memoryService.SetCacheInvalidator(conversationService.InvalidateMemoryCache)
 	conversationHandler := conversationhttp.NewHandler(conversationService, runtimeCfg)
 	conversationModule := conversationhttp.NewModule(conversationHandler)
+	userHandler := userhttp.NewHandler(userService)
+	userModule := userhttp.NewModule(userHandler)
 	mcpService := appmcp.NewServiceWithRuntime(runtimeCfg, mcpRepo, mcpClient)
 	mcpService.SetSystemEventWriter(systemEventService)
 	mcpHandler := mcphttp.NewHandler(mcpService)
@@ -272,8 +307,12 @@ func NewApp() (*App, error) {
 	adminService.SetAuthSecurityService(authService)
 	adminService.SetSystemEventService(systemEventService)
 	adminService.SetUsageLogService(billingService)
+	adminService.SetOrderLogService(billingService)
+	adminService.SetConversationEventService(conversationService)
+	adminService.SetLogCleanupService(logCleanupService)
 	adminService.SetSubscriptionResolver(billingService)
 	adminHandler := adminhttp.NewHandler(adminService)
+	adminHandler.SetConversationExporter(conversationService)
 	adminModule := adminhttp.NewModule(adminHandler)
 	userSettingsRepo := usersettingsrepo.NewRepo(db)
 	userSettingsService := usersettings.NewService(userSettingsRepo)
@@ -313,6 +352,18 @@ func NewApp() (*App, error) {
 	alertingHandler := alertinghttp.NewHandler(alertingService)
 	alertingModule := alertinghttp.NewModule(alertingHandler)
 
+	promptPresetRepo := promptpresetrepo.NewRepo(db)
+	promptPresetService := apppromptpreset.NewService(promptPresetRepo)
+	promptPresetService.SetAuditWriter(auditService)
+	promptPresetHandler := promptpresethttp.NewHandler(promptPresetService)
+	promptPresetModule := promptpresethttp.NewModule(promptPresetHandler)
+	skillRepo := skillrepo.NewRepo(db)
+	skillService := appskill.NewService(skillRepo)
+	skillService.SetAuditWriter(auditService)
+	conversationService.SetSkillResolver(skillService)
+	skillHandler := skillhttp.NewHandler(skillService)
+	skillModule := skillhttp.NewModule(skillHandler)
+
 	hc := newHealthChecker(db, cfg.CacheDriver, redisClient)
 	rateLimiter := buildRateLimiter(cfg, redisClient, memoryCache)
 	conversationService.SetModerationRateLimiter(rateLimiter)
@@ -331,10 +382,13 @@ func NewApp() (*App, error) {
 		Announcement:  announcementModule,
 		Notification:  notificationModule,
 		Collaboration: collaborationModule,
+		PromptPreset:  promptPresetModule,
+		Skill:         skillModule,
 		Settings:      settingsModule,
 		UserSettings:  userSettingsModule,
 		Status:        statusModule,
 		Alerting:      alertingModule,
+		User:          userModule,
 		StartupLog: func(log *zap.Logger) {
 			if log == nil || bootstrapSuperAdmin == nil {
 				return

@@ -21,7 +21,7 @@ import (
 
 const (
 	defaultPageSize             = 20
-	maxPageSize                 = 200
+	maxPageSize                 = 1000
 	publicModelPricingCacheTTL  = 30 * time.Second
 	nativeToolPricingSource     = "provider_official_defaults"
 	defaultCheckInRewardNanousd = int64(10_000_000)
@@ -108,6 +108,27 @@ type UsagePricingInput struct {
 	LatencyMS           int64
 	ServerSideToolUsage map[string]int64
 	ServiceItems        []ServiceUsageInput
+	RawUsageJSON        string
+	BillingAt           time.Time
+}
+
+func upstreamUsageSnapshot(input UsagePricingInput) interface{} {
+	raw := strings.TrimSpace(input.RawUsageJSON)
+	if raw == "" {
+		return map[string]interface{}{}
+	}
+	var decoded interface{}
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return map[string]interface{}{}
+	}
+	switch value := decoded.(type) {
+	case map[string]interface{}:
+		return value
+	case []interface{}:
+		return value
+	default:
+		return map[string]interface{}{}
+	}
 }
 
 // PlatformModelIdentity 描述一次计费需要用到的平台模型身份。
@@ -188,6 +209,18 @@ type UsageLogListFilter struct {
 	Sort              string
 }
 
+// PaymentOrderListFilter 描述管理员支付订单筛选和排序条件。
+type PaymentOrderListFilter struct {
+	Query       string
+	OrderType   string
+	Provider    string
+	Status      string
+	UserID      uint
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
+	Sort        string
+}
+
 type tieredPricingConfig struct {
 	Tiers []tieredPricingTier `json:"tiers"`
 }
@@ -240,11 +273,12 @@ type PlanCreateInput struct {
 
 // PaymentOrderInput 定义创建支付单入参。
 type PaymentOrderInput struct {
-	UserID       uint
-	PriceID      uint
-	Cycles       int
-	Provider     string
-	USDToCNYRate float64
+	UserID               uint
+	PriceID              uint
+	Cycles               int
+	Provider             string
+	USDToCNYRate         float64
+	PreferredPayCurrency string
 }
 
 // PaymentOrderListInput 定义支付单查询入参。
@@ -268,10 +302,12 @@ type PaymentOrderActionInput struct {
 
 // TopUpPaymentOrderInput 定义创建按量充值支付单入参。
 type TopUpPaymentOrderInput struct {
-	UserID       uint
-	AmountCents  int64
-	Provider     string
-	USDToCNYRate float64
+	UserID               uint
+	AmountMinorUnits     int64
+	AmountCurrency       string
+	Provider             string
+	USDToCNYRate         float64
+	PreferredPayCurrency string
 }
 
 type paymentQuote struct {
@@ -800,7 +836,7 @@ func (s *Service) CreatePaymentOrder(ctx context.Context, input PaymentOrderInpu
 	if baseAmountCents <= 0 {
 		return nil, nil, nil, repository.ErrInvalidInput
 	}
-	quote := resolvePaymentQuote(provider, baseCurrency, baseAmountCents, input.USDToCNYRate)
+	quote := resolvePaymentQuote(provider, baseCurrency, baseAmountCents, input.USDToCNYRate, input.PreferredPayCurrency)
 	if quote.PayAmountCents <= 0 {
 		return nil, nil, nil, repository.ErrInvalidInput
 	}
@@ -869,15 +905,28 @@ func (s *Service) CreateTopUpPaymentOrder(ctx context.Context, input TopUpPaymen
 	default:
 		return nil, ErrPaymentProviderUnavailable
 	}
-	if input.UserID == 0 || input.AmountCents <= 0 {
+	if input.UserID == 0 || input.AmountMinorUnits <= 0 {
 		return nil, repository.ErrInvalidInput
 	}
 
 	baseCurrency := "USD"
-	baseAmountCents := input.AmountCents
-	quote := resolvePaymentQuote(provider, baseCurrency, baseAmountCents, input.USDToCNYRate)
-	creditNanousd := centsToNanousd(baseAmountCents)
-	if quote.PayAmountCents <= 0 || creditNanousd <= 0 {
+	rate := resolveUSDToCNYRate(input.USDToCNYRate)
+	amountCurrency := normalizeCurrency(input.AmountCurrency)
+	baseAmountUSD := float64(input.AmountMinorUnits) / 100
+	if amountCurrency == "CNY" {
+		baseAmountUSD = baseAmountUSD / rate
+	} else if amountCurrency != "USD" {
+		return nil, repository.ErrInvalidInput
+	}
+	creditNanousd := usdToNanousd(baseAmountUSD)
+	baseAmountCents := int64(math.Round(baseAmountUSD * 100))
+	quote := resolvePaymentQuote(provider, baseCurrency, baseAmountCents, rate, input.PreferredPayCurrency)
+	if quote.PayCurrency == amountCurrency {
+		quote.PayAmountCents = input.AmountMinorUnits
+	} else if quote.PayCurrency == "CNY" && quote.BaseCurrency == "USD" {
+		quote.PayAmountCents = int64(math.Round(baseAmountUSD * rate * 100))
+	}
+	if quote.BaseAmountCents <= 0 || quote.PayAmountCents <= 0 || creditNanousd <= 0 {
 		return nil, repository.ErrInvalidInput
 	}
 
@@ -888,14 +937,16 @@ func (s *Service) CreateTopUpPaymentOrder(ctx context.Context, input TopUpPaymen
 	now := time.Now()
 	expiredAt := now.Add(30 * time.Minute)
 	snapshot := map[string]interface{}{
-		"order_type":        domainbilling.PaymentOrderTypeTopUp,
-		"base_currency":     quote.BaseCurrency,
-		"base_amount_cents": quote.BaseAmountCents,
-		"pay_currency":      quote.PayCurrency,
-		"pay_amount_cents":  quote.PayAmountCents,
-		"fx_rate":           formatFXRate(quote.FXRate),
-		"credit_nanousd":    creditNanousd,
-		"provider":          provider,
+		"order_type":         domainbilling.PaymentOrderTypeTopUp,
+		"base_currency":      quote.BaseCurrency,
+		"base_amount_cents":  quote.BaseAmountCents,
+		"pay_currency":       quote.PayCurrency,
+		"pay_amount_cents":   quote.PayAmountCents,
+		"fx_rate":            formatFXRate(quote.FXRate),
+		"amount_currency":    amountCurrency,
+		"amount_minor_units": input.AmountMinorUnits,
+		"credit_nanousd":     creditNanousd,
+		"provider":           provider,
 	}
 	snapshotJSON := "{}"
 	if raw, marshalErr := json.Marshal(snapshot); marshalErr == nil {
@@ -1126,13 +1177,16 @@ func (s *Service) RecordUsage(ctx context.Context, usage *domainbilling.UsageLed
 	return s.RecordUsageWithReservation(ctx, usage, nil)
 }
 
-// RecordUsageWithReservation 记录用量，并在按量/周期超额模式下结算预扣差额。
+// RecordUsageWithReservation 记录用量，并在按量/周期超额模式下结算需要走余额的部分。
 func (s *Service) RecordUsageWithReservation(ctx context.Context, usage *domainbilling.UsageLedger, reservation *domainbilling.UsageBalanceReservation) error {
+	if usage == nil {
+		return nil
+	}
 	mode, err := s.repo.GetBillingMode(ctx)
 	if err != nil {
 		return err
 	}
-	if mode == "usage" || reservation != nil {
+	if mode == "usage" || (mode != "period" && reservation != nil) {
 		if err := s.repo.AddUsageAndSettleBalance(ctx, usage, reservation); err != nil {
 			if errors.Is(err, repository.ErrInsufficientBalance) {
 				return ErrUsageBalanceInsufficient
@@ -1142,24 +1196,28 @@ func (s *Service) RecordUsageWithReservation(ctx context.Context, usage *domainb
 		return nil
 	}
 	if mode == "period" {
-		settlement, settlementErr := s.periodUsageSettlementReservation(ctx, usage, time.Now())
-		if settlementErr != nil {
-			return settlementErr
+		if usage.BillingAt.IsZero() {
+			return repository.ErrInvalidInput
 		}
-		if settlement != nil {
-			if err := s.repo.AddUsageAndSettleBalance(ctx, usage, settlement); err != nil {
-				if errors.Is(err, repository.ErrInsufficientBalance) {
-					return ErrUsageBalanceInsufficient
-				}
-				return err
+		if usage.UsageDate.IsZero() {
+			return repository.ErrInvalidInput
+		}
+		plan, startAt, endAt, planErr := s.currentPeriodPlan(ctx, usage.UserID, usage.BillingAt)
+		if planErr != nil {
+			return planErr
+		}
+		if err := s.repo.AddPeriodUsageAndSettleOverage(ctx, usage, startAt, endAt, plan.PeriodCreditNanousd, reservation); err != nil {
+			if errors.Is(err, repository.ErrInsufficientBalance) {
+				return ErrUsageBalanceInsufficient
 			}
-			return nil
+			return err
 		}
+		return nil
 	}
 	return s.repo.AddUsage(ctx, usage)
 }
 
-// ReserveUsageBalance 在按量或周期超额模式下按配置金额预扣余额；免费模型不预扣。
+// ReserveUsageBalance 在按量模式下预扣余额；周期模式仅对可能超出套餐额度的部分预扣。
 func (s *Service) ReserveUsageBalance(ctx context.Context, userID uint, platformModelName string, refNo string) (*domainbilling.UsageBalanceReservation, error) {
 	mode, err := s.repo.GetBillingMode(ctx)
 	if err != nil {
@@ -1194,7 +1252,27 @@ func (s *Service) ReserveUsageBalance(ctx context.Context, userID uint, platform
 	if prepaidNanousd <= 0 {
 		return nil, nil
 	}
-	reservation, err := s.repo.ReserveUsageBalance(ctx, userID, prepaidNanousd, refNo)
+	reserveNanousd := prepaidNanousd
+	if mode == "period" {
+		// 周期模式预扣只做调用前的余额风险控制；最终超额金额仍由入账事务在账户行锁下重算并兜底。
+		plan, startAt, endAt, planErr := s.currentPeriodPlan(ctx, userID, time.Now())
+		if planErr != nil {
+			return nil, planErr
+		}
+		usedNanousd, usedErr := s.repo.SumBillableNanousd(ctx, userID, startAt, endAt)
+		if usedErr != nil {
+			return nil, usedErr
+		}
+		remainingNanousd := plan.PeriodCreditNanousd - usedNanousd
+		if remainingNanousd < 0 {
+			remainingNanousd = 0
+		}
+		reserveNanousd = prepaidNanousd - remainingNanousd
+		if reserveNanousd <= 0 {
+			return nil, nil
+		}
+	}
+	reservation, err := s.repo.ReserveUsageBalance(ctx, userID, reserveNanousd, refNo)
 	if err != nil {
 		if errors.Is(err, repository.ErrInsufficientBalance) {
 			return nil, ErrUsageBalanceInsufficient
@@ -1233,22 +1311,7 @@ func (s *Service) EnsureModelUsable(ctx context.Context, userID uint, platformMo
 		return ErrModelPricingRequired
 	}
 	if mode == "usage" {
-		account, accountErr := s.repo.GetOrCreateBillingAccount(ctx, userID)
-		if accountErr != nil {
-			return accountErr
-		}
-		prepaidNanousd, prepaidErr := s.repo.GetBillingPrepaidAmountNanousd(ctx)
-		if prepaidErr != nil {
-			return prepaidErr
-		}
-		requiredBalance := int64(1)
-		if prepaidNanousd > requiredBalance {
-			requiredBalance = prepaidNanousd
-		}
-		if account.BalanceNanousd < requiredBalance {
-			return ErrUsageBalanceInsufficient
-		}
-		return nil
+		return s.ensureUsageBalance(ctx, userID)
 	}
 	if mode != "period" {
 		return nil
@@ -1258,17 +1321,14 @@ func (s *Service) EnsureModelUsable(ctx context.Context, userID uint, platformMo
 	if err != nil {
 		return err
 	}
-	if plan.PeriodCreditNanousd <= 0 {
-		return s.ensureUsageBalanceCanCoverPrepaid(ctx, userID)
-	}
 	usedNanousd, err := s.repo.SumBillableNanousd(ctx, userID, startAt, endAt)
 	if err != nil {
 		return err
 	}
-	if usedNanousd >= plan.PeriodCreditNanousd {
-		return s.ensureUsageBalanceCanCoverPrepaid(ctx, userID)
+	if plan.PeriodCreditNanousd > 0 && usedNanousd < plan.PeriodCreditNanousd {
+		return nil
 	}
-	return nil
+	return s.ensureUsageBalance(ctx, userID)
 }
 
 func (s *Service) periodCreditExceeded(ctx context.Context, userID uint, now time.Time) (bool, error) {
@@ -1286,43 +1346,14 @@ func (s *Service) periodCreditExceeded(ctx context.Context, userID uint, now tim
 	return usedNanousd >= plan.PeriodCreditNanousd, nil
 }
 
-func (s *Service) periodUsageSettlementReservation(ctx context.Context, usage *domainbilling.UsageLedger, now time.Time) (*domainbilling.UsageBalanceReservation, error) {
-	if usage == nil || usage.IsFreeModel || usage.BilledNanousd <= 0 {
-		return nil, nil
+func (s *Service) ensureUsageBalance(ctx context.Context, userID uint) error {
+	account, accountErr := s.repo.GetOrCreateBillingAccount(ctx, userID)
+	if accountErr != nil {
+		return accountErr
 	}
-	plan, startAt, endAt, err := s.currentPeriodPlan(ctx, usage.UserID, now)
-	if err != nil {
-		return nil, err
-	}
-	coveredByPeriod := int64(0)
-	if plan.PeriodCreditNanousd > 0 {
-		usedNanousd, sumErr := s.repo.SumBillableNanousd(ctx, usage.UserID, startAt, endAt)
-		if sumErr != nil {
-			return nil, sumErr
-		}
-		coveredByPeriod = plan.PeriodCreditNanousd - usedNanousd
-		if coveredByPeriod < 0 {
-			coveredByPeriod = 0
-		}
-		if coveredByPeriod >= usage.BilledNanousd {
-			return nil, nil
-		}
-	}
-	return &domainbilling.UsageBalanceReservation{
-		UserID:        usage.UserID,
-		AmountNanousd: coveredByPeriod,
-		RefNo:         "period_credit",
-	}, nil
-}
-
-func (s *Service) ensureUsageBalanceCanCoverPrepaid(ctx context.Context, userID uint) error {
-	account, err := s.repo.GetOrCreateBillingAccount(ctx, userID)
-	if err != nil {
-		return err
-	}
-	prepaidNanousd, err := s.repo.GetBillingPrepaidAmountNanousd(ctx)
-	if err != nil {
-		return err
+	prepaidNanousd, prepaidErr := s.repo.GetBillingPrepaidAmountNanousd(ctx)
+	if prepaidErr != nil {
+		return prepaidErr
 	}
 	requiredBalance := int64(1)
 	if prepaidNanousd > requiredBalance {
@@ -1806,6 +1837,7 @@ func (s *Service) BuildUsageLedger(ctx context.Context, input UsagePricingInput)
 		"output_billed_nanousd":                    outputBilledNanousd,
 		"call_billed_nanousd":                      callBilledNanousd,
 		"duration_billed_nanousd":                  durationBilledNanousd,
+		"upstream_usage":                           upstreamUsageSnapshot(input),
 		"server_side_tool_usage":                   normalizeUsageCountMap(input.ServerSideToolUsage),
 		"native_tool_billing_enabled":              nativeToolBillingEnabled,
 		"native_tool_pricing_source":               nativeToolPricingSourceForSnapshot(nativeToolPricingJSON, nativeToolDefinitions),
@@ -1818,6 +1850,13 @@ func (s *Service) BuildUsageLedger(ctx context.Context, input UsagePricingInput)
 		snapshotJSON = string(raw)
 	}
 
+	billingAt := input.BillingAt
+	if billingAt.IsZero() {
+		billingAt = time.Now()
+	}
+	usageDateYear, usageDateMonth, usageDateDay := billingAt.Date()
+	usageDate := time.Date(usageDateYear, usageDateMonth, usageDateDay, 0, 0, 0, 0, billingAt.Location())
+
 	ledger := &domainbilling.UsageLedger{
 		UserID:              input.UserID,
 		ConversationID:      input.ConversationID,
@@ -1827,7 +1866,8 @@ func (s *Service) BuildUsageLedger(ctx context.Context, input UsagePricingInput)
 		RoutedBindingCode:   strings.TrimSpace(input.RoutedBindingCode),
 		UpstreamModelName:   strings.TrimSpace(input.UpstreamModelName),
 		IsFreeModel:         isFreeModel,
-		UsageDate:           time.Now(),
+		BillingAt:           billingAt,
+		UsageDate:           usageDate,
 		InputTokens:         input.InputTokens,
 		CacheReadTokens:     input.CacheReadTokens,
 		CacheWriteTokens:    cacheWriteTokens,
@@ -2348,6 +2388,21 @@ func (s *Service) GetBillingRiskSummary(ctx context.Context) (*RiskSummaryView, 
 	return &RiskSummaryView{RiskSummary: *stats}, nil
 }
 
+// ListPaymentOrderLogs 分页查询管理员支付订单记录。
+func (s *Service) ListPaymentOrderLogs(ctx context.Context, page int, pageSize int, filter PaymentOrderListFilter) ([]domainbilling.PaymentOrder, int64, error) {
+	offset, limit := normalizePage(page, pageSize)
+	return s.repo.ListPaymentOrders(ctx, repository.PaymentOrderListFilter{
+		Query:       strings.TrimSpace(filter.Query),
+		OrderType:   strings.TrimSpace(filter.OrderType),
+		Provider:    strings.TrimSpace(filter.Provider),
+		Status:      strings.TrimSpace(filter.Status),
+		UserID:      filter.UserID,
+		CreatedFrom: filter.CreatedFrom,
+		CreatedTo:   filter.CreatedTo,
+		Sort:        strings.TrimSpace(filter.Sort),
+	}, offset, limit)
+}
+
 func normalizePage(page int, pageSize int) (int, int) {
 	if page <= 0 {
 		page = 1
@@ -2561,7 +2616,6 @@ func (s *Service) GetBillingOverview(ctx context.Context, userID uint, now time.
 		}
 		return overview, nil
 	}
-
 	account, accountErr := s.repo.GetOrCreateBillingAccount(ctx, userID)
 	if accountErr != nil {
 		return nil, accountErr
@@ -2612,6 +2666,7 @@ func (s *Service) GetBillingOverview(ctx context.Context, userID uint, now time.
 	}
 
 	overview.Plan = &planView
+	overview.Account = toBillingAccountView(account)
 	overview.PeriodStartAt = &startAt
 	overview.PeriodEndAt = &endAt
 	overview.PeriodCreditNanousd = plan.PeriodCreditNanousd
@@ -2761,7 +2816,7 @@ func (s *Service) SetBillingAccountBalance(ctx context.Context, input BillingAcc
 	if err != nil {
 		return nil, err
 	}
-	if mode != "usage" {
+	if mode != "usage" && mode != "period" {
 		return nil, ErrPaymentRequired
 	}
 	return s.repo.SetBillingAccountBalance(ctx, input.UserID, usdToNanousd(input.BalanceUSD), input.RefNo, input.Description)
@@ -3512,7 +3567,7 @@ func resolveUSDToCNYRate(value float64) float64 {
 	return value
 }
 
-func resolvePaymentQuote(provider string, baseCurrency string, baseAmountCents int64, usdToCNYRate float64) paymentQuote {
+func resolvePaymentQuote(provider string, baseCurrency string, baseAmountCents int64, usdToCNYRate float64, preferredPayCurrency string) paymentQuote {
 	baseCurrency = normalizeCurrency(baseCurrency)
 	quote := paymentQuote{
 		BaseCurrency:    baseCurrency,
@@ -3521,10 +3576,14 @@ func resolvePaymentQuote(provider string, baseCurrency string, baseAmountCents i
 		PayAmountCents:  baseAmountCents,
 		FXRate:          1,
 	}
-	if provider != domainbilling.PaymentProviderEPay {
+	payCurrency := baseCurrency
+	if provider == domainbilling.PaymentProviderEPay || normalizeCurrency(preferredPayCurrency) == "CNY" {
+		payCurrency = "CNY"
+	}
+	if payCurrency == baseCurrency {
 		return quote
 	}
-	quote.PayCurrency = "CNY"
+	quote.PayCurrency = payCurrency
 	quote.FXRate = resolveUSDToCNYRate(usdToCNYRate)
 	quote.PayAmountCents = convertPaymentAmountCents(baseAmountCents, baseCurrency, quote.PayCurrency, quote.FXRate)
 	return quote

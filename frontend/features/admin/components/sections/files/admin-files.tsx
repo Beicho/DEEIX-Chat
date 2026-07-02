@@ -6,7 +6,6 @@ import { AnimatePresence, motion } from "motion/react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
-import { TaskModelField, type ModelOption } from "../shared/model-field";
 import {
   SettingsFieldEditor,
   type ServiceRuntimeActionName,
@@ -34,7 +33,6 @@ import {
   isSettingsValueField,
   OCR_ENGINES,
   resolveActiveServices,
-  resolveErrorMessage,
   resolveFieldID,
   resolveMinerUSource,
   resolveOCREngine,
@@ -43,7 +41,6 @@ import {
   SERVICE_LABELS,
   SERVICE_NAMES,
   SETTINGS_GROUPS,
-  TASK_MODEL_FOLLOW,
   TIKA_SERVICE_SOURCES,
   usesTika,
   type ServiceName,
@@ -51,13 +48,12 @@ import {
   type ServiceState,
   type SettingsField,
   type SettingsGroup,
-} from "@/features/admin/model/chat-files";
+} from "@/features/admin/model/files-settings";
 import {
   type AdminEmbeddingIndexStatus,
   getAdminDoclingRuntime,
   getAdminEmbeddingRuntime,
   getAdminEmbeddingStatus,
-  getAdminReferenceData,
   getAdminMinerURuntime,
   getAdminRapidOCRRuntime,
   getAdminTesseractRuntime,
@@ -66,44 +62,32 @@ import {
   patchAdminSettings,
   triggerAdminEmbeddingReindex,
 } from "@/features/admin/api";
-import { buildTaskModelOptions } from "@/features/admin/model/task-model-options";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { cn } from "@/lib/utils";
 import type { PatchSettingItem } from "@/shared/api/settings.types";
 import { configuredSettingsMap, settingHasValue } from "@/shared/lib/settings-meta";
 
 const SERVICE_LOADERS: Record<ServiceName, (token: string) => Promise<ServiceRuntimeData>> = {
-  tika: getAdminTikaRuntime as (token: string) => Promise<ServiceRuntimeData>,
-  docling: getAdminDoclingRuntime as (token: string) => Promise<ServiceRuntimeData>,
-  mineru: getAdminMinerURuntime as (token: string) => Promise<ServiceRuntimeData>,
-  tesseract: getAdminTesseractRuntime as (token: string) => Promise<ServiceRuntimeData>,
-  rapidocr: getAdminRapidOCRRuntime as (token: string) => Promise<ServiceRuntimeData>,
-  embedding: getAdminEmbeddingRuntime as (token: string) => Promise<ServiceRuntimeData>,
+  tika: getAdminTikaRuntime,
+  docling: getAdminDoclingRuntime,
+  mineru: getAdminMinerURuntime,
+  tesseract: getAdminTesseractRuntime,
+  rapidocr: getAdminRapidOCRRuntime,
+  embedding: getAdminEmbeddingRuntime,
 };
-
-function translateOptional(
-  translate: (key: string, values?: Record<string, string | number>) => string,
-  key: string,
-  fallback: string,
-): string {
-  try {
-    return translate(key);
-  } catch {
-    return fallback;
-  }
-}
 
 function toEditorField(field: SettingsField, translate: (key: string) => string) {
   const fieldKey = `fields.${field.namespace}.${field.key}`;
   return {
     id: resolveFieldID(field),
-    label: translateOptional(translate, `${fieldKey}.label`, field.label),
-    description: translateOptional(translate, `${fieldKey}.description`, field.description),
+    label: translate(`${fieldKey}.label`),
+    description: translate(`${fieldKey}.description`),
     type: field.type,
-    placeholder: field.placeholder ? translateOptional(translate, `${fieldKey}.placeholder`, field.placeholder) : undefined,
+    placeholder: field.placeholder ? translate(`${fieldKey}.placeholder`) : undefined,
     valueUnit: field.valueUnit,
     options: field.options?.map((option) => ({
       ...option,
-      label: translateOptional(translate, `${fieldKey}.options.${option.value}`, option.label),
+      label: translate(`${fieldKey}.options.${option.value}`),
     })),
   } as const;
 }
@@ -120,13 +104,6 @@ export function AdminFilesSettingsPage() {
   const [embeddingStatus, setEmbeddingStatus] = React.useState<AdminEmbeddingIndexStatus | null>(null);
   const [embeddingStatusLoading, setEmbeddingStatusLoading] = React.useState(false);
   const [reindexing, setReindexing] = React.useState(false);
-  const [modelOptions, setModelOptions] = React.useState<ModelOption[]>(() =>
-    buildTaskModelOptions({
-      models: [],
-      followLabel: t("model.followCurrent"),
-      followValue: TASK_MODEL_FOLLOW,
-    }),
-  );
 
   const loadEmbeddingStatus = React.useCallback(async () => {
     setEmbeddingStatusLoading(true);
@@ -156,7 +133,7 @@ export function AdminFilesSettingsPage() {
       });
       setTimeout(() => { void loadEmbeddingStatus(); }, 1500);
     } catch (error) {
-      toast.error(t("toast.reindexFailed"), { description: resolveErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.reindexFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
       setReindexing(false);
     }
@@ -181,7 +158,7 @@ export function AdminFilesSettingsPage() {
         await loadServiceRuntime(name);
       } catch (error) {
         toast.error(t("toast.serviceTestFailed", { service: SERVICE_LABELS[name] }), {
-          description: resolveErrorMessage(error, t("toast.unknownError")),
+          description: resolveAdminErrorMessage(error, t("toast.unknownError")),
         });
       } finally {
         setServiceStates((prev) => ({ ...prev, [name]: { ...prev[name], action: "" } }));
@@ -212,18 +189,9 @@ export function AdminFilesSettingsPage() {
         toast.error(t("toast.sessionExpired"), { description: t("toast.sessionExpiredDescription") });
         return;
       }
-      const [grouped, referenceData] = await Promise.all([
-        listAdminSettings(token),
-        getAdminReferenceData(token).catch(() => null),
-      ]);
-      const nextModelOptions = buildTaskModelOptions({
-        models: referenceData?.models ?? [],
-        followLabel: t("model.followCurrent"),
-        followValue: TASK_MODEL_FOLLOW,
-      });
+      const grouped = await listAdminSettings(token);
       const flattened = applySettingsDefaults(flattenSettings(SETTINGS_GROUPS, grouped));
       setConfiguredMap(configuredSettingsMap(grouped));
-      setModelOptions(nextModelOptions);
       setSettingsMap(flattened);
       setSavedMap(flattened);
       syncServiceRuntimes(flattened);
@@ -233,7 +201,7 @@ export function AdminFilesSettingsPage() {
         setEmbeddingStatus(null);
       }
     } catch (error) {
-      toast.error(t("toast.loadFailed"), { description: resolveErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.loadFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
       setLoading(false);
     }
@@ -509,7 +477,7 @@ export function AdminFilesSettingsPage() {
             setEmbeddingStatus(null);
           }
         } else {
-          toast.success(t("toast.groupUpdated", { group: translateOptional(t, `groups.${group.key}.title`, group.title) }));
+          toast.success(t("toast.groupUpdated", { group: t(`groups.${group.key}.title`) }));
           if (group.fields.some((f) => f.namespace === "file" && (f.key === "embedding_enabled" || f.key === "rag_model" || f.key === "embedding_host"))) {
             if (flattened["file.embedding_enabled"] === EMBEDDING_MODES.ON) {
               void loadEmbeddingStatus();
@@ -519,7 +487,7 @@ export function AdminFilesSettingsPage() {
           }
         }
       } catch (error) {
-        toast.error(t("toast.saveFailed"), { description: resolveErrorMessage(error, t("toast.unknownError")) });
+        toast.error(t("toast.saveFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
       } finally {
         setSaving(false);
       }
@@ -542,7 +510,7 @@ export function AdminFilesSettingsPage() {
           <React.Fragment key={group.title}>
             {visibleFields.length > 0 && (
               <SettingsSection
-                title={translateOptional(t, `groups.${group.key}.title`, group.title)}
+                title={t(`groups.${group.key}.title`)}
                 actions={
                   visibleFields.some((field) => dirtyFieldIDs.has(resolveFieldID(field))) ? (
                     <Button type="button" size="sm" disabled={loading || saving} onClick={() => requestSaveGroup(group)}>
@@ -558,23 +526,6 @@ export function AdminFilesSettingsPage() {
                     {visibleBlocks.map((block, blockIndex) => {
                       if (block.kind === "field") {
                         const fieldID = resolveFieldID(block.field);
-                        if (fieldID === "chat.compact_task_model") {
-                          return (
-                            <SettingsFieldItem key={fieldID} index={blockIndex}>
-                              <TaskModelField
-                                id={fieldID}
-                                label={translateOptional(t, `fields.${block.field.namespace}.${block.field.key}.label`, block.field.label)}
-                                description={translateOptional(t, `fields.${block.field.namespace}.${block.field.key}.description`, block.field.description)}
-                                value={settingsMap[fieldID] ?? ""}
-                                fallbackValue={TASK_MODEL_FOLLOW}
-                                dirty={(settingsMap[fieldID] ?? "") !== (savedMap[fieldID] ?? "")}
-                                disabled={loading || saving}
-                                modelOptions={modelOptions}
-                                onChange={(value) => handleFieldChange(fieldID, value)}
-                              />
-                            </SettingsFieldItem>
-                          );
-                        }
                         return (
                           <SettingsFieldItem key={fieldID} index={blockIndex}>
                             <SettingsFieldEditor
@@ -610,22 +561,6 @@ export function AdminFilesSettingsPage() {
                                 <SettingsFieldList className="gap-3 md:gap-4">
                                   {block.fields.map((field) => {
                                     const fieldID = resolveFieldID(field);
-                                    if (fieldID === "chat.compact_task_model") {
-                                      return (
-                                        <TaskModelField
-                                          key={fieldID}
-                                          id={fieldID}
-                                          label={translateOptional(t, `fields.${field.namespace}.${field.key}.label`, field.label)}
-                                          description={translateOptional(t, `fields.${field.namespace}.${field.key}.description`, field.description)}
-                                          value={settingsMap[fieldID] ?? ""}
-                                          fallbackValue={TASK_MODEL_FOLLOW}
-                                          dirty={(settingsMap[fieldID] ?? "") !== (savedMap[fieldID] ?? "")}
-                                          disabled={loading || saving}
-                                          modelOptions={modelOptions}
-                                          onChange={(value) => handleFieldChange(fieldID, value)}
-                                        />
-                                      );
-                                    }
                                     return (
                                       <SettingsFieldEditor
                                         key={fieldID}

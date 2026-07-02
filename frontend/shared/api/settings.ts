@@ -19,6 +19,10 @@ export type BrandingSettings = {
   logoDarkURL: string;
 };
 
+export type ChatContextPolicy = {
+  contextCompactEnabled: boolean;
+};
+
 export async function getBrandingSettings(): Promise<BrandingSettings> {
   return apiRequest<BrandingSettings>("/api/v1/settings/branding");
 }
@@ -46,4 +50,12 @@ export async function getMCPPolicy(accessToken: string): Promise<MCPPolicy> {
   return {
     maxSelectedToolsPerMessage: data.maxSelectedToolsPerMessage,
   };
+}
+
+export async function getChatContextPolicy(accessToken: string): Promise<ChatContextPolicy> {
+  return authedRequest<ChatContextPolicy>(
+    "/api/v1/settings/chat-context-policy",
+    { accessToken },
+    true,
+  );
 }

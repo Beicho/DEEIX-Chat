@@ -53,7 +53,7 @@ func NewService(repo repository.NotificationRepository, announcements Announceme
 
 // UserProvider supplies users for account-scoped notification producers.
 type UserProvider interface {
-	ListUsers(ctx context.Context, page int, pageSize int) ([]domainuser.User, int64, error)
+	ListUsers(ctx context.Context, page int, pageSize int, filter repository.UserListFilter) ([]domainuser.User, int64, error)
 }
 
 // BillingProvider supplies billing data for lifecycle reminders and summaries.
@@ -308,7 +308,7 @@ func (s *Service) runLifecycleNotificationScan(ctx context.Context, now time.Tim
 	}
 	page := 1
 	for {
-		items, total, err := s.users.ListUsers(ctx, page, notificationWorkerPageSize)
+		items, total, err := s.users.ListUsers(ctx, page, notificationWorkerPageSize, repository.UserListFilter{})
 		if err != nil {
 			s.logLifecycleNotificationError("list_users", err)
 			return

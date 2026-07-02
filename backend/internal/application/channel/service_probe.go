@@ -352,6 +352,8 @@ func selectProbeAPIKey(cfg domainchannel.APIKeysConfig) (string, error) {
 func isLightweightModelProbeProtocol(protocol string) bool {
 	switch llm.NormalizeAdapter(protocol) {
 	case llm.AdapterOpenAIResponses,
+		llm.AdapterOpenRouterChat,
+		llm.AdapterOpenRouterResponses,
 		llm.AdapterOpenAIChatCompletions,
 		llm.AdapterAnthropicMessages,
 		llm.AdapterGoogleGenerateContent,

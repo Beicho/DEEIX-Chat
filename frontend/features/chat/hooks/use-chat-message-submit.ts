@@ -57,8 +57,12 @@ import type {
   StreamMessageEvent,
 } from "@/shared/api/conversation.types";
 import { ApiError } from "@/shared/api/http-client";
+import type { SkillSummaryDTO } from "@/shared/api/skills.types";
 
-const CONVERSATION_METADATA_REFRESH_DELAYS = [800, 1200, 1800, 2600, 3500, 5000] as const;
+const CONVERSATION_METADATA_REFRESH_MAX_WAIT_MS = 45_000;
+const CONVERSATION_METADATA_REFRESH_INITIAL_DELAY_MS = 800;
+const CONVERSATION_METADATA_REFRESH_MAX_DELAY_MS = 5_000;
+const CONVERSATION_METADATA_REFRESH_BACKOFF = 1.5;
 const LEGACY_UNTITLED_TITLES = new Set([
   "",
   "new conversation",
@@ -145,6 +149,23 @@ type ActiveStream = {
   accessToken: string | null;
 };
 
+type QueuedChatSubmission = {
+  id: string;
+  content: string;
+  attachments: PendingAttachment[];
+  platformModelName: string;
+  options: ConversationOptions;
+  selectedToolIDs: number[];
+  confirmedToolIDs: number[];
+  webSearchEnabled: boolean;
+  codeSandboxEnabled: boolean;
+  researchMaxLLMCalls: number;
+  researchMaxToolCalls: number;
+  selectedSkills: SkillSummaryDTO[];
+  htmlVisualPromptEnabled: boolean;
+  htmlVisualColorMode: "light" | "dark";
+};
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
@@ -173,8 +194,26 @@ function isPlaceholderConversationTitle(title: string): boolean {
   return LEGACY_UNTITLED_TITLES.has(value);
 }
 
-function shouldRefreshGeneratedConversationMetadata(item: ConversationDTO | null, visibleMessageCount: number): boolean {
-  return visibleMessageCount === 0 || item?.messageCount === 0;
+function isFallbackConversationTitle(title: string, fallbackTitle: string): boolean {
+  const normalizedFallback = fallbackTitle.trim();
+  return normalizedFallback !== "" && title.trim() === normalizedFallback;
+}
+
+function conversationTitleFromFirstUserMessage(content: string): string {
+  const value = content.trim().replace(/\s+/g, " ").replace(/^[\s"'`“”‘’]+|[\s"'`“”‘’]+$/g, "");
+  if (!value) {
+    return "";
+  }
+  return Array.from(value).slice(0, 16).join("").trim();
+}
+
+function hasPendingGeneratedConversationMetadata(item: ConversationDTO | null, fallbackTitle = ""): boolean {
+  return (
+    !item ||
+    isPlaceholderConversationTitle(item.title) ||
+    isFallbackConversationTitle(item.title, fallbackTitle) ||
+    normalizeLabelsJSON(item.labelsJSON) === "[]"
+  );
 }
 
 function hasGeneratedConversationMetadataChanged(
@@ -189,24 +228,55 @@ function hasGeneratedConversationMetadataChanged(
   return normalizeLabelsJSON(next.labelsJSON) !== normalizeLabelsJSON(previous?.labelsJSON);
 }
 
+function shouldPollGeneratedConversationMetadata(
+  item: ConversationDTO | null,
+  result: SendMessageResult | null | undefined,
+  fallbackTitle = "",
+): boolean {
+  if (!hasPendingGeneratedConversationMetadata(item, fallbackTitle)) {
+    return false;
+  }
+  const hint = result?.metadataRefreshHint?.trim();
+  if (!hint) {
+    return true;
+  }
+  return hint === "pending";
+}
+
 async function refreshGeneratedConversationMetadata(
   accessToken: string,
   conversationPublicID: string,
   previous: ConversationDTO | null,
+  fallbackTitle: string,
   touchByPublicID: (publicID: string, patch?: Partial<ConversationDTO>) => void,
 ): Promise<void> {
-  for (const delay of CONVERSATION_METADATA_REFRESH_DELAYS) {
-    await sleep(delay);
+  let elapsedMS = 0;
+  let delayMS = CONVERSATION_METADATA_REFRESH_INITIAL_DELAY_MS;
+  let current = previous;
+
+  while (elapsedMS < CONVERSATION_METADATA_REFRESH_MAX_WAIT_MS) {
+    const nextDelayMS = Math.min(delayMS, CONVERSATION_METADATA_REFRESH_MAX_WAIT_MS - elapsedMS);
+    await sleep(nextDelayMS);
+    elapsedMS += nextDelayMS;
+
     let latest: ConversationDTO;
     try {
       latest = await getConversation(accessToken, conversationPublicID);
     } catch {
       continue;
     }
-    if (hasGeneratedConversationMetadataChanged(previous, latest)) {
+    if (hasGeneratedConversationMetadataChanged(current, latest)) {
       touchByPublicID(conversationPublicID, latest);
-      return;
+      current = latest;
+      if (!hasPendingGeneratedConversationMetadata(latest, fallbackTitle)) {
+        return;
+      }
     }
+
+    delayMS = Math.min(
+      Math.round(delayMS * CONVERSATION_METADATA_REFRESH_BACKOFF),
+      CONVERSATION_METADATA_REFRESH_MAX_DELAY_MS,
+    );
   }
 }
 
@@ -222,6 +292,7 @@ export function useChatMessageSubmit({
   codeSandboxEnabled,
   researchMaxLLMCalls,
   researchMaxToolCalls,
+  selectedSkills,
   htmlVisualPromptEnabled,
   htmlVisualColorMode,
   options,
@@ -254,6 +325,7 @@ export function useChatMessageSubmit({
   startStream,
   activeGenerationRunsRef,
   failedGenerationRunsRef,
+  resumeGenerationActive = false,
 }: {
   conversationID: string | null;
   resetToken: number;
@@ -266,6 +338,7 @@ export function useChatMessageSubmit({
   codeSandboxEnabled: boolean;
   researchMaxLLMCalls: number;
   researchMaxToolCalls: number;
+  selectedSkills: SkillSummaryDTO[];
   htmlVisualPromptEnabled: boolean;
   htmlVisualColorMode: "light" | "dark";
   options: ConversationOptions;
@@ -298,12 +371,31 @@ export function useChatMessageSubmit({
   startStream: (exchangeKey: string) => void;
   activeGenerationRunsRef?: React.RefObject<Set<string>>;
   failedGenerationRunsRef?: React.RefObject<Set<string>>;
+  resumeGenerationActive?: boolean;
 }) {
   const t = useTranslations("chat.submit");
   const [sending, setSending] = React.useState(false);
   const activeStreamRef = React.useRef<ActiveStream | null>(null);
   const activeGenerationRunsRefRef = React.useRef(activeGenerationRunsRef);
   const previousResetTokenRef = React.useRef(resetToken);
+  const conversationIDRef = React.useRef(conversationID);
+  const activeConversationRef = React.useRef(activeConversation);
+  const lastCompletedAssistantPublicIDRef = React.useRef<string | null>(null);
+  const sendQueuedAfterCurrentRef = React.useRef(false);
+  const [queuedSubmissions, setQueuedSubmissions] = React.useState<QueuedChatSubmission[]>([]);
+  const queuedSubmissionsRef = React.useRef<QueuedChatSubmission[]>([]);
+
+  React.useEffect(() => {
+    conversationIDRef.current = conversationID;
+  }, [conversationID]);
+
+  React.useEffect(() => {
+    activeConversationRef.current = activeConversation;
+  }, [activeConversation]);
+
+  React.useEffect(() => {
+    queuedSubmissionsRef.current = queuedSubmissions;
+  }, [queuedSubmissions]);
 
   React.useEffect(() => {
     activeGenerationRunsRefRef.current = activeGenerationRunsRef;
@@ -327,7 +419,11 @@ export function useChatMessageSubmit({
     resetStreamBuffer();
     setPendingExchange(null);
     setSending(false);
-  }, [resetStreamBuffer, resetToken, setPendingExchange]);
+    lastCompletedAssistantPublicIDRef.current = null;
+    sendQueuedAfterCurrentRef.current = false;
+    releaseAttachments(queuedSubmissionsRef.current.flatMap((item) => item.attachments));
+    setQueuedSubmissions([]);
+  }, [releaseAttachments, resetStreamBuffer, resetToken, setPendingExchange]);
 
   React.useEffect(() => {
     if (!pendingExchange) {
@@ -388,19 +484,31 @@ export function useChatMessageSubmit({
       sourceMessagePublicID,
       branchReason,
       platformModelName,
+      queuedSubmission,
     }: {
       content: string;
       currentAttachments: PendingAttachment[];
       resetComposer: boolean;
       parentMessagePublicID?: string | null;
       sourceMessagePublicID?: string | null;
-      branchReason?: "default" | "retry" | "edit";
+      branchReason?: "default" | "retry" | "edit" | "arena";
       platformModelName?: string;
+      queuedSubmission?: QueuedChatSubmission;
     }) => {
       const payloadContent = content || t("attachmentOnlyContent");
-      const requestPlatformModelName = platformModelName?.trim() || selectedPlatformModelName.trim();
+      const requestPlatformModelName = (queuedSubmission?.platformModelName ?? platformModelName ?? selectedPlatformModelName).trim();
+      const requestOptions = queuedSubmission?.options ?? options;
+      const requestSelectedToolIDs = queuedSubmission?.selectedToolIDs ?? selectedToolIDs;
+      const requestConfirmedToolIDs = queuedSubmission?.confirmedToolIDs ?? confirmedToolIDs;
+      const requestWebSearchEnabled = queuedSubmission?.webSearchEnabled ?? webSearchEnabled;
+      const requestCodeSandboxEnabled = queuedSubmission?.codeSandboxEnabled ?? codeSandboxEnabled;
+      const requestResearchMaxLLMCalls = queuedSubmission?.researchMaxLLMCalls ?? researchMaxLLMCalls;
+      const requestResearchMaxToolCalls = queuedSubmission?.researchMaxToolCalls ?? researchMaxToolCalls;
+      const requestSelectedSkills = queuedSubmission?.selectedSkills ?? selectedSkills;
+      const requestHTMLVisualPromptEnabled = queuedSubmission?.htmlVisualPromptEnabled ?? htmlVisualPromptEnabled;
+      const requestHTMLVisualColorMode = queuedSubmission?.htmlVisualColorMode ?? htmlVisualColorMode;
       const selectedModel = modelOptions.find((item) => item.platformModelName === requestPlatformModelName) ?? null;
-      if ((!content && currentAttachments.length === 0) || sending || uploading || activeStreamRef.current) {
+      if ((!content && currentAttachments.length === 0) || uploading || activeStreamRef.current) {
         return false;
       }
       const effectiveAttachments =
@@ -430,20 +538,24 @@ export function useChatMessageSubmit({
       const resolvedParentPublicID = resolvePersistedPublicID(parentMessagePublicID);
       const resolvedSourcePublicID = resolvePersistedPublicID(sourceMessagePublicID);
       const resolvedBranchReason = branchReason ?? "default";
+      const assistantOnlyBranch =
+        resolvedBranchReason === "retry" &&
+        Boolean(resolvedParentPublicID && resolvedSourcePublicID) &&
+        combinedMessages.some((item) => item.publicID === resolvedSourcePublicID && item.role === "assistant");
       const tempUserPublicID = `${exchangeKey}-user`;
       const tempAssistantPublicID = `${exchangeKey}-assistant`;
+      const pendingUserPublicID = assistantOnlyBranch && resolvedParentPublicID ? resolvedParentPublicID : tempUserPublicID;
       const createdAt = new Date().toISOString();
       let sentSuccessfully = false;
       let shouldKeepConversationLayout = false;
       const streamAbortController = new AbortController();
       const clientRunID = createClientRunID();
-      const sanitizedOptions = sanitizeConversationOptions(options);
+      const sanitizedOptions = sanitizeConversationOptions(requestOptions);
       const assistantImageAspectRatio =
-        submitTask === "image_generation" || submitTask === "image_edit"
-          ? resolveImageLoadingAspectRatio(sanitizedOptions)
-          : undefined;
-      let targetConversationID = conversationID;
-      let targetConversation = activeConversation;
+        submitTask === "chat" ? undefined : resolveImageLoadingAspectRatio(sanitizedOptions);
+      let targetConversationID = conversationIDRef.current;
+      let targetConversation = activeConversationRef.current;
+      let metadataRefreshInFlight = false;
 
       activeGenerationRunsRef?.current.add(clientRunID);
       setShowConversationLayout(true);
@@ -460,7 +572,8 @@ export function useChatMessageSubmit({
       startStream(exchangeKey);
       setPendingExchange({
         key: exchangeKey,
-        conversationPublicID: conversationID?.trim() || null,
+        conversationPublicID: targetConversationID?.trim() || null,
+        userPublicID: assistantOnlyBranch ? pendingUserPublicID : undefined,
         tempUserPublicID,
         tempAssistantPublicID,
         runID: clientRunID,
@@ -482,8 +595,8 @@ export function useChatMessageSubmit({
       });
       setBranchSelections((prev) => ({
         ...prev,
-        [toBranchKey(resolvedParentPublicID)]: tempUserPublicID,
-        [tempUserPublicID]: tempAssistantPublicID,
+        ...(assistantOnlyBranch ? {} : { [toBranchKey(resolvedParentPublicID)]: pendingUserPublicID }),
+        [pendingUserPublicID]: tempAssistantPublicID,
       }));
 
       try {
@@ -501,6 +614,30 @@ export function useChatMessageSubmit({
             accessToken: token,
           };
         }
+        let metadataFallbackTitle = "";
+        const startMetadataRefresh = (result?: SendMessageResult | null) => {
+          if (
+            !targetConversationID ||
+            metadataRefreshInFlight ||
+            !shouldPollGeneratedConversationMetadata(targetConversation, result, metadataFallbackTitle)
+          ) {
+            return;
+          }
+          metadataRefreshInFlight = true;
+          void refreshGeneratedConversationMetadata(
+            token,
+            targetConversationID,
+            targetConversation,
+            metadataFallbackTitle,
+            touchByPublicID,
+          )
+            .catch(() => {
+              // Metadata refresh failure does not affect this turn; the next list load will fetch server state.
+            })
+            .finally(() => {
+              metadataRefreshInFlight = false;
+            });
+        };
 
         if (!targetConversationID) {
           const created = await prependNewConversation(requestPlatformModelName);
@@ -512,6 +649,8 @@ export function useChatMessageSubmit({
           }
           targetConversationID = created.publicID;
           targetConversation = created;
+          conversationIDRef.current = created.publicID;
+          activeConversationRef.current = created;
           setPendingExchange((prev) =>
             prev && prev.key === exchangeKey
               ? {
@@ -524,8 +663,23 @@ export function useChatMessageSubmit({
           window.history.replaceState(null, "", `/chat?conversation_id=${created.publicID}`);
           onConversationCreated?.(created.publicID);
         }
-        const shouldRefreshConversationMetadata = shouldRefreshGeneratedConversationMetadata(targetConversation, visibleMessageCount);
-
+        metadataFallbackTitle = conversationTitleFromFirstUserMessage(payloadContent);
+        const optimisticTitle = metadataFallbackTitle;
+        if (
+          targetConversationID &&
+          optimisticTitle &&
+          (!targetConversation || isPlaceholderConversationTitle(targetConversation.title))
+        ) {
+          if (targetConversation) {
+            targetConversation = {
+              ...targetConversation,
+              title: optimisticTitle,
+            };
+            activeConversationRef.current = targetConversation;
+          }
+          touchByPublicID(targetConversationID, { title: optimisticTitle });
+        }
+        startMetadataRefresh(null);
         const commonStreamPayload = {
           model: requestPlatformModelName,
           options: Object.keys(sanitizedOptions).length > 0 ? sanitizedOptions : undefined,
@@ -667,14 +821,15 @@ export function useChatMessageSubmit({
             ...commonStreamPayload,
             contentType: effectiveAttachments.length > 0 ? "mixed" : "text",
             content: payloadContent,
-            selectedToolIDs: selectedToolIDs.length > 0 ? selectedToolIDs : undefined,
-            confirmedToolIDs: confirmedToolIDs.length > 0 ? confirmedToolIDs : undefined,
-            webSearchEnabled: webSearchEnabled || undefined,
-            codeSandboxEnabled: codeSandboxEnabled || undefined,
-            researchMaxLLMCalls: researchMaxLLMCalls > 0 ? researchMaxLLMCalls : undefined,
-            researchMaxToolCalls: researchMaxToolCalls > 0 ? researchMaxToolCalls : undefined,
-            htmlVisualPrompt: htmlVisualPromptEnabled || undefined,
-            htmlVisualColorMode: htmlVisualPromptEnabled ? htmlVisualColorMode : undefined,
+            selectedToolIDs: requestSelectedToolIDs.length > 0 ? requestSelectedToolIDs : undefined,
+            confirmedToolIDs: requestConfirmedToolIDs.length > 0 ? requestConfirmedToolIDs : undefined,
+            webSearchEnabled: requestWebSearchEnabled || undefined,
+            codeSandboxEnabled: requestCodeSandboxEnabled || undefined,
+            researchMaxLLMCalls: requestResearchMaxLLMCalls > 0 ? requestResearchMaxLLMCalls : undefined,
+            researchMaxToolCalls: requestResearchMaxToolCalls > 0 ? requestResearchMaxToolCalls : undefined,
+            skillIDs: requestSelectedSkills.length > 0 ? requestSelectedSkills.map((skill) => skill.id) : undefined,
+            htmlVisualPrompt: requestHTMLVisualPromptEnabled || undefined,
+            htmlVisualColorMode: requestHTMLVisualPromptEnabled ? requestHTMLVisualColorMode : undefined,
           };
           completed = await streamConversationMessage(token, targetConversationID, chatPayload, streamOptions);
         } else if (submitTask === "video_generation") {
@@ -696,6 +851,7 @@ export function useChatMessageSubmit({
 
         failedGenerationRunsRef?.current.delete(clientRunID);
         sentSuccessfully = true;
+        lastCompletedAssistantPublicIDRef.current = completed.assistantMessage.publicID;
         flushStreamTextNow();
         resetStreamBuffer();
         const assistantMessageStatus = completed.assistantMessage.status || "success";
@@ -779,10 +935,14 @@ export function useChatMessageSubmit({
           applyBranchSelectionPath(
             prev,
             [
-              {
-                parentPublicID: completed.userMessage.parentPublicID || resolvedParentPublicID,
-                publicID: completed.userMessage.publicID,
-              },
+              ...(assistantOnlyBranch
+                ? []
+                : [
+                    {
+                      parentPublicID: completed.userMessage.parentPublicID || resolvedParentPublicID,
+                      publicID: completed.userMessage.publicID,
+                    },
+                  ]),
               {
                 parentPublicID: completed.userMessage.publicID,
                 publicID: completed.assistantMessage.publicID,
@@ -795,15 +955,8 @@ export function useChatMessageSubmit({
           targetConversationID,
           toConversationPatch(targetConversation, requestPlatformModelName),
         );
-        if (assistantMessageSucceeded && shouldRefreshConversationMetadata) {
-          void refreshGeneratedConversationMetadata(
-            token,
-            targetConversationID,
-            targetConversation,
-            touchByPublicID,
-          ).catch(() => {
-            // Metadata refresh failure does not affect this turn; the next list load will fetch server state.
-          });
+        if (assistantMessageSucceeded) {
+          startMetadataRefresh(completed);
         }
         releaseAttachments(effectiveAttachments);
         if (assistantMessageSucceeded) {
@@ -879,10 +1032,8 @@ export function useChatMessageSubmit({
       return true;
     },
     [
-      activeConversation,
       activeGenerationRunsRef,
       failedGenerationRunsRef,
-      conversationID,
       enqueueStreamText,
       flushStreamTextNow,
       options,
@@ -899,10 +1050,10 @@ export function useChatMessageSubmit({
       codeSandboxEnabled,
       researchMaxLLMCalls,
       researchMaxToolCalls,
+      selectedSkills,
       htmlVisualPromptEnabled,
       htmlVisualColorMode,
       selectedPlatformModelName,
-      sending,
       setAttachments,
       setBranchSelections,
       setDraft,
@@ -915,8 +1066,56 @@ export function useChatMessageSubmit({
       maxFilesPerMessage,
       t,
       visibleMessageCount,
+      combinedMessages,
     ],
   );
+
+  const enqueueSubmission = React.useCallback(() => {
+    const content = draft.trim();
+    const currentAttachments = attachments.slice();
+    if ((!content && currentAttachments.length === 0) || uploading) {
+      return false;
+    }
+    setQueuedSubmissions((current) => [
+      ...current,
+      {
+        id: createClientRunID().replace("run_", "queue_"),
+        content,
+        attachments: currentAttachments,
+        platformModelName: selectedPlatformModelName,
+        options: sanitizeConversationOptions(options),
+        selectedToolIDs: selectedToolIDs.slice(),
+        confirmedToolIDs: confirmedToolIDs.slice(),
+        webSearchEnabled,
+        codeSandboxEnabled,
+        researchMaxLLMCalls,
+        researchMaxToolCalls,
+        selectedSkills: selectedSkills.slice(),
+        htmlVisualPromptEnabled,
+        htmlVisualColorMode,
+      },
+    ]);
+    setDraft("");
+    setAttachments([]);
+    return true;
+  }, [
+    attachments,
+    draft,
+    codeSandboxEnabled,
+    confirmedToolIDs,
+    htmlVisualColorMode,
+    htmlVisualPromptEnabled,
+    options,
+    researchMaxLLMCalls,
+    researchMaxToolCalls,
+    selectedPlatformModelName,
+    selectedSkills,
+    selectedToolIDs,
+    webSearchEnabled,
+    setAttachments,
+    setDraft,
+    uploading,
+  ]);
 
   const onStopMessage = React.useCallback(() => {
     const active = activeStreamRef.current;
@@ -929,7 +1128,36 @@ export function useChatMessageSubmit({
     active.controller.abort();
   }, []);
 
+  const onDeleteQueuedMessage = React.useCallback((id: string) => {
+    const target = queuedSubmissionsRef.current.find((item) => item.id === id);
+    if (target) {
+      releaseAttachments(target.attachments);
+    }
+    setQueuedSubmissions((current) => current.filter((item) => item.id !== id));
+  }, [releaseAttachments]);
+
+  const onEditQueuedMessage = React.useCallback((id: string, content: string) => {
+    setQueuedSubmissions((current) =>
+      current.map((item) => (item.id === id ? { ...item, content: content.trim() } : item)),
+    );
+  }, []);
+
+  const onGuideQueuedMessage = React.useCallback((id: string) => {
+    setQueuedSubmissions((current) => {
+      const target = current.find((item) => item.id === id);
+      if (!target) {
+        return current;
+      }
+      return [target, ...current.filter((item) => item.id !== id)];
+    });
+    sendQueuedAfterCurrentRef.current = true;
+  }, []);
+
   const onSendMessage = React.useCallback(async () => {
+    if (activeStreamRef.current || sending || resumeGenerationActive) {
+      enqueueSubmission();
+      return;
+    }
     const content = draft.trim();
     const parentMessagePublicID =
       resolvePersistedPublicID(currentLeafMessage?.publicID) ??
@@ -942,7 +1170,39 @@ export function useChatMessageSubmit({
       parentMessagePublicID,
       branchReason: "default",
     });
-  }, [attachments, currentLeafMessage?.publicID, draft, submitMessage, visibleMessages]);
+  }, [attachments, currentLeafMessage?.publicID, draft, enqueueSubmission, resumeGenerationActive, sending, submitMessage, visibleMessages]);
+
+  React.useEffect(() => {
+    if (
+      sending ||
+      resumeGenerationActive ||
+      activeStreamRef.current ||
+      (pendingExchange && !sendQueuedAfterCurrentRef.current) ||
+      queuedSubmissions.length === 0 ||
+      uploading
+    ) {
+      return;
+    }
+    const queuedSubmission = queuedSubmissions[0];
+    if (!queuedSubmission) {
+      return;
+    }
+    sendQueuedAfterCurrentRef.current = false;
+    setQueuedSubmissions((current) => current.filter((item) => item.id !== queuedSubmission.id));
+    const parentMessagePublicID =
+      lastCompletedAssistantPublicIDRef.current ??
+      resolvePersistedPublicID(currentLeafMessage?.publicID) ??
+      resolveDefaultSubmissionParentMessage(visibleMessages)?.publicID ??
+      null;
+    void submitMessage({
+      content: queuedSubmission.content,
+      currentAttachments: queuedSubmission.attachments,
+      resetComposer: false,
+      parentMessagePublicID,
+      branchReason: "default",
+      queuedSubmission,
+    });
+  }, [currentLeafMessage?.publicID, pendingExchange, queuedSubmissions, resumeGenerationActive, sending, submitMessage, uploading, visibleMessages]);
 
   const onRetryUserMessage = React.useCallback(
     async (message: ChatAreaMessage, platformModelName?: string) => {
@@ -971,8 +1231,9 @@ export function useChatMessageSubmit({
         toast.error(t("retryReplyFailed"), { description: t("retryReplyMissingUser") });
         return;
       }
-      const sourceMessagePublicID = resolvePersistedPublicID(parentUser.publicID);
-      if (!sourceMessagePublicID) {
+      const parentUserPublicID = resolvePersistedPublicID(parentUser.publicID);
+      const assistantSourceMessagePublicID = resolvePersistedPublicID(message.publicID);
+      if (!parentUserPublicID || !assistantSourceMessagePublicID) {
         toast.error(t("retryReplyFailed"), { description: t("continueReplyUnavailable") });
         return;
       }
@@ -980,8 +1241,8 @@ export function useChatMessageSubmit({
         content: parentUser.content.trim(),
         currentAttachments: toPendingAttachments(parentUser),
         resetComposer: false,
-        parentMessagePublicID: parentUser.parentPublicID,
-        sourceMessagePublicID,
+        parentMessagePublicID: parentUserPublicID,
+        sourceMessagePublicID: assistantSourceMessagePublicID,
         branchReason: "retry",
         platformModelName,
       });
@@ -1111,6 +1372,14 @@ export function useChatMessageSubmit({
     onRetryUserMessage,
     onSendMessage,
     onStopMessage,
+    onDeleteQueuedMessage,
+    onEditQueuedMessage,
+    onGuideQueuedMessage,
+    queuedMessages: queuedSubmissions.map((item) => ({
+      id: item.id,
+      content: item.content,
+      attachmentCount: item.attachments.length,
+    })),
     sending,
   };
 }

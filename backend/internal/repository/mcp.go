@@ -64,6 +64,11 @@ type UpsertMCPToolPreferenceInput struct {
 	ResearchMaxToolCalls int
 }
 
+type ReorderMCPServerInput struct {
+	ServerID uint
+	ToolIDs  []uint
+}
+
 // MCPRepository 封装 MCP 控制面持久化。
 type MCPRepository interface {
 	CreateServer(ctx context.Context, input CreateMCPServerInput) (*domainmcp.Server, error)
@@ -81,4 +86,5 @@ type MCPRepository interface {
 	UpdateServerToolsStatus(ctx context.Context, serverID uint, toolIDs []uint, status string) ([]domainmcp.Tool, error)
 	GetToolPreference(ctx context.Context, userID uint, conversationPublicID string) (*domainmcp.ToolPreference, error)
 	UpsertToolPreference(ctx context.Context, input UpsertMCPToolPreferenceInput) (*domainmcp.ToolPreference, error)
+	ReorderServersWithTools(ctx context.Context, order []ReorderMCPServerInput) ([]domainmcp.ServerWithTools, error)
 }

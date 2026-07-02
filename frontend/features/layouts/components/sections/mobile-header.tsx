@@ -1,16 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { PanelRight } from "@/components/animate-ui/icons/panel-right";
-import { Plus } from "@/components/animate-ui/icons/plus";
 import { Button } from "@/components/ui/button";
+import { PlusIcon } from "@/components/ui/plus";
 import { useSidebar } from "@/components/ui/sidebar";
 import { NotificationCenterPopover } from "@/features/notifications/components/notification-center-popover";
 import { AppLogo } from "@/shared/components/app-logo";
 
-export function MobileHeader() {
+export function MobileHeader({ onCreateConversation }: { onCreateConversation: () => void }) {
   const t = useTranslations("common.navigation");
   const { isMobile, toggleSidebar } = useSidebar();
 
@@ -32,13 +31,11 @@ export function MobileHeader() {
         />
       </div>
 
-      <div className="flex justify-end gap-1">
+<div className="flex justify-end gap-1">
         {isMobile ? <NotificationCenterPopover variant="icon" /> : null}
-        <Button variant="ghost" size="icon" className="relative size-9 after:absolute after:-inset-1 after:content-['']" asChild>
-          <Link href="/chat">
-            <Plus size={16} strokeWidth={1.6} />
-            <span className="sr-only">{t("newChat")}</span>
-          </Link>
+        <Button variant="ghost" size="icon" className="relative size-9 after:absolute after:-inset-1 after:content-['']" onClick={onCreateConversation}>
+          <PlusIcon size={16} strokeWidth={1.6} />
+          <span className="sr-only">{t("newChat")}</span>
         </Button>
       </div>
     </header>

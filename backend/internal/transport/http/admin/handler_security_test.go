@@ -51,8 +51,12 @@ type handlerUserServiceFake struct {
 	users map[uint]domainuser.User
 }
 
-func (s *handlerUserServiceFake) ListUsers(context.Context, int, int) ([]domainuser.User, int64, error) {
+func (s *handlerUserServiceFake) ListUsers(context.Context, int, int, repository.UserListFilter) ([]domainuser.User, int64, error) {
 	return nil, 0, nil
+}
+
+func (s *handlerUserServiceFake) ListLatestSessionActivityByUserIDs(context.Context, []uint) (map[uint]time.Time, error) {
+	return map[uint]time.Time{}, nil
 }
 
 func (s *handlerUserServiceFake) CountSuperAdmins(context.Context) (int64, error) {

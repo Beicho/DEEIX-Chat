@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, FileBraces, Pencil, Plus, RefreshCw, Save, Trash2, Wrench, XCircle } from "lucide-react";
+import { CheckCircle2, FileBraces, ListOrdered, Pencil, Plus, RefreshCw, Save, Trash2, Wrench, XCircle } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { toast } from "sonner";
 
 import { SettingsFieldEditor } from "../shared/settings-runtime-panel";
-import { SettingsCollapsibleContent } from "../shared/settings-collapsible-content";
+import { CollapsibleMotionContent } from "@/shared/components/collapsible-motion-content";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -46,19 +46,22 @@ import {
   updateAdminMCPTool,
 } from "@/features/admin/api";
 import type { AdminMCPServerDTO, AdminMCPServerPayload } from "@/features/admin/api/mcp.types";
-import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableRow, TableSkeletonRows } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableEmptyRow, TableHead, TableHeader, TableLoadingRow, TableRow } from "@/components/ui/table";
 import { TablePagination, TableToolbar } from "@/components/ui/table-tools";
+import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/virtual-table";
 import { AdminBulkConfirmDialog } from "@/features/admin/components/bulk-confirm-dialog";
+import { MCPOrderSheet } from "@/features/admin/components/sections/tools/mcp-order-sheet";
 import {
   TOOL_SETTINGS_FIELDS,
   applyToolSettingsDefaults,
   flattenToolSettings,
-  resolveToolSettingsErrorMessage,
   toToolEditorField,
   toolFieldID,
 } from "@/features/admin/model/tool-settings";
+import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { cn } from "@/lib/utils";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { CopyActionButton } from "@/shared/components/copy-action";
 import {
   SettingsFieldItem,
   SettingsFieldList,
@@ -96,6 +99,7 @@ const EMPTY_SERVER_FORM: ServerFormState = {
 const DEFAULT_SERVER_PAGE_SIZE = 25;
 const DEFAULT_TOOL_PAGE_SIZE = 25;
 const TOOL_SORT_OPTIONS = [
+  { labelKey: "sort.customOrder", value: "custom_order" },
   { labelKey: "sort.nameAsc", value: "name_asc" },
   { labelKey: "sort.nameDesc", value: "name_desc" },
   { labelKey: "sort.statusAsc", value: "status_asc" },
@@ -175,11 +179,12 @@ export function AdminToolsPage() {
   const [toolStatusFilter, setToolStatusFilter] = React.useState("");
   const [toolPage, setToolPage] = React.useState(1);
   const [toolPageSize, setToolPageSize] = React.useState(DEFAULT_TOOL_PAGE_SIZE);
-  const [toolSortValue, setToolSortValue] = React.useState<(typeof TOOL_SORT_OPTIONS)[number]["value"]>("name_asc");
+  const [toolSortValue, setToolSortValue] = React.useState<(typeof TOOL_SORT_OPTIONS)[number]["value"]>("custom_order");
   const [selectedToolIDs, setSelectedToolIDs] = React.useState<Set<number>>(new Set());
   const [toolBulkAction, setToolBulkAction] = React.useState<ToolBulkAction | null>(null);
   const [toolBulkApplying, setToolBulkApplying] = React.useState(false);
   const [syncingServerID, setSyncingServerID] = React.useState<number | null>(null);
+  const [mcpOrderOpen, setMCPOrderOpen] = React.useState(false);
   const [schemaTool, setSchemaTool] = React.useState<MCPToolDTO | null>(null);
   const [toolForm, setToolForm] = React.useState<ToolFormState | null>(null);
   const [toolSaving, setToolSaving] = React.useState(false);
@@ -188,8 +193,12 @@ export function AdminToolsPage() {
     () => TOOL_SETTINGS_FIELDS.find((field) => field.key === "mcp_enable"),
     [],
   );
+  const mcpToolPromptField = React.useMemo(
+    () => TOOL_SETTINGS_FIELDS.find((field) => field.key === "mcp_tool_prompt"),
+    [],
+  );
   const mcpRuntimeFields = React.useMemo(
-    () => TOOL_SETTINGS_FIELDS.filter((field) => field.key !== "mcp_enable"),
+    () => TOOL_SETTINGS_FIELDS.filter((field) => field.key !== "mcp_enable" && field.key !== "mcp_tool_prompt"),
     [],
   );
 
@@ -227,6 +236,12 @@ export function AdminToolsPage() {
     const start = (safeServerPage - 1) * serverPageSize;
     return filteredServers.slice(start, start + serverPageSize);
   }, [filteredServers, safeServerPage, serverPageSize]);
+  const serverVirtualRows = useVirtualTableRows(pagedServers, {
+    enabled: pagedServers.length > 100,
+    estimateSize: 40,
+  });
+  const serverInitialLoading = serversLoading && pagedServers.length === 0;
+  const showServerRows = pagedServers.length > 0;
 
   const filteredTools = React.useMemo(() => {
     const query = toolQuery.trim().toLowerCase();
@@ -246,6 +261,8 @@ export function AdminToolsPage() {
     const updatedTimestamps = new Map(result.map((tool) => [tool.id, new Date(tool.updatedAt || 0).getTime()]));
     result.sort((left, right) => {
       switch (toolSortValue) {
+        case "custom_order":
+          return (left.sortOrder ?? 0) - (right.sortOrder ?? 0) || toolDisplayName(left).localeCompare(toolDisplayName(right), locale) || left.id - right.id;
         case "name_desc":
           return toolDisplayName(right).localeCompare(toolDisplayName(left), locale);
         case "status_asc":
@@ -268,6 +285,12 @@ export function AdminToolsPage() {
     const start = (safeToolPage - 1) * toolPageSize;
     return filteredTools.slice(start, start + toolPageSize);
   }, [filteredTools, safeToolPage, toolPageSize]);
+  const toolVirtualRows = useVirtualTableRows(pagedTools, {
+    enabled: pagedTools.length > 100,
+    estimateSize: 44,
+  });
+  const toolInitialLoading = toolsLoading && pagedTools.length === 0;
+  const showToolRows = pagedTools.length > 0;
   const pagedToolIDs = React.useMemo(() => pagedTools.map((tool) => tool.id), [pagedTools]);
   const selectedToolCount = selectedToolIDs.size;
   const allPagedToolsSelected = pagedToolIDs.length > 0 && pagedToolIDs.every((id) => selectedToolIDs.has(id));
@@ -286,7 +309,7 @@ export function AdminToolsPage() {
       setSettingsMap(flattened);
       setSavedMap(flattened);
     } catch (error) {
-      toast.error(t("toast.settingsLoadFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.settingsLoadFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
       setLoading(false);
     }
@@ -304,7 +327,7 @@ export function AdminToolsPage() {
       setServers(items);
       setToolSheetServerID((current) => (current && items.some((item) => item.id === current) ? current : null));
     } catch (error) {
-      toast.error(t("toast.serversLoadFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.serversLoadFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
       setServersLoading(false);
     }
@@ -322,7 +345,7 @@ export function AdminToolsPage() {
       setTools(await listAdminMCPServerTools(token, serverID));
     } catch (error) {
       setTools([]);
-      toast.error(t("toast.toolsLoadFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.toolsLoadFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
       setToolsLoading(false);
     }
@@ -404,7 +427,7 @@ export function AdminToolsPage() {
       setSavedMap(flattened);
       toast.success(t("toast.settingsUpdated"));
     } catch (error) {
-      toast.error(t("toast.saveFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.saveFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
       setSaving(false);
     }
@@ -436,7 +459,7 @@ export function AdminToolsPage() {
         setTools(nextTools);
         toast.success(t("toast.toolsSynced"));
       } catch (error) {
-        toast.error(t("toast.toolsSyncFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+        toast.error(t("toast.toolsSyncFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
       } finally {
         await loadServers();
         setSyncingServerID(null);
@@ -469,7 +492,7 @@ export function AdminToolsPage() {
         await loadServers();
       }
     } catch (error) {
-      toast.error(t("toast.serverSaveFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.serverSaveFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
       setServerSaving(false);
     }
@@ -491,7 +514,7 @@ export function AdminToolsPage() {
         setServerDeleteTarget(null);
         await loadServers();
       } catch (error) {
-        toast.error(t("toast.serverDeleteFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+        toast.error(t("toast.serverDeleteFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
       } finally {
         setServerDeleting(false);
       }
@@ -516,7 +539,7 @@ export function AdminToolsPage() {
       toast.success(t("toast.serverStatusUpdated", { status: serverStatusLabel(nextStatus, t) }));
     } catch (error) {
       setServers(previous);
-      toast.error(t("toast.serverStatusFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.serverStatusFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
       setActionServerID(null);
     }
@@ -547,7 +570,7 @@ export function AdminToolsPage() {
     } catch (error) {
       setTools(previous);
       refreshServerToolCount(tool.serverID, previous);
-      toast.error(t("toast.toolStatusFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.toolStatusFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     }
   }, [refreshServerToolCount, t, tools]);
 
@@ -574,7 +597,7 @@ export function AdminToolsPage() {
     } catch (error) {
       setTools(previous);
       refreshServerToolCount(toolSheetServer.id, previous);
-      toast.error(t("toast.selectedToolsUpdateFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.selectedToolsUpdateFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     }
   }, [refreshServerToolCount, selectedToolIDs, t, toolSheetServer, tools]);
 
@@ -630,7 +653,7 @@ export function AdminToolsPage() {
       setToolForm(null);
       toast.success(t("toast.toolUpdated"));
     } catch (error) {
-      toast.error(t("toast.toolSaveFailed"), { description: resolveToolSettingsErrorMessage(error, t("toast.unknownError")) });
+      toast.error(t("toast.toolSaveFailed"), { description: resolveAdminErrorMessage(error, t("toast.unknownError")) });
     } finally {
       setToolSaving(false);
     }
@@ -648,18 +671,8 @@ export function AdminToolsPage() {
     }
   }, [schemaTool]);
 
-  const copySchema = React.useCallback(async () => {
-    if (!schemaTool) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(schemaText);
-      toast.success(t("toast.schemaCopied"));
-    } catch {
-      toast.error(t("toast.copyFailed"));
-    }
-  }, [schemaText, schemaTool, t]);
   const mcpEnableFieldID = mcpEnableField ? toolFieldID(mcpEnableField) : "";
+  const mcpToolPromptFieldID = mcpToolPromptField ? toolFieldID(mcpToolPromptField) : "";
 
   return (
     <SettingsPage>
@@ -687,7 +700,7 @@ export function AdminToolsPage() {
               />
             </SettingsFieldItem>
           ) : null}
-          <SettingsCollapsibleContent open={mcpEnabled}>
+          <CollapsibleMotionContent open={mcpEnabled} contentClassName="-mx-px px-px pb-px">
             {mcpRuntimeFields.map((field, index) => {
               const id = toolFieldID(field);
               return (
@@ -702,10 +715,21 @@ export function AdminToolsPage() {
                 </SettingsFieldItem>
               );
             })}
-          </SettingsCollapsibleContent>
+            {mcpToolPromptField ? (
+              <SettingsFieldItem key={mcpToolPromptFieldID} index={mcpRuntimeFields.length + 1}>
+                <SettingsFieldEditor
+                  field={toToolEditorField(mcpToolPromptField, (key) => t(`fields.${key}`))}
+                  value={settingsMap[mcpToolPromptFieldID] ?? ""}
+                  dirty={(settingsMap[mcpToolPromptFieldID] ?? "") !== (savedMap[mcpToolPromptFieldID] ?? "")}
+                  disabled={loading || saving}
+                  onChange={(value) => setSettingsMap((prev) => ({ ...prev, [mcpToolPromptFieldID]: value }))}
+                />
+              </SettingsFieldItem>
+            ) : null}
+          </CollapsibleMotionContent>
         </SettingsFieldList>
 
-        <SettingsCollapsibleContent open={mcpEnabled}>
+        <CollapsibleMotionContent open={mcpEnabled}>
           <Field className="gap-2">
             <div className="flex items-center">
               <div className="min-w-0 flex-1">
@@ -740,6 +764,17 @@ export function AdminToolsPage() {
               <Button
                 type="button"
                 size="sm"
+                variant="outline"
+                className="h-7 gap-1 text-xs"
+                onClick={() => setMCPOrderOpen(true)}
+                disabled={serversLoading || servers.length === 0}
+              >
+                <ListOrdered className="size-3.5 stroke-1" />
+                {t("toolbar.order")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
                 className="h-7 gap-1 text-xs"
                 onClick={openCreateServerDialog}
                 disabled={serversLoading}
@@ -749,7 +784,11 @@ export function AdminToolsPage() {
               </Button>
             </TableToolbar>
 
-          <Table>
+          <Table
+            viewportRef={serverVirtualRows.viewportRef}
+            viewportClassName={serverVirtualRows.viewportClassName}
+            viewportStyle={serverVirtualRows.viewportStyle}
+          >
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>{t("table.name")}</TableHead>
@@ -761,78 +800,82 @@ export function AdminToolsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {serversLoading ? (
-                <TableSkeletonRows colSpan={6} rowCount={8} />
-              ) : pagedServers.length === 0 ? (
+              {serverInitialLoading ? (
+                <TableLoadingRow colSpan={6} />
+              ) : !serversLoading && pagedServers.length === 0 ? (
                 <TableEmptyRow colSpan={6}>{t("table.emptyServers")}</TableEmptyRow>
-              ) : (
-                pagedServers.map((server) => (
-                  <TableRow key={server.id}>
-                    <TableCell className="py-1.5">
-                      <button
-                        type="button"
-                        className="inline-flex max-w-full min-w-0 items-center gap-1.5 text-left font-medium hover:underline"
-                        title={server.name}
-                        onClick={() => openEditServerDialog(server)}
-                      >
-                        <span className="min-w-0 truncate">{server.name}</span>
-                      </button>
-                    </TableCell>
-                    <TableCell className="w-[360px] max-w-[360px] truncate py-1.5 font-mono text-xs text-muted-foreground" title={server.baseURL}>
-                      {server.baseURL}
-                    </TableCell>
-                    <TableCell className="py-1.5 text-center">
-                      <div className="flex h-7 items-center justify-center">
-                        <Switch
-                          size="sm"
-                          checked={server.status === "active"}
-                          disabled={actionServerID === server.id}
-                          onCheckedChange={(checked) => void setServerStatus(server, checked)}
-                          aria-label={t("toolbar.toggleServer", { name: server.name })}
-                        />
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-1.5 text-center">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 gap-1.5 rounded-md px-2 text-xs text-muted-foreground shadow-none hover:bg-muted/60 hover:text-foreground"
-                        onClick={() => setToolSheetServerID(server.id)}
-                        title={t("toolbar.viewTools", { name: server.name })}
-                      >
-                        <Wrench className="size-3.5 stroke-1" />
-                        {server.activeToolCount ?? 0}/{server.toolCount ?? 0}
-                      </Button>
-                    </TableCell>
-                    <TableCell className="py-1.5 text-xs text-muted-foreground">
-                      {formatTime(server.lastSyncedAt, locale, t("table.unsynced"))}
-                    </TableCell>
-                    <TableCell className="w-[92px] whitespace-nowrap py-1.5" stickyEnd>
-                      <div className="flex h-7 items-center justify-start gap-1 md:justify-end">
+              ) : showServerRows ? (
+                <>
+                  <VirtualTablePaddingRow colSpan={6} height={serverVirtualRows.paddingTop} />
+                  {serverVirtualRows.rows.map(({ item: server }) => (
+                    <TableRow key={server.id}>
+                      <TableCell className="py-1.5">
+                        <button
+                          type="button"
+                          className="inline-flex max-w-full min-w-0 items-center gap-1.5 text-left font-medium hover:underline"
+                          title={server.name}
+                          onClick={() => openEditServerDialog(server)}
+                        >
+                          <span className="min-w-0 truncate">{server.name}</span>
+                        </button>
+                      </TableCell>
+                      <TableCell className="w-[360px] max-w-[360px] truncate py-1.5 font-mono text-xs text-muted-foreground" title={server.baseURL}>
+                        {server.baseURL}
+                      </TableCell>
+                      <TableCell className="py-1.5 text-center">
+                        <div className="flex h-7 items-center justify-center">
+                          <Switch
+                            size="sm"
+                            checked={server.status === "active"}
+                            disabled={actionServerID === server.id}
+                            onCheckedChange={(checked) => void setServerStatus(server, checked)}
+                            aria-label={t("toolbar.toggleServer", { name: server.name })}
+                          />
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-1.5 text-center">
                         <Button
                           type="button"
-                          size="icon-xs"
+                          size="sm"
                           variant="ghost"
-                          className="text-muted-foreground shadow-none"
-                          disabled={syncingServerID === server.id}
-                          onClick={() => void syncTools(server.id)}
-                          title={t("toolbar.syncTools")}
-                          aria-label={t("toolbar.syncTools")}
+                          className="h-7 gap-1.5 rounded-md px-2 text-xs text-muted-foreground shadow-none hover:bg-muted/60 hover:text-foreground"
+                          onClick={() => setToolSheetServerID(server.id)}
+                          title={t("toolbar.viewTools", { name: server.name })}
                         >
-                          <RefreshCw className={cn("size-3.5 stroke-1", syncingServerID === server.id ? "animate-spin" : "")} />
+                          <Wrench className="size-3.5 stroke-1" />
+                          {server.activeToolCount ?? 0}/{server.toolCount ?? 0}
                         </Button>
-                        <Button type="button" size="icon-xs" variant="ghost" className="text-muted-foreground shadow-none" onClick={() => openEditServerDialog(server)} title={t("toolbar.editServer")} aria-label={t("toolbar.editServer")}>
-                          <Pencil className="size-3.5 stroke-1" />
-                        </Button>
-                        <Button type="button" size="icon-xs" variant="ghost" className="text-muted-foreground shadow-none" onClick={() => setServerDeleteTarget(server)} title={t("toolbar.deleteServer")} aria-label={t("toolbar.deleteServer")}>
-                          <Trash2 className="size-3.5 stroke-1" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
+                      </TableCell>
+                      <TableCell className="py-1.5 text-xs text-muted-foreground">
+                        {formatTime(server.lastSyncedAt, locale, t("table.unsynced"))}
+                      </TableCell>
+                      <TableCell className="w-[92px] whitespace-nowrap py-1.5" stickyEnd>
+                        <div className="flex h-7 items-center justify-start gap-1 md:justify-end">
+                          <Button
+                            type="button"
+                            size="icon-xs"
+                            variant="ghost"
+                            className="text-muted-foreground shadow-none"
+                            disabled={syncingServerID === server.id}
+                            onClick={() => void syncTools(server.id)}
+                            title={t("toolbar.syncTools")}
+                            aria-label={t("toolbar.syncTools")}
+                          >
+                            <RefreshCw className={cn("size-3.5 stroke-1", syncingServerID === server.id ? "animate-spin" : "")} />
+                          </Button>
+                          <Button type="button" size="icon-xs" variant="ghost" className="text-muted-foreground shadow-none" onClick={() => openEditServerDialog(server)} title={t("toolbar.editServer")} aria-label={t("toolbar.editServer")}>
+                            <Pencil className="size-3.5 stroke-1" />
+                          </Button>
+                          <Button type="button" size="icon-xs" variant="ghost" className="text-muted-foreground shadow-none" onClick={() => setServerDeleteTarget(server)} title={t("toolbar.deleteServer")} aria-label={t("toolbar.deleteServer")}>
+                            <Trash2 className="size-3.5 stroke-1" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <VirtualTablePaddingRow colSpan={6} height={serverVirtualRows.paddingBottom} />
+                </>
+              ) : null}
             </TableBody>
           </Table>
 
@@ -846,7 +889,7 @@ export function AdminToolsPage() {
             loading={serversLoading || actionServerID !== null}
           />
           </Field>
-        </SettingsCollapsibleContent>
+        </CollapsibleMotionContent>
       </SettingsSection>
 
       <Sheet open={Boolean(toolSheetServer)} onOpenChange={(open) => !open && setToolSheetServerID(null)}>
@@ -926,7 +969,12 @@ export function AdminToolsPage() {
             ) : null}
 
             <div className="min-h-0 flex-1 overflow-y-auto">
-                <Table className="min-w-[640px]">
+                <Table
+                  className="min-w-[640px]"
+                  viewportRef={toolVirtualRows.viewportRef}
+                  viewportClassName={toolVirtualRows.viewportClassName}
+                  viewportStyle={toolVirtualRows.viewportStyle}
+                >
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[44px] py-1.5 text-center">
@@ -945,69 +993,73 @@ export function AdminToolsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {toolsLoading ? <TableSkeletonRows colSpan={5} rowCount={8} /> : null}
-                    {pagedTools.map((tool) => (
-                      <TableRow key={tool.id} selected={selectedToolIDs.has(tool.id)}>
-                        <TableCell className="w-[44px] whitespace-nowrap py-1.5">
-                          <div className="flex h-7 items-center justify-center">
-                            <Checkbox
-                              checked={selectedToolIDs.has(tool.id)}
-                              onCheckedChange={(checked) => toggleSelectedTool(tool.id, checked === true)}
-                              aria-label={t("toolbar.selectTool", { name: tool.name })}
-                            />
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-1.5">
-                          <div className="flex min-h-7 min-w-0 max-w-[18rem] items-center gap-2">
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-xs font-medium">{toolDisplayName(tool)}</p>
-                              <p className="truncate text-xs leading-4 text-muted-foreground">{tool.name}</p>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              className="shrink-0 text-muted-foreground shadow-none"
-                              onClick={() => openEditToolDialog(tool)}
-                              aria-label={t("toolbar.editTool")}
-                              title={t("toolbar.editTool")}
-                            >
-                              <Pencil className="size-3.5 stroke-1" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell className="w-[320px] whitespace-normal py-1.5">
-                          <div className="line-clamp-2 text-xs leading-5 text-muted-foreground" title={tool.description || undefined}>
-                            {tool.description || t("table.noDescription")}
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-1.5 text-center">
-                          <div className="flex h-7 items-center justify-center">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              className="text-muted-foreground shadow-none"
-                              onClick={() => setSchemaTool(tool)}
-                              aria-label={t("toolbar.viewToolSchema", { name: tool.name })}
-                              title={t("toolbar.viewSchema")}
-                            >
-                              <FileBraces className="size-3.5 stroke-1" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-1.5 text-center">
-                          <div className="flex h-7 items-center justify-center">
-                            <Switch
-                              size="sm"
-                              checked={tool.status === "active"}
-                              onCheckedChange={(checked) => void setToolStatus(tool, checked)}
-                              aria-label={t("toolbar.toggleTool", { name: tool.name })}
-                            />
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {toolInitialLoading ? <TableLoadingRow colSpan={5} /> : null}
+                    {showToolRows ? <VirtualTablePaddingRow colSpan={5} height={toolVirtualRows.paddingTop} /> : null}
+                    {showToolRows
+                      ? toolVirtualRows.rows.map(({ item: tool }) => (
+                          <TableRow key={tool.id} selected={selectedToolIDs.has(tool.id)}>
+                            <TableCell className="w-[44px] whitespace-nowrap py-1.5">
+                              <div className="flex h-7 items-center justify-center">
+                                <Checkbox
+                                  checked={selectedToolIDs.has(tool.id)}
+                                  onCheckedChange={(checked) => toggleSelectedTool(tool.id, checked === true)}
+                                  aria-label={t("toolbar.selectTool", { name: tool.name })}
+                                />
+                              </div>
+                            </TableCell>
+                            <TableCell className="py-1.5">
+                              <div className="flex min-h-7 min-w-0 max-w-[18rem] items-center gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-xs font-medium">{toolDisplayName(tool)}</p>
+                                  <p className="truncate text-xs leading-4 text-muted-foreground">{tool.name}</p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  className="shrink-0 text-muted-foreground shadow-none"
+                                  onClick={() => openEditToolDialog(tool)}
+                                  aria-label={t("toolbar.editTool")}
+                                  title={t("toolbar.editTool")}
+                                >
+                                  <Pencil className="size-3.5 stroke-1" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                            <TableCell className="w-[320px] whitespace-normal py-1.5">
+                              <div className="line-clamp-2 text-xs leading-5 text-muted-foreground" title={tool.description || undefined}>
+                                {tool.description || t("table.noDescription")}
+                              </div>
+                            </TableCell>
+                            <TableCell className="py-1.5 text-center">
+                              <div className="flex h-7 items-center justify-center">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  className="text-muted-foreground shadow-none"
+                                  onClick={() => setSchemaTool(tool)}
+                                  aria-label={t("toolbar.viewToolSchema", { name: tool.name })}
+                                  title={t("toolbar.viewSchema")}
+                                >
+                                  <FileBraces className="size-3.5 stroke-1" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                            <TableCell className="py-1.5 text-center">
+                              <div className="flex h-7 items-center justify-center">
+                                <Switch
+                                  size="sm"
+                                  checked={tool.status === "active"}
+                                  onCheckedChange={(checked) => void setToolStatus(tool, checked)}
+                                  aria-label={t("toolbar.toggleTool", { name: tool.name })}
+                                />
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      : null}
+                    {showToolRows ? <VirtualTablePaddingRow colSpan={5} height={toolVirtualRows.paddingBottom} /> : null}
                     {!toolsLoading && filteredTools.length === 0 ? (
                       <TableEmptyRow colSpan={5}>
                         {tools.length === 0 ? t("table.emptyTools") : t("table.emptyFilteredTools")}
@@ -1031,6 +1083,24 @@ export function AdminToolsPage() {
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {mcpOrderOpen ? (
+        <MCPOrderSheet
+          open
+          servers={servers}
+          onClose={() => setMCPOrderOpen(false)}
+          onSaved={(groups) => {
+            setServers(groups.map((group) => group.server));
+            if (toolSheetServerID) {
+              const currentGroup = groups.find((group) => group.server.id === toolSheetServerID);
+              if (currentGroup) {
+                setTools(currentGroup.tools);
+              }
+            }
+            setToolSortValue("custom_order");
+          }}
+        />
+      ) : null}
 
       <Dialog open={serverDialogOpen} onOpenChange={setServerDialogOpen}>
         <DialogContent className="flex max-h-[min(86vh,760px)] w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[560px]">
@@ -1185,9 +1255,14 @@ export function AdminToolsPage() {
             <Button type="button" variant="ghost" onClick={() => setSchemaTool(null)}>
               {tActions("close")}
             </Button>
-            <Button type="button" onClick={() => void copySchema()}>
+            <CopyActionButton
+              type="button"
+              value={schemaText}
+              messages={{ copied: t("toast.schemaCopied"), failed: t("toast.copyFailed") }}
+              disabled={!schemaTool}
+            >
               {tActions("copy")}
-            </Button>
+            </CopyActionButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>

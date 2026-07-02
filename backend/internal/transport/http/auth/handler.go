@@ -154,9 +154,6 @@ func (h *Handler) StartEmailRegistration(c *gin.Context) {
 		middleware.ResolveSessionAuditContext(c),
 	)
 	if err != nil {
-		if writeAccountSuspendedError(c, err) {
-			return
-		}
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
@@ -179,10 +176,6 @@ func (h *Handler) CompleteEmailRegistration(c *gin.Context) {
 		response.InvalidRequestBody(c, err)
 		return
 	}
-	locale := strings.TrimSpace(req.Locale)
-	if locale == "" {
-		locale = c.GetHeader("Accept-Language")
-	}
 	result, err := h.service.RegisterWithEmail(
 		c.Request.Context(),
 		req.Email,
@@ -190,16 +183,10 @@ func (h *Handler) CompleteEmailRegistration(c *gin.Context) {
 		req.Code,
 		req.TurnstileToken,
 		c.ClientIP(),
-		req.InviteCode,
-		locale,
-		req.Timezone,
 		middleware.MustRequestID(c),
 		middleware.ResolveSessionAuditContext(c),
 	)
 	if err != nil {
-		if writeAccountSuspendedError(c, err) {
-			return
-		}
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
@@ -207,31 +194,73 @@ func (h *Handler) CompleteEmailRegistration(c *gin.Context) {
 	response.Success(c, toLoginResponse(result))
 }
 
+// StartPasswordReset godoc
+// @Summary 发送密码重置验证码
+// @Description SMTP 配置可用时，向已验证邮箱发送密码重置验证码；失败时返回通用错误，避免暴露账号状态
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param body body PasswordResetStartRequest true "密码重置验证码请求"
+// @Success 200 {object} PasswordResetStartResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 429 {object} ErrorDoc
+// @Router /auth/password/reset/start [post]
 func (h *Handler) StartPasswordReset(c *gin.Context) {
 	var req PasswordResetStartRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.InvalidRequestBody(c, err)
 		return
 	}
-	result, err := h.service.RequestPasswordReset(c.Request.Context(), req.Email, middleware.MustRequestID(c), middleware.ResolveSessionAuditContext(c))
+	result, err := h.service.RequestPasswordReset(
+		c.Request.Context(),
+		req.Email,
+		middleware.MustRequestID(c),
+		middleware.ResolveSessionAuditContext(c),
+	)
 	if err != nil {
-		response.ErrorFrom(c, http.StatusBadRequest, err)
+		if errors.Is(err, appauth.ErrPasswordResetFailed) {
+			response.Error(c, http.StatusBadRequest, "password reset failed")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "password reset failed")
 		return
 	}
-	response.Success(c, toEmailVerificationStartResponse(result))
+	response.Success(c, toPasswordResetStartResponse(result))
 }
 
+// CompletePasswordReset godoc
+// @Summary 完成密码重置
+// @Description 使用邮箱、验证码和新密码完成密码重置；失败时返回通用错误，避免暴露账号状态
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param body body PasswordResetCompleteRequest true "密码重置完成请求"
+// @Success 200 {object} PasswordResetCompleteResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 429 {object} ErrorDoc
+// @Router /auth/password/reset/complete [post]
 func (h *Handler) CompletePasswordReset(c *gin.Context) {
 	var req PasswordResetCompleteRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.InvalidRequestBody(c, err)
 		return
 	}
-	if err := h.service.CompletePasswordReset(c.Request.Context(), req.Email, req.Code, req.NewPassword, middleware.MustRequestID(c), middleware.ResolveSessionAuditContext(c)); err != nil {
+	if err := h.service.CompletePasswordReset(
+		c.Request.Context(),
+		req.Email,
+		req.Code,
+		req.NewPassword,
+		middleware.MustRequestID(c),
+		middleware.ResolveSessionAuditContext(c),
+	); err != nil {
+		if errors.Is(err, appauth.ErrPasswordResetFailed) {
+			response.Error(c, http.StatusBadRequest, "password reset failed")
+			return
+		}
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
-	response.Success(c, ChangePasswordResponse{Changed: true})
+	response.Success(c, PasswordResetCompleteResponse{Changed: true})
 }
 
 func (h *Handler) StartEmailCodeLogin(c *gin.Context) {
@@ -306,12 +335,10 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 	err := h.service.ChangePassword(
 		c.Request.Context(),
 		userID,
-		middleware.MustSessionID(c),
 		req.CurrentPassword,
 		req.NewPassword,
 		req.VerificationMethod,
 		req.Code,
-		req.RevokeOtherSessions == nil || *req.RevokeOtherSessions,
 		middleware.MustRequestID(c),
 		middleware.ResolveSessionAuditContext(c),
 	)
@@ -323,6 +350,7 @@ func (h *Handler) ChangePassword(c *gin.Context) {
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
+	h.clearRefreshTokenCookie(c)
 	response.Success(c, ChangePasswordResponse{Changed: true})
 }
 
@@ -494,7 +522,7 @@ func (h *Handler) DeleteCurrentUserIdentity(c *gin.Context) {
 		return
 	}
 	rawID := c.Param("identity_id")
-	parsedID, err := strconv.ParseUint(rawID, 10, 64)
+	parsedID, err := strconv.ParseUint(rawID, 10, strconv.IntSize)
 	if err != nil || parsedID == 0 {
 		response.Error(c, http.StatusBadRequest, "invalid identity id")
 		return
@@ -579,6 +607,21 @@ func (h *Handler) CompleteProviderLogin(c *gin.Context) {
 		if writeAccountSuspendedError(c, err) {
 			return
 		}
+		var emailConflictErr *appauth.ProviderEmailConflictError
+		if errors.As(err, &emailConflictErr) {
+			response.ErrorWithDetails(
+				c,
+				http.StatusConflict,
+				"auth.provider_email_conflict",
+				err.Error(),
+				gin.H{
+					"providerSlug": emailConflictErr.ProviderSlug,
+					"email":        emailConflictErr.Email,
+					"action":       emailConflictErr.Action,
+				},
+			)
+			return
+		}
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
@@ -615,9 +658,6 @@ func (h *Handler) Login(c *gin.Context) {
 		auditCtx,
 	)
 	if err != nil {
-		if writeAccountSuspendedError(c, err) {
-			return
-		}
 		if errors.Is(err, appauth.ErrInvalidCredentials) {
 			response.Error(c, http.StatusUnauthorized, "invalid username or password")
 			return
@@ -845,12 +885,6 @@ func (h *Handler) CreateIdentityProvider(c *gin.Context) {
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
-	h.recordAudit(c, middleware.MustUserID(c), "create_identity_provider", "identity_provider", item.PublicID, map[string]interface{}{
-		"name":                 item.Name,
-		"type":                 item.Type,
-		"login_enabled":        item.LoginEnabled,
-		"registration_enabled": item.RegistrationEnabled,
-	})
 	response.Success(c, toIdentityProviderResponse(*item))
 }
 
@@ -869,12 +903,6 @@ func (h *Handler) UpdateIdentityProvider(c *gin.Context) {
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
-	h.recordAudit(c, middleware.MustUserID(c), "update_identity_provider", "identity_provider", item.PublicID, map[string]interface{}{
-		"name":                 item.Name,
-		"type":                 item.Type,
-		"login_enabled":        item.LoginEnabled,
-		"registration_enabled": item.RegistrationEnabled,
-	})
 	response.Success(c, toIdentityProviderResponse(*item))
 }
 
@@ -888,7 +916,6 @@ func (h *Handler) ReorderIdentityProviders(c *gin.Context) {
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
-	h.recordAudit(c, middleware.MustUserID(c), "reorder_identity_provider", "identity_provider", "", map[string]interface{}{"provider_ids": req.ProviderIDs})
 	response.Success(c, IdentityProviderReorderResponse{Updated: true})
 }
 
@@ -913,51 +940,7 @@ func (h *Handler) DeleteIdentityProvider(c *gin.Context) {
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 		return
 	}
-	h.recordAudit(c, middleware.MustUserID(c), "delete_identity_provider", "identity_provider", c.Param("provider_id"), map[string]bool{"force": force})
 	response.Success(c, IdentityProviderDeleteResponse{Deleted: true})
-}
-
-func (h *Handler) ListInvitationCodes(c *gin.Context) {
-	items, err := h.service.ListInvitationCodes(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, http.StatusBadRequest, err)
-		return
-	}
-	response.Success(c, InvitationCodeListResponse{Results: toInvitationCodeResponses(items), Total: len(items)})
-}
-
-func (h *Handler) CreateInvitationCode(c *gin.Context) {
-	var req InvitationCodeCreateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequestBody(c, err)
-		return
-	}
-	item, err := h.service.CreateInvitationCode(c.Request.Context(), middleware.MustUserID(c), req.Label, req.MaxUses, req.ExpiresAt)
-	if err != nil {
-		response.ErrorFrom(c, http.StatusBadRequest, err)
-		return
-	}
-	h.recordAudit(c, middleware.MustUserID(c), "create_invitation_code", "invitation_code", item.PublicID, map[string]interface{}{
-		"label":      item.Label,
-		"max_uses":   item.MaxUses,
-		"expires_at": item.ExpiresAt,
-	})
-	response.Success(c, toInvitationCodeResponse(*item))
-}
-
-func (h *Handler) UpdateInvitationCode(c *gin.Context) {
-	var req InvitationCodeUpdateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.InvalidRequestBody(c, err)
-		return
-	}
-	item, err := h.service.SetInvitationCodeEnabled(c.Request.Context(), c.Param("code_id"), req.Enabled, middleware.MustUserID(c))
-	if err != nil {
-		response.ErrorFrom(c, http.StatusBadRequest, err)
-		return
-	}
-	h.recordAudit(c, middleware.MustUserID(c), "update_invitation_code", "invitation_code", item.PublicID, map[string]bool{"enabled": item.Enabled})
-	response.Success(c, toInvitationCodeResponse(*item))
 }
 
 // RefreshToken godoc

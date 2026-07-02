@@ -34,6 +34,12 @@ export type ConversationSearchResultDTO = {
   matchedAt: string;
 };
 
+export type ConversationDefaultModelCandidateDTO = {
+  platformModelName: string;
+  source: string;
+  usedAt: string | null;
+};
+
 export type ConversationStatusFilter = "active" | "archived" | "all";
 export type ConversationStarredFilter = "all" | "starred" | "unstarred";
 export type ConversationShareFilter = "all" | "shared" | "unshared";
@@ -64,7 +70,7 @@ export type MessageDTO = {
   role: string;
   contentType: string;
   content: string;
-  branchReason: "default" | "retry" | "edit";
+  branchReason: "default" | "retry" | "edit" | "arena";
   sourceMessageID: number | null;
   sourcePublicID: string;
   tokenUsage: number;
@@ -536,6 +542,7 @@ export type SendMessageRequest = {
   codeSandboxEnabled?: boolean;
   researchMaxLLMCalls?: number;
   researchMaxToolCalls?: number;
+  skillIDs?: number[];
   htmlVisualPrompt?: boolean;
   htmlVisualColorMode?: "light" | "dark";
   assistantID?: string;
@@ -563,7 +570,7 @@ export type MediaImageRequest = {
 
   sourceMessagePublicID?: string;
 
-  branchReason?: "default" | "retry" | "edit";
+  branchReason?: "default" | "retry" | "edit" | "arena";
 
 };
 
@@ -577,11 +584,12 @@ export type MediaVideoRequest = {
   fileIDs?: string[];
   parentMessagePublicID?: string;
   sourceMessagePublicID?: string;
-  branchReason?: "default" | "retry" | "edit";
+  branchReason?: "default" | "retry" | "edit" | "arena";
 };
 export type SendMessageResult = {
   userMessage: MessageDTO;
   assistantMessage: MessageDTO;
+  metadataRefreshHint?: "pending" | "not_needed" | "skipped_no_titleable_content" | string;
 };
 
 export type StreamMessageEvent =

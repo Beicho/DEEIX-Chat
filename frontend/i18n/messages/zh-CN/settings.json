@@ -127,7 +127,13 @@
       "title": "编辑头像",
       "description": "输入头像 URL，或点击头像区域生成像素风头像。",
       "avatarURL": "头像 URL",
-      "apply": "应用"
+      "apply": "应用",
+      "upload": "上传图片",
+      "uploading": "上传中",
+      "uploaded": "头像已上传",
+      "uploadFailed": "头像上传失败",
+      "uploadInvalid": "请选择图片文件",
+      "generate": "生成头像"
     }
   },
   "profile": "个人资料",
@@ -212,7 +218,8 @@
         "back": "返回",
         "copiedLabel": "{label}已复制",
         "copyFailed": "复制失败",
-        "copyManually": "请手动选择内容复制。"
+        "copyManually": "请手动选择内容复制。",
+        "debugCode": "开发验证码：{code}"
       },
       "password": {
         "title": {
@@ -361,6 +368,11 @@
       "regenerateRecoveryCodesFailed": "重新生成恢复码失败",
       "providerUnavailable": "该身份源暂不可绑定",
       "bindIdentityFailed": "绑定身份源失败"
+    },
+    "logoutAllDialog": {
+      "title": "登出所有在线设备？",
+      "description": "确认后，此账号在其他浏览器、桌面端或移动设备上的在线会话都会失效。当前设备也会回到登录页。",
+      "confirm": "确认登出所有设备"
     }
   },
   "chatPage": {
@@ -388,7 +400,9 @@
       "preserveDraftTitle": "保留会话草稿",
       "preserveDraftDescription": "控制切换会话后是否保留并恢复当前会话的未发送内容。",
       "deleteFilesDefaultTitle": "删除会话时默认删除文件",
-      "deleteFilesDefaultDescription": "开启后，删除会话确认框会默认勾选同时删除文件；仍被其他会话引用的文件会保留。"
+      "deleteFilesDefaultDescription": "开启后，删除会话确认框会默认勾选同时删除文件；仍被其他会话引用的文件会保留。",
+      "reuseModelOptionsTitle": "复用模型配置",
+      "reuseModelOptionsDescription": "开启后，新会话选择同一模型时会自动填充上次使用的模型参数。"
     },
     "display": {
       "sectionTitle": "显示与渲染",
@@ -402,7 +416,27 @@
       "latencyDescription": "控制 AI 回复下方是否展示本次调用的总耗时。",
       "costTitle": "显示调用总费用",
       "costDescription": "控制 AI 回复下方是否展示本次调用的总费用。",
-      "costDescriptionSelfMode": "控制 AI 回复下方是否展示本次调用的总费用。自用模式不展示。"
+      "costDescriptionSelfMode": "控制 AI 回复下方是否展示本次调用的总费用。自用模式不展示。",
+      "widthTitle": "对话区域宽度",
+      "width": {
+        "compact": "紧凑",
+        "standard": "标准",
+        "wide": "宽屏"
+      },
+      "chatFont": "对话字体",
+      "chatFontWeight": "对话字重",
+      "font": {
+        "default": "默认",
+        "songti": "衬线",
+        "heiti": "无衬线",
+        "mono": "等宽"
+      },
+      "fontWeight": {
+        "regular": "常规",
+        "medium": "中等",
+        "semibold": "半粗",
+        "bold": "粗体"
+      }
     },
     "context": {
       "sectionTitle": "上下文管理",
@@ -646,7 +680,8 @@
       "amountAria": "充值美元金额",
       "confirm": "充值",
       "cnyEstimate": "约 {value}",
-      "quickCNY": "人民币快捷金额"
+      "quickCNY": "人民币快捷金额",
+      "currentBalance": "当前余额 {value}"
     },
     "redemption": {
       "open": "兑换",
@@ -712,6 +747,10 @@
       "invalidRedemptionCode": "请输入兑换码。",
       "redemptionSucceeded": "兑换成功",
       "redemptionFailed": "兑换失败"
+    },
+    "periodOverage": {
+      "title": "超额按量",
+      "balance": "可用余额 {value}"
     }
   }
 }

@@ -60,7 +60,4 @@ func (m *Module) RegisterAdminRoutes(adminGroup *gin.RouterGroup) {
 	adminGroup.PATCH("/auth/provider-order", m.Handler.ReorderIdentityProviders)
 	adminGroup.PATCH("/auth/providers/:provider_id", m.Handler.UpdateIdentityProvider)
 	adminGroup.DELETE("/auth/providers/:provider_id", m.Handler.DeleteIdentityProvider)
-	adminGroup.GET("/auth/invitation-codes", m.Handler.ListInvitationCodes)
-	adminGroup.POST("/auth/invitation-codes", m.Handler.CreateInvitationCode)
-	adminGroup.PATCH("/auth/invitation-codes/:code_id", m.Handler.UpdateInvitationCode)
 }

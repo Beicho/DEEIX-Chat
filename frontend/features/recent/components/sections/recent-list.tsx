@@ -7,7 +7,7 @@ import { useTranslations } from "next-intl";
 
 import { Ellipsis } from "@/components/animate-ui/icons/ellipsis";
 import { AnimatedText } from "@/components/ui/animated-text";
-import { LoadingReveal } from "@/features/layouts/components/sections/loading-reveal";
+import { LoadingReveal } from "@/shared/components/loading-reveal";
 import type { RecentRowState } from "@/features/recent/types/recent";
 import { isArchivedConversation } from "@/features/recent/utils/conversation-list";
 import {
@@ -242,7 +242,7 @@ function RecentConversationRow({
                 event.stopPropagation();
               }}
             >
-              <Ellipsis size={16} strokeWidth={1.4} animate={hovered ? "default" : undefined} />
+              <Ellipsis size={16} strokeWidth={1.4} animate={hovered ? "pulse" : undefined} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-max min-w-40 max-w-[calc(100vw-2rem)]">

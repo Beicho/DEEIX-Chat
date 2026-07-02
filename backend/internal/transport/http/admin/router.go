@@ -8,6 +8,7 @@ func (m *Module) RegisterRoutes(adminGroup *gin.RouterGroup) {
 	adminGroup.GET("/security/multi-accounts", m.Handler.ListMultiAccountCandidates)
 	adminGroup.POST("/users", m.Handler.CreateUser)
 	adminGroup.GET("/users", m.Handler.ListUsers)
+	adminGroup.POST("/users/import/openwebui", m.Handler.ImportOpenWebUIUsers)
 	adminGroup.PATCH("/users/:id", m.Handler.PatchUser)
 	adminGroup.PATCH("/users/:id/status", m.Handler.UpdateUserStatus)
 	adminGroup.POST("/users/:id/reset-password", m.Handler.ResetUserPassword)
@@ -17,5 +18,9 @@ func (m *Module) RegisterRoutes(adminGroup *gin.RouterGroup) {
 	adminGroup.GET("/user-auth-events", m.Handler.ListUserAuthEvents)
 	adminGroup.GET("/audit-logs", m.Handler.ListAuditLogs)
 	adminGroup.GET("/call-logs", m.Handler.ListUsageLogs)
+	adminGroup.GET("/payment-orders", m.Handler.ListPaymentOrders)
+	adminGroup.GET("/conversation-events", m.Handler.ListConversationEvents)
 	adminGroup.GET("/system-events", m.Handler.ListSystemEvents)
+	adminGroup.POST("/logs/cleanup", m.Handler.CleanupLogs)
+	adminGroup.GET("/conversations/export", m.Handler.ExportConversations)
 }

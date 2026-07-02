@@ -241,6 +241,13 @@ func validatePatchItem(item PatchItem) error {
 		return validateFloatMinMax(value, 0.000001, 1000, key)
 	case "billing:checkin_reward_nanousd":
 		return validateInt64Min(value, 1, key)
+	case "billing:display_currency":
+		switch value {
+		case "USD", "CNY":
+			return nil
+		default:
+			return fmt.Errorf("%s must be one of: USD, CNY", key)
+		}
 	case "billing:prepaid_amount_usd":
 		return validateFloatMinMax(value, 0, 1000000, key)
 	case "billing:stripe_publishable_key", "billing:stripe_secret_key", "billing:stripe_webhook_secret", "billing:epay_pid", "billing:epay_key", "billing:newapi_bridge_hmac_key":
@@ -343,7 +350,8 @@ func validatePatchItem(item PatchItem) error {
 		return validateIntMinMax(value, 1, 1440, key)
 	case "moderation:output_window_chars":
 		return validateIntMinMax(value, 128, 20000, key)
-	case "chat:default_system_prompt":
+	case "chat:default_system_prompt", "chat:skills_prompt":
+
 		return validateStringMax(value, 20000, key)
 	case "auth:smtp_port":
 		return validateIntMinMax(value, 1, 65535, key)
@@ -451,7 +459,7 @@ func validatePatchItem(item PatchItem) error {
 		return validateStringMax(value, 255, key)
 	case "extract:tencent_ocr_secret_id", "extract:tencent_ocr_secret_key", "extract:aliyun_ocr_access_key_id", "extract:aliyun_ocr_access_key_secret":
 		return validateStringMax(value, 512, key)
-	case "auth:username_login_enabled", "auth:email_login_enabled", "auth:third_party_login_enabled", "auth:email_registration_enabled", "auth:email_verification_enabled", "auth:invite_registration_required", "auth:email_registration_block_plus_alias", "auth:auto_link_verified_email", "auth:turnstile_registration_enabled", "auth:rate_limit_enabled", "billing:native_tool_billing_enabled", "chat:rag_enabled", "chat:message_embedding_enabled", "chat:semantic_context_enabled", "file:full_context_limit_enabled", "file:embedding_enabled", "file:embed_trigger_on_upload", "file:embedding_normalize", "extract:image_ocr_enabled", "extract:pdf_ocr_fallback_enabled", "mcp:mcp_enable", "mcp:code_sandbox_enabled", "moderation:enabled", "voice:asr_enabled", "voice:tts_enabled":
+	case "auth:username_login_enabled", "auth:email_login_enabled", "auth:third_party_login_enabled", "auth:email_registration_enabled", "auth:email_verification_enabled", "auth:invite_registration_required", "auth:password_reset_enabled", "auth:email_registration_block_plus_alias", "auth:auto_link_verified_email", "auth:turnstile_registration_enabled", "auth:rate_limit_enabled", "billing:native_tool_billing_enabled", "chat:rag_enabled", "chat:message_embedding_enabled", "chat:semantic_context_enabled", "file:full_context_limit_enabled", "file:embedding_enabled", "file:embed_trigger_on_upload", "file:embedding_normalize", "extract:image_ocr_enabled", "extract:pdf_ocr_fallback_enabled", "mcp:mcp_enable", "mcp:code_sandbox_enabled", "moderation:enabled", "voice:asr_enabled", "voice:tts_enabled":
 		if _, err := strconv.ParseBool(value); err != nil {
 			return fmt.Errorf("%s must be bool", key)
 		}
@@ -471,6 +479,8 @@ func validatePatchItem(item PatchItem) error {
 		return validateIntMinMax(value, 1, 120, key)
 	case "mcp:mcp_tool_retry_count":
 		return validateIntMinMax(value, 0, 5, key)
+	case "mcp:mcp_tool_prompt":
+		return validateStringMax(value, 20000, key)
 	case "mcp:web_search_provider":
 		switch value {
 		case "disabled", "searxng", "tavily", "bocha":
@@ -493,6 +503,7 @@ func validatePatchItem(item PatchItem) error {
 		return validateIntMinMax(value, 1, 10, key)
 	case "mcp:code_sandbox_max_code_chars", "mcp:code_sandbox_max_output_chars":
 		return validateIntMinMax(value, 100, 200000, key)
+
 	}
 	return nil
 }
@@ -645,10 +656,22 @@ func (s *Service) applyAuthSettingDependencies(ctx context.Context, patches []Pa
 		}
 	}
 	emailVerificationEnabled, _ := strconv.ParseBool(next["auth:email_verification_enabled"])
+	passwordResetEnabled, _ := strconv.ParseBool(next["auth:password_reset_enabled"])
+	if !emailVerificationEnabled {
+		if patchValueIsTrue(patches, "auth", "password_reset_enabled") {
+			return nil, fmt.Errorf("auth:password_reset_enabled requires auth:email_verification_enabled")
+		}
+		patches = upsertPatch(patches, PatchItem{Namespace: "auth", Key: "password_reset_enabled", Value: "false"})
+		next["auth:password_reset_enabled"] = "false"
+		passwordResetEnabled = false
+	}
 	if emailVerificationEnabled {
 		if err := validateEmailVerificationSMTPSettings(next); err != nil {
 			return nil, err
 		}
+	}
+	if passwordResetEnabled && !usernameLoginEnabled && !emailLoginEnabled {
+		return nil, fmt.Errorf("auth:password_reset_enabled requires username or email login")
 	}
 
 	return patches, nil

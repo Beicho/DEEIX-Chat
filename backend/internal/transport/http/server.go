@@ -28,9 +28,12 @@ import (
 	memoryhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/memory"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	notificationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/notification"
+	promptpresethttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/promptpreset"
 	securityhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/security"
 	settingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/settings"
+	skillhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/skill"
 	statushttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/status"
+	userhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/user"
 	usersettingshttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/usersettings"
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -68,7 +71,10 @@ type Modules struct {
 	Announcement  *announcementhttp.Module
 	Notification  *notificationhttp.Module
 	Collaboration *collaborationhttp.Module
+	PromptPreset  *promptpresethttp.Module
+	Skill         *skillhttp.Module
 	Settings      *settingshttp.Module
+	User          *userhttp.Module
 	UserSettings  *usersettingshttp.Module
 	Status        *statushttp.Module
 	Alerting      *alertinghttp.Module
@@ -127,11 +133,14 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.Status != nil {
 		modules.Status.RegisterPublicRoutes(api)
 	}
-	if modules.Auth != nil || modules.Settings != nil || modules.Billing != nil || modules.Conversation != nil || modules.Channel != nil {
+	if modules.Auth != nil || modules.Settings != nil || modules.Billing != nil || modules.Conversation != nil || modules.Channel != nil || modules.User != nil {
 		publicAuth := api.Group("")
 		publicAuth.Use(middleware.PublicAuthRateLimit(limiter, cfg))
 		if modules.Auth != nil {
 			modules.Auth.RegisterPublicRoutes(publicAuth)
+		}
+		if modules.User != nil {
+			modules.User.RegisterPublicRoutes(publicAuth)
 		}
 		if modules.Conversation != nil {
 			modules.Conversation.RegisterPublicRoutes(publicAuth)
@@ -187,14 +196,22 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.Collaboration != nil {
 		modules.Collaboration.RegisterRoutes(authRequired)
 	}
+	if modules.PromptPreset != nil {
+		modules.PromptPreset.RegisterRoutes(authRequired)
+	}
+	if modules.Skill != nil {
+		modules.Skill.RegisterRoutes(authRequired)
+	}
 	if modules.UserSettings != nil {
 		modules.UserSettings.RegisterRoutes(authRequired)
 	}
 	if modules.Settings != nil {
 		modules.Settings.RegisterRoutes(authRequired)
 	}
-	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.Conversation != nil || modules.MCP != nil || modules.Settings != nil || modules.Security != nil || modules.Announcement != nil || modules.Notification != nil || modules.Collaboration != nil {
-
+	if modules.User != nil {
+		modules.User.RegisterRoutes(authRequired)
+	}
+	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.Conversation != nil || modules.MCP != nil || modules.Settings != nil || modules.Security != nil || modules.Announcement != nil || modules.Notification != nil || modules.Collaboration != nil || modules.PromptPreset != nil || modules.Skill != nil || modules.Alerting != nil {
 		adminGroup := authRequired.Group("/admin")
 		adminGroup.Use(middleware.AdminOnly())
 		if modules.Auth != nil {
@@ -226,6 +243,12 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		}
 		if modules.Alerting != nil {
 			modules.Alerting.RegisterAdminRoutes(adminGroup)
+		}
+		if modules.PromptPreset != nil {
+			modules.PromptPreset.RegisterAdminRoutes(adminGroup)
+		}
+		if modules.Skill != nil {
+			modules.Skill.RegisterAdminRoutes(adminGroup)
 		}
 	}
 

@@ -12,6 +12,7 @@ import (
 
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/dberror"
 	models "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/sqlitevec"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
@@ -24,29 +25,13 @@ func translateError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if dberror.IsRecordNotFound(err) {
 		return repository.ErrNotFound
 	}
-	if isUniqueConstraintError(err) {
+	if dberror.IsUniqueConstraint(err) {
 		return repository.ErrDuplicate
 	}
 	return err
-}
-
-type sqlStateError interface {
-	SQLState() string
-}
-
-func isUniqueConstraintError(err error) bool {
-	if errors.Is(err, gorm.ErrDuplicatedKey) {
-		return true
-	}
-	var stateErr sqlStateError
-	if errors.As(err, &stateErr) && stateErr.SQLState() == "23505" {
-		return true
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint")
 }
 
 func truncateText(value string, maxChars int) string {
@@ -74,6 +59,13 @@ func (r *Repo) sqliteDialect() bool {
 	return r != nil && r.db != nil && r.db.Dialector != nil && r.db.Dialector.Name() == "sqlite"
 }
 
+func (r *Repo) trimFunctionName() string {
+	if r.sqliteDialect() {
+		return "trim"
+	}
+	return "btrim"
+}
+
 // CreateConversation 创建会话。
 func (r *Repo) CreateConversation(ctx context.Context, item *domainconversation.Conversation) error {
 	entity := toConversationModel(item)
@@ -94,6 +86,7 @@ func (r *Repo) ListConversationsByUser(
 	starredFilter string,
 	shareFilter string,
 	projectFilter string,
+	searchQuery string,
 ) ([]domainconversation.Conversation, int64, error) {
 	items := make([]models.Conversation, 0)
 	var total int64
@@ -145,6 +138,8 @@ func (r *Repo) ListConversationsByUser(
 		}
 		query = query.Where("project_id = ?", project.ID)
 	}
+
+	query = applyConversationSearchFilter(query, searchQuery)
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, translateError(err)
@@ -263,6 +258,51 @@ func (r *Repo) SearchConversationsByUser(ctx context.Context, userID uint, query
 		results[index].Conversation = conversations[index]
 	}
 	return results, total, nil
+}
+
+func applyConversationSearchFilter(query *gorm.DB, searchQuery string) *gorm.DB {
+	keyword := strings.TrimSpace(searchQuery)
+	if keyword == "" {
+		return query
+	}
+
+	like := "%" + strings.ToLower(keyword) + "%"
+	return query.Where(
+		`(LOWER(title) LIKE ?
+			OR LOWER(public_id) LIKE ?
+			OR LOWER(labels_json) LIKE ?
+			OR LOWER(model) LIKE ?
+			OR LOWER(provider) LIKE ?
+			OR EXISTS (
+				SELECT 1
+				FROM chat_conversation_projects AS projects
+				WHERE projects.id = chat_conversations.project_id
+					AND projects.user_id = chat_conversations.user_id
+					AND projects.deleted_at IS NULL
+					AND (
+						LOWER(projects.name) LIKE ?
+						OR LOWER(projects.public_id) LIKE ?
+						OR LOWER(projects.description) LIKE ?
+					)
+			)
+			OR EXISTS (
+				SELECT 1
+				FROM chat_messages AS messages
+				WHERE messages.conversation_id = chat_conversations.id
+					AND messages.user_id = chat_conversations.user_id
+					AND messages.deleted_at IS NULL
+					AND LOWER(messages.content) LIKE ?
+			))`,
+		like,
+		like,
+		like,
+		like,
+		like,
+		like,
+		like,
+		like,
+		like,
+	)
 }
 
 func (r *Repo) hydrateConversationShareSummaries(ctx context.Context, items []domainconversation.Conversation) error {
@@ -552,17 +592,24 @@ func (r *Repo) UpdateConversationTitleByPublicID(
 }
 
 // UpdateConversationMetadata 更新自动生成的会话元数据。
-func (r *Repo) UpdateConversationMetadata(ctx context.Context, conversationID uint, title string, labelsJSON string) (*domainconversation.Conversation, error) {
+func (r *Repo) UpdateConversationMetadata(ctx context.Context, conversationID uint, patch repository.ConversationMetadataPatch) (*domainconversation.Conversation, error) {
 	updates := map[string]interface{}{}
-	if strings.TrimSpace(title) != "" {
+	if strings.TrimSpace(patch.Title) != "" {
+		replaceable := []string{"new chat", "新对话"}
+		for _, item := range patch.ReplaceableTitles {
+			value := strings.TrimSpace(strings.ToLower(item))
+			if value != "" {
+				replaceable = append(replaceable, value)
+			}
+		}
 		updates["title"] = gorm.Expr(
-			"CASE WHEN lower(btrim(title)) IN ? THEN ? ELSE title END",
-			[]string{"", "new conversation", "new chat", "untitled", "新会话", "新对话", "新的对话"},
-			strings.TrimSpace(title),
+			fmt.Sprintf("CASE WHEN lower(%s(title)) IN ? THEN ? ELSE title END", r.trimFunctionName()),
+			replaceable,
+			strings.TrimSpace(patch.Title),
 		)
 	}
-	if strings.TrimSpace(labelsJSON) != "" {
-		updates["labels_json"] = strings.TrimSpace(labelsJSON)
+	if strings.TrimSpace(patch.LabelsJSON) != "" {
+		updates["labels_json"] = strings.TrimSpace(patch.LabelsJSON)
 	}
 	if len(updates) == 0 {
 		var current models.Conversation
@@ -771,6 +818,19 @@ func ensureFileObjectUnreferencedByActiveConversations(tx *gorm.DB, userID uint,
 	return nil
 }
 
+func ensureFileObjectUnreferencedByUserAvatars(tx *gorm.DB, fileID string) error {
+	var activeReferences int64
+	if err := tx.Model(&models.User{}).
+		Where("avatar_url LIKE 'file:%' AND avatar_url = ?", domainuser.BuildFileAvatarURL(fileID)).
+		Count(&activeReferences).Error; err != nil {
+		return translateError(err)
+	}
+	if activeReferences > 0 {
+		return repository.ErrConflict
+	}
+	return nil
+}
+
 // GetUserByID 按 ID 查询用户。
 func (r *Repo) GetUserByID(ctx context.Context, userID uint) (*domainuser.User, error) {
 	var item models.User
@@ -838,6 +898,19 @@ func (r *Repo) UpdateConversationModel(ctx context.Context, conversationID uint,
 		Error)
 }
 
+// ListAllConversationsAfterID 按主键游标分页列出会话（管理员导出用）。
+func (r *Repo) ListAllConversationsAfterID(ctx context.Context, afterID uint, limit int) ([]domainconversation.Conversation, error) {
+	var rows []models.Conversation
+	query := r.db.WithContext(ctx).Order("id ASC").Limit(limit)
+	if afterID > 0 {
+		query = query.Where("id > ?", afterID)
+	}
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return toConversationDomains(rows), nil
+}
+
 // CreateMessage 创建消息。
 func (r *Repo) CreateMessage(ctx context.Context, item *domainconversation.Message) error {
 	attachmentSnapshot := item.Attachments
@@ -848,6 +921,33 @@ func (r *Repo) CreateMessage(ctx context.Context, item *domainconversation.Messa
 	*item = toMessageDomain(entity)
 	item.Attachments = attachmentSnapshot
 	return nil
+}
+
+// CreateAssistantBranchMessage 原子创建 assistant 分支消息并递增会话消息数。
+func (r *Repo) CreateAssistantBranchMessage(ctx context.Context, assistantMessage *domainconversation.Message) error {
+	if assistantMessage == nil || assistantMessage.ParentMessageID == nil {
+		return repository.ErrInvalidInput
+	}
+	attachmentSnapshot := assistantMessage.Attachments
+	return translateError(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		entity := toMessageModel(assistantMessage)
+		if err := tx.Create(&entity).Error; err != nil {
+			return err
+		}
+		*assistantMessage = toMessageDomain(entity)
+		assistantMessage.Attachments = attachmentSnapshot
+
+		result := tx.Model(&models.Conversation{}).
+			Where("id = ?", assistantMessage.ConversationID).
+			Update("message_count", gorm.Expr("message_count + ?", 1))
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return repository.ErrNotFound
+		}
+		return nil
+	}))
 }
 
 // CreateMessagePairWithUserAttachments 原子创建用户消息、助手占位消息、用户附件并递增会话消息数。
@@ -1174,33 +1274,30 @@ func (r *Repo) InterruptPendingAssistantMessageByRunID(
 func (r *Repo) UpdateAssistantMessageCompletion(
 	ctx context.Context,
 	messageID uint,
-	content string,
-	outputTokens int64,
-	reasoningTokens int64,
-	latencyMS int64,
-	status string,
-	errorCode string,
-	errorMessage string,
+	update repository.AssistantMessageCompletionUpdate,
 ) error {
-	tokenUsage := outputTokens + reasoningTokens
+	tokenUsage := update.InputTokens + update.CacheReadTokens + update.CacheWriteTokens + update.OutputTokens + update.ReasoningTokens
 	if tokenUsage < 0 {
 		tokenUsage = 0
 	}
-	if latencyMS < 0 {
-		latencyMS = 0
+	if update.LatencyMS < 0 {
+		update.LatencyMS = 0
 	}
 	return translateError(r.db.WithContext(ctx).
 		Model(&models.Message{}).
 		Where("id = ?", messageID).
 		Updates(map[string]interface{}{
-			"content":          content,
-			"token_usage":      tokenUsage,
-			"output_tokens":    outputTokens,
-			"reasoning_tokens": reasoningTokens,
-			"latency_ms":       latencyMS,
-			"status":           status,
-			"error_code":       errorCode,
-			"error_message":    errorMessage,
+			"content":            update.Content,
+			"token_usage":        tokenUsage,
+			"input_tokens":       update.InputTokens,
+			"output_tokens":      update.OutputTokens,
+			"cache_read_tokens":  update.CacheReadTokens,
+			"cache_write_tokens": update.CacheWriteTokens,
+			"reasoning_tokens":   update.ReasoningTokens,
+			"latency_ms":         update.LatencyMS,
+			"status":             update.Status,
+			"error_code":         update.ErrorCode,
+			"error_message":      update.ErrorMessage,
 		}).
 		Error)
 }
@@ -1247,7 +1344,7 @@ func (r *Repo) CompleteAssistantMessageWithAttachments(
 			return err
 		}
 
-		assistantTokenUsage := assistantCompletion.OutputTokens + assistantCompletion.ReasoningTokens
+		assistantTokenUsage := assistantCompletion.InputTokens + assistantCompletion.CacheReadTokens + assistantCompletion.CacheWriteTokens + assistantCompletion.OutputTokens + assistantCompletion.ReasoningTokens
 		if assistantTokenUsage < 0 {
 			assistantTokenUsage = 0
 		}
@@ -1256,14 +1353,70 @@ func (r *Repo) CompleteAssistantMessageWithAttachments(
 			latencyMS = 0
 		}
 		updates := map[string]interface{}{
-			"content":          assistantCompletion.Content,
-			"token_usage":      assistantTokenUsage,
-			"output_tokens":    assistantCompletion.OutputTokens,
-			"reasoning_tokens": assistantCompletion.ReasoningTokens,
-			"latency_ms":       latencyMS,
-			"status":           assistantCompletion.Status,
-			"error_code":       assistantCompletion.ErrorCode,
-			"error_message":    assistantCompletion.ErrorMessage,
+			"content":            assistantCompletion.Content,
+			"token_usage":        assistantTokenUsage,
+			"input_tokens":       assistantCompletion.InputTokens,
+			"output_tokens":      assistantCompletion.OutputTokens,
+			"cache_read_tokens":  assistantCompletion.CacheReadTokens,
+			"cache_write_tokens": assistantCompletion.CacheWriteTokens,
+			"reasoning_tokens":   assistantCompletion.ReasoningTokens,
+			"latency_ms":         latencyMS,
+			"status":             assistantCompletion.Status,
+			"error_code":         assistantCompletion.ErrorCode,
+			"error_message":      assistantCompletion.ErrorMessage,
+		}
+		if contentType := strings.TrimSpace(assistantCompletion.ContentType); contentType != "" {
+			updates["content_type"] = contentType
+		}
+		return tx.Model(&models.Message{}).
+			Where("id = ?", assistantMessageID).
+			Updates(updates).Error
+	}))
+}
+
+// CompleteAssistantMessageWithGeneratedAttachments 原子写入助手附件并同步助手完成态，不修改父用户消息。
+func (r *Repo) CompleteAssistantMessageWithGeneratedAttachments(
+	ctx context.Context,
+	assistantMessageID uint,
+	assistantCompletion repository.AssistantMessageCompletionUpdate,
+	assistantAttachments []domainconversation.Attachment,
+) error {
+	return translateError(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(assistantAttachments) > 0 {
+			if err := lockActiveFileObjectsForAttachments(tx, 0, assistantAttachments); err != nil {
+				return err
+			}
+			entities := make([]models.Attachment, 0, len(assistantAttachments))
+			for i := range assistantAttachments {
+				item := assistantAttachments[i]
+				item.MessageID = assistantMessageID
+				entities = append(entities, toAttachmentModel(&item))
+			}
+			if err := tx.Create(&entities).Error; err != nil {
+				return err
+			}
+		}
+
+		assistantTokenUsage := assistantCompletion.InputTokens + assistantCompletion.CacheReadTokens + assistantCompletion.CacheWriteTokens + assistantCompletion.OutputTokens + assistantCompletion.ReasoningTokens
+		if assistantTokenUsage < 0 {
+			assistantTokenUsage = 0
+		}
+		latencyMS := assistantCompletion.LatencyMS
+		if latencyMS < 0 {
+			latencyMS = 0
+		}
+		updates := map[string]interface{}{
+			"content":            assistantCompletion.Content,
+			"token_usage":        assistantTokenUsage,
+			"input_tokens":       assistantCompletion.InputTokens,
+			"output_tokens":      assistantCompletion.OutputTokens,
+			"cache_read_tokens":  assistantCompletion.CacheReadTokens,
+			"cache_write_tokens": assistantCompletion.CacheWriteTokens,
+			"reasoning_tokens":   assistantCompletion.ReasoningTokens,
+			"latency_ms":         latencyMS,
+			"status":             assistantCompletion.Status,
+			"error_code":         assistantCompletion.ErrorCode,
+			"error_message":      assistantCompletion.ErrorMessage,
 		}
 		if contentType := strings.TrimSpace(assistantCompletion.ContentType); contentType != "" {
 			updates["content_type"] = contentType
@@ -2087,6 +2240,20 @@ func (r *Repo) ListConversationMessageTraceEventsByMessageIDs(ctx context.Contex
 }
 
 // CreateConversationToolCalls 批量写入工具调用日志。
+func (r *Repo) CreateConversationToolCall(ctx context.Context, item *domainconversation.ToolCall) error {
+	if item == nil {
+		return nil
+	}
+	entity := toConversationToolCallModel(item)
+	if err := r.db.WithContext(ctx).Create(&entity).Error; err != nil {
+		return translateError(err)
+	}
+	item.ID = entity.ID
+	item.CreatedAt = entity.CreatedAt
+	item.UpdatedAt = entity.UpdatedAt
+	return nil
+}
+
 func (r *Repo) CreateConversationToolCalls(ctx context.Context, items []domainconversation.ToolCall) error {
 	if len(items) == 0 {
 		return nil
@@ -2095,7 +2262,17 @@ func (r *Repo) CreateConversationToolCalls(ctx context.Context, items []domainco
 	for i := range items {
 		entities = append(entities, toConversationToolCallModel(&items[i]))
 	}
-	return translateError(r.db.WithContext(ctx).Create(&entities).Error)
+	if err := r.db.WithContext(ctx).Create(&entities).Error; err != nil {
+		return translateError(err)
+	}
+	for index := range items {
+		if index < len(entities) {
+			items[index].ID = entities[index].ID
+			items[index].CreatedAt = entities[index].CreatedAt
+			items[index].UpdatedAt = entities[index].UpdatedAt
+		}
+	}
+	return nil
 }
 
 // ListConversationRuns 分页查询会话运行日志。
@@ -2123,6 +2300,87 @@ func (r *Repo) ListConversationRuns(
 		return nil, 0, translateError(err)
 	}
 	return toConversationRunDomains(items), total, nil
+}
+
+// GetLatestConversationRunModel 查询用户最近一次成功运行的模型记录。
+func (r *Repo) GetLatestConversationRunModel(ctx context.Context, userID uint) (*domainconversation.Run, error) {
+	var item models.ConversationRun
+	if err := r.db.WithContext(ctx).
+		Model(&models.ConversationRun{}).
+		Where("user_id = ? AND status = ? AND platform_model_name <> ?", userID, "success", "").
+		Order("id DESC").
+		First(&item).Error; err != nil {
+		return nil, translateError(err)
+	}
+	result := toConversationRunDomain(item)
+	return &result, nil
+}
+
+// ListConversationEventLogs 分页查询管理员对话事件日志。
+func (r *Repo) ListConversationEventLogs(
+	ctx context.Context,
+	filter repository.ConversationEventLogListFilter,
+	offset int,
+	limit int,
+) ([]domainconversation.EventLog, int64, error) {
+	items := make([]models.ChatRunEvent, 0)
+	var total int64
+	query := r.db.WithContext(ctx).Model(&models.ChatRunEvent{})
+	if filter.UserID > 0 {
+		query = query.Where("user_id = ?", filter.UserID)
+	}
+	if filter.ConversationID > 0 {
+		query = query.Where("conversation_id = ?", filter.ConversationID)
+	}
+	if search := strings.TrimSpace(filter.Query); search != "" {
+		like := "%" + strings.ToLower(search) + "%"
+		query = query.Where(
+			"LOWER(run_id) LIKE ? OR LOWER(event_id) LIKE ? OR LOWER(event_type) LIKE ? OR LOWER(phase) LIKE ? OR LOWER(stage) LIKE ? OR LOWER(title) LIKE ? OR LOWER(summary) LIKE ? OR LOWER(tool_name) LIKE ?",
+			like,
+			like,
+			like,
+			like,
+			like,
+			like,
+			like,
+			like,
+		)
+	}
+	if eventScope := strings.TrimSpace(filter.EventScope); eventScope != "" {
+		query = query.Where("event_scope = ?", eventScope)
+	}
+	if eventType := strings.TrimSpace(filter.EventType); eventType != "" {
+		query = query.Where("event_type = ?", eventType)
+	}
+	if status := strings.TrimSpace(filter.Status); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if filter.CreatedFrom != nil {
+		query = query.Where("created_at >= ?", *filter.CreatedFrom)
+	}
+	if filter.CreatedTo != nil {
+		query = query.Where("created_at <= ?", *filter.CreatedTo)
+	}
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	order := "created_at DESC, id DESC"
+	switch strings.TrimSpace(filter.Sort) {
+	case "created_asc":
+		order = "created_at ASC, id ASC"
+	case "latency_desc":
+		order = "latency_ms DESC, id DESC"
+	case "seq_asc":
+		order = "run_id ASC, seq ASC, id ASC"
+	}
+	if err := query.
+		Order(order).
+		Offset(offset).
+		Limit(limit).
+		Find(&items).Error; err != nil {
+		return nil, 0, translateError(err)
+	}
+	return toConversationEventLogDomains(items), total, nil
 }
 
 // ListConversationRunsByRunIDs 按运行 ID 查询会话运行快照。
@@ -2232,6 +2490,60 @@ ORDER BY id ASC`
 		return nil, err
 	}
 	return toMessageDomains(path), nil
+}
+
+// ListMessageAncestorsUntil 从指定消息向上遍历 parent_message_id 链，直到命中 stopMessageID 或达到深度上限。
+func (r *Repo) ListMessageAncestorsUntil(ctx context.Context, conversationID uint, leafMessageID uint, stopMessageID uint, maxDepth int) ([]domainconversation.Message, bool, error) {
+	if maxDepth <= 0 {
+		maxDepth = 200
+	}
+	if leafMessageID == 0 || stopMessageID == 0 {
+		return nil, false, repository.ErrInvalidInput
+	}
+
+	const cteSQL = `
+WITH RECURSIVE ancestors AS (
+    SELECT *, 1 AS _depth
+    FROM chat_messages
+    WHERE id = ? AND conversation_id = ? AND deleted_at IS NULL
+    UNION ALL
+    SELECT m.*, a._depth + 1
+    FROM chat_messages m
+    INNER JOIN ancestors a ON m.id = a.parent_message_id
+    WHERE a.parent_message_id IS NOT NULL
+      AND a._depth < ?
+      AND a.id <> ?
+      AND m.conversation_id = ?
+      AND m.deleted_at IS NULL
+)
+SELECT id, conversation_id, user_id, public_id, parent_message_id, run_id,
+       role, content_type, content, branch_reason, source_message_id,
+       token_usage, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
+       latency_ms, billed_currency, billed_nanousd, pricing_snapshot,
+       status, error_code, error_message, is_compacted, edited_at,
+       created_at, updated_at, deleted_at
+FROM ancestors
+ORDER BY id ASC`
+
+	path := make([]models.Message, 0, maxDepth)
+	if err := r.db.WithContext(ctx).Raw(cteSQL, leafMessageID, conversationID, maxDepth, stopMessageID, conversationID).Scan(&path).Error; err != nil {
+		return nil, false, translateError(err)
+	}
+
+	found := false
+	for _, item := range path {
+		if item.ID == stopMessageID {
+			found = true
+			break
+		}
+	}
+	if err := r.hydrateMessageRefs(ctx, path); err != nil {
+		return nil, false, err
+	}
+	if err := r.hydrateMessageAttachments(ctx, path); err != nil {
+		return nil, false, err
+	}
+	return toMessageDomains(path), found, nil
 }
 
 // ListRecentMessages 查询会话最近消息窗口（按时间升序返回）。
@@ -2691,6 +3003,9 @@ func (r *Repo) DeleteFileObjectAndReleaseQuota(
 			if err := ensureFileObjectUnreferencedByActiveConversations(tx, userID, fileID); err != nil {
 				return err
 			}
+		}
+		if err := ensureFileObjectUnreferencedByUserAvatars(tx, fileID); err != nil {
+			return err
 		}
 
 		quota, err := getOrInitQuotaForUpdate(tx, userID, defaultQuotaBytes)
@@ -3785,6 +4100,43 @@ func toConversationRunDomains(items []models.ConversationRun) []domainconversati
 	return results
 }
 
+func toConversationEventLogDomains(items []models.ChatRunEvent) []domainconversation.EventLog {
+	results := make([]domainconversation.EventLog, 0, len(items))
+	for _, item := range items {
+		results = append(results, domainconversation.EventLog{
+			ID:              item.ID,
+			MessageID:       item.MessageID,
+			ConversationID:  item.ConversationID,
+			UserID:          item.UserID,
+			RunID:           item.RunID,
+			EventScope:      item.EventScope,
+			EventID:         item.EventID,
+			EventType:       item.EventType,
+			Phase:           item.Phase,
+			Stage:           item.Stage,
+			RoundID:         item.RoundID,
+			ParentEventID:   item.ParentEventID,
+			Status:          item.Status,
+			Title:           item.Title,
+			Summary:         item.Summary,
+			ContentMarkdown: item.ContentMarkdown,
+			PayloadJSON:     item.PayloadJSON,
+			Seq:             item.Seq,
+			ToolCallID:      item.ToolCallID,
+			ToolName:        item.ToolName,
+			LatencyMS:       item.LatencyMS,
+			InputJSON:       item.InputJSON,
+			OutputJSON:      item.OutputJSON,
+			ErrorJSON:       item.ErrorJSON,
+			StartedAt:       item.StartedAt,
+			EndedAt:         item.EndedAt,
+			CreatedAt:       item.CreatedAt,
+			UpdatedAt:       item.UpdatedAt,
+		})
+	}
+	return results
+}
+
 func toConversationRunModel(item *domainconversation.Run) models.ConversationRun {
 	if item == nil {
 		return models.ConversationRun{}
@@ -4040,19 +4392,23 @@ func toConversationToolCallModel(item *domainconversation.ToolCall) models.ChatR
 
 func toContextSnapshotDomain(item models.ChatContextRecord) domainconversation.ContextSnapshot {
 	return domainconversation.ContextSnapshot{
-		ID:             item.ID,
-		ConversationID: item.ConversationID,
-		MessageID:      item.MessageID,
-		UserID:         item.UserID,
-		RunID:          item.RunID,
-		FromTurn:       item.FromTurn,
-		ToTurn:         item.ToTurn,
-		SourceTokens:   item.SourceTokens,
-		SummaryTokens:  item.SummaryTokens,
-		SummaryText:    item.SummaryText,
-		Strategy:       item.Strategy,
-		CreatedAt:      item.CreatedAt,
-		UpdatedAt:      item.UpdatedAt,
+		ID:                    item.ID,
+		ConversationID:        item.ConversationID,
+		MessageID:             item.MessageID,
+		UserID:                item.UserID,
+		RunID:                 item.RunID,
+		FromTurn:              item.FromTurn,
+		ToTurn:                item.ToTurn,
+		CoveredUntilMessageID: item.CoveredUntilMessageID,
+		CoveredUntilPublicID:  item.CoveredUntilPublicID,
+		CoveragePathHash:      item.CoveragePathHash,
+		CoveredMessageCount:   item.CoveredMessageCount,
+		SourceTokens:          item.SourceTokens,
+		SummaryTokens:         item.SummaryTokens,
+		SummaryText:           item.SummaryText,
+		Strategy:              item.Strategy,
+		CreatedAt:             item.CreatedAt,
+		UpdatedAt:             item.UpdatedAt,
 	}
 }
 
@@ -4061,17 +4417,21 @@ func toContextSnapshotModel(item *domainconversation.ContextSnapshot) models.Cha
 		return models.ChatContextRecord{}
 	}
 	return models.ChatContextRecord{
-		RecordType:     chatContextRecordSnapshot,
-		ConversationID: item.ConversationID,
-		MessageID:      item.MessageID,
-		UserID:         item.UserID,
-		RunID:          item.RunID,
-		FromTurn:       item.FromTurn,
-		ToTurn:         item.ToTurn,
-		SourceTokens:   item.SourceTokens,
-		SummaryTokens:  item.SummaryTokens,
-		SummaryText:    item.SummaryText,
-		Strategy:       item.Strategy,
+		RecordType:            chatContextRecordSnapshot,
+		ConversationID:        item.ConversationID,
+		MessageID:             item.MessageID,
+		UserID:                item.UserID,
+		RunID:                 item.RunID,
+		FromTurn:              item.FromTurn,
+		ToTurn:                item.ToTurn,
+		CoveredUntilMessageID: item.CoveredUntilMessageID,
+		CoveredUntilPublicID:  item.CoveredUntilPublicID,
+		CoveragePathHash:      item.CoveragePathHash,
+		CoveredMessageCount:   item.CoveredMessageCount,
+		SourceTokens:          item.SourceTokens,
+		SummaryTokens:         item.SummaryTokens,
+		SummaryText:           item.SummaryText,
+		Strategy:              item.Strategy,
 	}
 }
 

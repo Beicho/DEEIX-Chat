@@ -1,14 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { motion, useReducedMotion } from "motion/react";
-import { ArrowDownToLine, ChevronDown, ChevronUp, Copy, Loader2, Quote, Search, X } from "lucide-react";
+import { ArrowDownToLine, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { toast } from "sonner";
 
 import { ChatLabel } from "@/features/chat/components/sections/chat-label";
+import { useChatMessageFeedback } from "@/features/chat/hooks/use-chat-message-feedback";
 import { useMessageBookmark } from "@/features/chat/hooks/use-message-bookmark";
-import { useMessageFeedback } from "@/features/chat/hooks/use-message-feedback";
+import { useMessageSpeech } from "@/features/chat/hooks/use-message-speech";
 import {
   AssistantMessageSkeleton,
   ChatInlineAlertCard,
@@ -18,21 +17,28 @@ import { areChatAreaMessagesRenderEqual } from "@/features/chat/model/chat-messa
 import { type AssistantReaction } from "@/features/chat/components/message/message-meta";
 import type { ChatAreaMessage, MessageAttachment } from "@/features/chat/types/messages";
 import { ChatMessageUser } from "@/features/chat/components/message/message-user";
-import { StreamdownRender } from "@/features/chat/components/markdown/streamdown-render";
+import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 import type { OpenCodeArtifactInput } from "@/features/chat/model/chat-artifacts";
 import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ConversationShareExportIconDropdown } from "@/shared/components/conversation-share-export-menu";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
-import { useMessageSpeech } from "@/features/chat/hooks/use-message-speech";
+import { ChatScreenshotSelectionBar } from "@/features/chat/components/sections/chat-screenshot-selection-bar";
+import { useCopyAction } from "@/shared/components/copy-action";
 import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
+import type { BillingDisplayCurrency } from "@/shared/lib/billing-display";
 import {
-  findConversationMatches,
-  nextConversationMatchIndex,
-} from "@/features/chat/model/conversation-find-utils";
-import { writeClipboardText } from "@/shared/lib/clipboard";
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller";
+import {
+  ChatMessagePositionRail,
+  chatMessageScrollerID,
+} from "@/features/chat/components/sections/chat-message-position-rail";
 import { cn } from "@/lib/utils";
 
 function CompactDivider({ summaryPreview }: { summaryPreview: string }) {
@@ -44,7 +50,7 @@ function CompactDivider({ summaryPreview }: { summaryPreview: string }) {
         <div className="h-px flex-1 bg-border/50" />
         <button
           type="button"
-          className="relative shrink-0 cursor-pointer text-[11px] text-muted-foreground/60 hover:text-muted-foreground after:absolute after:-inset-y-2 after:inset-x-0 after:content-[''] md:after:hidden"
+          className="shrink-0 cursor-pointer text-[11px] text-muted-foreground/60 hover:text-muted-foreground"
           onClick={() => setExpanded((v) => !v)}
         >
           {t("contextCompressed")}
@@ -60,43 +66,30 @@ function CompactDivider({ summaryPreview }: { summaryPreview: string }) {
   );
 }
 
-const MESSAGE_SWITCH_TRANSITION = {
-  layout: {
-    duration: 0.22,
-    ease: [0.16, 1, 0.3, 1] as const,
-  },
-  opacity: {
-    duration: 0.16,
-    ease: "easeOut" as const,
-  },
-};
-
 type ChatAreaProps = {
   title: string;
   starred: boolean;
   canOperateConversation: boolean;
   messages: ChatAreaMessage[];
   busy: boolean;
-  messageViewportRef: React.RefObject<HTMLDivElement | null>;
   messageContentRef: React.RefObject<HTMLDivElement | null>;
-  messageEndRef: React.RefObject<HTMLDivElement | null>;
-  onScroll: () => void;
-  onScrollToLatest: () => void;
-  showScrollToLatestButton: boolean;
-  hasOlderMessages?: boolean;
-  loadingOlderMessages?: boolean;
-  onLoadOlderMessages?: () => boolean | Promise<boolean>;
+  onScroll: (event: React.UIEvent<HTMLDivElement>) => void;
   onRetryUserMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onRetryAssistantMessage: (message: ChatAreaMessage, platformModelName?: string) => Promise<void> | void;
   onContinueAssistantMessage?: (message: ChatAreaMessage) => Promise<void> | void;
   onDeleteMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
+  modelOptions: ChatModelOption[];
+  selectedPlatformModelName: string;
+  onModelChange: (platformModelName: string) => void;
+  onModelCatalogRefresh?: () => void | Promise<void>;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onOpenCodeArtifact?: (message: ChatAreaMessage, artifact: OpenCodeArtifactInput) => void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onToggleStar?: () => void | Promise<void>;
   onRename?: (title: string) => void | Promise<void>;
+  onAutoRename?: () => void | Promise<void>;
   projectMenu?: React.ComponentProps<typeof ChatLabel>["projectMenu"];
   onShare?: () => void;
   shareActive?: boolean;
@@ -107,21 +100,116 @@ type ChatAreaProps = {
   onDelete?: () => void | Promise<void>;
   onQuoteSelection?: (text: string) => void;
   readOnly?: boolean;
-  modelOptions?: ChatModelOption[];
-  selectedPlatformModelName?: string;
   markdownRender?: boolean;
   showModelInfo?: boolean;
   showLatency?: boolean;
   showTokenUsage?: boolean;
   showBillingCost?: boolean;
+  billingDisplayCurrency?: BillingDisplayCurrency;
+  billingDisplayUsdToCnyRate?: number | null;
   splitRightInset?: boolean;
+  contentWidthClassName?: string;
+  onScreenshotFull?: () => void;
+  onScreenshotSelect?: () => void;
+  screenshot?: {
+    selectionMode: boolean;
+    selectedIDs: Set<string>;
+    selectedCount: number;
+    capturing: boolean;
+    onToggleSelection: (publicID: string) => void;
+    onSelectAll: (publicIDs: string[]) => void;
+    onClearSelection: () => void;
+    onPruneSelection: (publicIDs: string[]) => void;
+    onCapture: () => void;
+    onExit: () => void;
+  };
 };
 
-type SelectionToolbarState = {
-  text: string;
-  top: number;
-  left: number;
+type ScreenshotTimestampValues = {
+  year: number;
+  month: number;
+  day: number;
+  time: string;
 };
+
+type ScreenshotTimestampFormatter = (
+  key: "todayTime" | "thisYearDateTime" | "fullDateTime",
+  values: ScreenshotTimestampValues,
+) => string;
+
+function formatScreenshotMessageTimestamp(
+  value: string | undefined,
+  formatLabel: ScreenshotTimestampFormatter,
+) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const time = [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
+  const values = { year, month, day, time };
+
+  return formatLabel("fullDateTime", values);
+}
+
+function ChatScreenshotMessageMeta({
+  align,
+  modelName,
+  timestamp,
+}: {
+  align: "start" | "end";
+  modelName: string;
+  timestamp: string;
+}) {
+  if (!modelName && !timestamp) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        "chat-screenshot-meta mt-1.5 hidden min-w-0 flex-wrap items-center gap-1 text-[10px] leading-3.5 text-muted-foreground/70",
+        align === "end" ? "justify-end" : "justify-start",
+      )}
+      data-screenshot-only="true"
+    >
+      {modelName ? (
+        <span className="inline-flex max-w-48 items-center truncate rounded bg-muted/30 px-1.5 py-0.5 font-mono">
+          {modelName}
+        </span>
+      ) : null}
+      {timestamp ? (
+        <span className="inline-flex items-center rounded bg-muted/30 px-1.5 py-0.5 tabular-nums">
+          {timestamp}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function ChatScreenshotBrandMark({ placement }: { placement: "top" | "bottom" }) {
+  return (
+    <div
+      className={cn(
+        "chat-screenshot-brand hidden items-center border-border/50",
+        placement === "top" ? "mb-3 justify-start border-b pb-2" : "mt-1.5 justify-center border-t pt-2",
+      )}
+      data-screenshot-only="true"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo.svg" alt="DEEIX Chat" className="h-5 w-auto opacity-75" />
+    </div>
+  );
+}
 
 function useStableEvent<Args extends unknown[], Return>(callback: (...args: Args) => Return) {
   const callbackRef = React.useRef(callback);
@@ -130,141 +218,6 @@ function useStableEvent<Args extends unknown[], Return>(callback: (...args: Args
   }, [callback]);
 
   return React.useCallback((...args: Args) => callbackRef.current(...args), []);
-}
-
-function ConversationFindBar({
-  query,
-  matchCount,
-  activeIndex,
-  hasOlderMessages,
-  loadingOlderMessages,
-  onQueryChange,
-  onStep,
-  onLoadOlder,
-  onClose,
-}: {
-  query: string;
-  matchCount: number;
-  activeIndex: number;
-  hasOlderMessages: boolean;
-  loadingOlderMessages: boolean;
-  onQueryChange: (query: string) => void;
-  onStep: (direction: "previous" | "next") => void;
-  onLoadOlder: () => void;
-  onClose: () => void;
-}) {
-  const t = useTranslations("chat.find");
-  const trimmedQuery = query.trim();
-  const countLabel = trimmedQuery
-    ? matchCount > 0 && activeIndex >= 0
-      ? t("matchCount", { current: activeIndex + 1, total: matchCount })
-      : t("noMatches")
-    : t("idle");
-
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-1 rounded-xl border border-border/70 bg-background/95 p-1 shadow-xs">
-      <Search className="ml-2 size-4 shrink-0 text-muted-foreground" strokeWidth={1.8} />
-      <Input
-        value={query}
-        placeholder={t("placeholder")}
-        className="h-8 border-0 px-1 shadow-none focus-visible:ring-0"
-        autoFocus
-        onChange={(event) => onQueryChange(event.target.value)}
-      />
-      <span className="hidden shrink-0 px-1 text-[11px] text-muted-foreground sm:inline">
-        {countLabel}
-      </span>
-      {hasOlderMessages ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 px-2"
-          disabled={loadingOlderMessages}
-          onClick={onLoadOlder}
-        >
-          {loadingOlderMessages ? <Loader2 className="size-3.5 animate-spin" /> : null}
-          <span className="hidden sm:inline">{t("loadOlder")}</span>
-          <span className="sm:hidden">{t("loadOlderShort")}</span>
-        </Button>
-      ) : null}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-8"
-        disabled={matchCount === 0}
-        aria-label={t("previous")}
-        onClick={() => onStep("previous")}
-      >
-        <ChevronUp className="size-4" strokeWidth={1.8} />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-8"
-        disabled={matchCount === 0}
-        aria-label={t("next")}
-        onClick={() => onStep("next")}
-      >
-        <ChevronDown className="size-4" strokeWidth={1.8} />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="size-8"
-        aria-label={t("close")}
-        onClick={onClose}
-      >
-        <X className="size-4" strokeWidth={1.8} />
-      </Button>
-    </div>
-  );
-}
-
-function SelectionQuoteToolbar({
-  state,
-  onQuote,
-  onCopy,
-}: {
-  state: SelectionToolbarState;
-  onQuote: () => void;
-  onCopy: () => void;
-}) {
-  const t = useTranslations("chat.selection");
-
-  return (
-    <div
-      data-selection-toolbar="true"
-      className="fixed z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border/70 bg-popover p-1 text-popover-foreground shadow-lg"
-      style={{ top: state.top, left: state.left }}
-      onMouseDown={(event) => event.preventDefault()}
-      onTouchStart={(event) => event.preventDefault()}
-    >
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="relative h-8 rounded-full px-3 text-xs after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-[''] md:after:hidden"
-        onClick={onQuote}
-      >
-        <Quote className="size-3.5" strokeWidth={1.8} />
-        {t("quote")}
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="relative h-8 rounded-full px-3 text-xs after:absolute after:-inset-y-1.5 after:inset-x-0 after:content-[''] md:after:hidden"
-        onClick={onCopy}
-      >
-        <Copy className="size-3.5" strokeWidth={1.8} />
-        {t("copy")}
-      </Button>
-    </div>
-  );
 }
 
 const ChatMessageRow = React.memo(function ChatMessageRow({
@@ -278,6 +231,10 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onDeleteMessage,
   onEditAssistantMessage,
   onEditUserMessage,
+  modelOptions,
+  selectedPlatformModelName,
+  onModelChange,
+  onModelCatalogRefresh,
   onEditImageAttachment,
   onCycleMessageBranch,
   onReactAssistantMessage,
@@ -287,14 +244,18 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   speechPaused,
   speechSupported,
   onToggleMessageSpeech,
-  retryModelOptions,
-  selectedPlatformModelName,
   markdownRender,
   showModelInfo,
   showLatency,
   showTokenUsage,
   showBillingCost,
+  billingDisplayCurrency,
+  billingDisplayUsdToCnyRate,
+  contentWidthClassName,
   readOnly,
+  screenshotMetaAlign,
+  screenshotMetaModelName,
+  screenshotMetaTimestamp,
 }: {
   item: ChatAreaMessage;
   busy: boolean;
@@ -306,6 +267,10 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   onDeleteMessage: (message: ChatAreaMessage) => Promise<void> | void;
   onEditAssistantMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
   onEditUserMessage: (message: ChatAreaMessage, content: string) => Promise<boolean> | boolean;
+  modelOptions: ChatModelOption[];
+  selectedPlatformModelName: string;
+  onModelChange: (platformModelName: string) => void;
+  onModelCatalogRefresh?: () => void | Promise<void>;
   onEditImageAttachment?: (attachment: MessageAttachment, sourceModelName?: string) => void;
   onCycleMessageBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
   onReactAssistantMessage: (publicID: string, reaction: AssistantReaction) => void;
@@ -315,16 +280,35 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   speechPaused: boolean;
   speechSupported: boolean;
   onToggleMessageSpeech: (message: ChatAreaMessage) => void;
-  retryModelOptions: ChatModelOption[];
-  selectedPlatformModelName: string;
   markdownRender: boolean;
   showModelInfo: boolean;
   showLatency: boolean;
   showTokenUsage: boolean;
   showBillingCost: boolean;
+  billingDisplayCurrency: BillingDisplayCurrency;
+  billingDisplayUsdToCnyRate: number | null;
+  contentWidthClassName: string;
   readOnly: boolean;
+  screenshotMetaAlign: "start" | "end";
+  screenshotMetaModelName: string;
+  screenshotMetaTimestamp: string;
 }) {
+  const screenshotMeta = (
+    <ChatScreenshotMessageMeta
+      align={screenshotMetaAlign}
+      modelName={screenshotMetaModelName}
+      timestamp={screenshotMetaTimestamp}
+    />
+  );
+
   const t = useTranslations("chat.messages");
+  const { copy, isCopied } = useCopyAction({
+    messages: {
+      copied: t("copied"),
+      failed: t("copyFailed"),
+      failedDescription: t("copyFailedDescription"),
+    },
+  });
   const isUser = item.role === "user";
   const isAssistant = item.role === "assistant";
   const artifactActions = React.useMemo(
@@ -337,14 +321,10 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
     [isAssistant, item, onOpenCodeArtifact],
   );
 
+  const copyKey = item.publicID || item.key;
   const onCopy = React.useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(item.content);
-      toast.success(t("copied"));
-    } catch {
-      toast.error(t("copyFailed"), { description: t("copyFailedDescription") });
-    }
-  }, [item.content, t]);
+    await copy(item.content, { key: copyKey });
+  }, [copy, copyKey, item.content]);
 
   if (isUser) {
     return (
@@ -354,11 +334,17 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onRetryUserMessage={onRetryUserMessage}
         onDeleteMessage={() => onDeleteMessage(item)}
         onEditUserMessage={onEditUserMessage}
+        modelOptions={modelOptions}
+        selectedPlatformModelName={selectedPlatformModelName}
+        onModelChange={onModelChange}
+        onModelCatalogRefresh={onModelCatalogRefresh}
         onCycleMessageBranch={onCycleMessageBranch}
         onCopy={() => void onCopy()}
         bookmarked={bookmarked}
         onToggleBookmark={() => onToggleMessageBookmark(item.publicID)}
+        copySucceeded={isCopied(copyKey)}
         readOnly={readOnly}
+        screenshotMeta={screenshotMeta}
       />
     );
   }
@@ -378,20 +364,25 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onCopy={() => void onCopy()}
         bookmarked={bookmarked}
         onToggleBookmark={() => onToggleMessageBookmark(item.publicID)}
+        copySucceeded={isCopied(copyKey)}
         onEditImageAttachment={onEditImageAttachment}
         artifactActions={artifactActions}
-        speechSupported={speechSupported}
-        speechActive={activeSpeechMessageKey === item.key}
-        speechPaused={speechPaused}
-        onToggleSpeech={() => onToggleMessageSpeech(item)}
-        retryModelOptions={retryModelOptions}
-        selectedPlatformModelName={selectedPlatformModelName}
         markdownRender={markdownRender}
         showModelInfo={showModelInfo}
         showLatency={showLatency}
         showTokenUsage={showTokenUsage}
         showBillingCost={showBillingCost}
+        billingDisplayCurrency={billingDisplayCurrency}
+        billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
+        contentWidthClassName={contentWidthClassName}
+        speechSupported={speechSupported}
+        speechActive={activeSpeechMessageKey === item.key}
+        speechPaused={speechPaused}
+        onToggleSpeech={() => onToggleMessageSpeech(item)}
+        retryModelOptions={modelOptions}
+        selectedPlatformModelName={selectedPlatformModelName}
         readOnly={readOnly}
+        screenshotMeta={screenshotMeta}
       />
     );
   }
@@ -406,21 +397,32 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
       {item.inlineAlert ? (
         <ChatInlineAlertCard alert={item.inlineAlert} className={item.content.trim() ? "my-4" : "mb-4"} />
       ) : null}
+      {screenshotMeta}
     </div>
   );
 }, (previous, next) => (
   previous.busy === next.busy &&
   previous.reaction === next.reaction &&
+  previous.bookmarked === next.bookmarked &&
+  previous.activeSpeechMessageKey === next.activeSpeechMessageKey &&
+  previous.speechPaused === next.speechPaused &&
+  previous.speechSupported === next.speechSupported &&
+  previous.readOnly === next.readOnly &&
   previous.markdownRender === next.markdownRender &&
   previous.showModelInfo === next.showModelInfo &&
   previous.showLatency === next.showLatency &&
   previous.showTokenUsage === next.showTokenUsage &&
   previous.showBillingCost === next.showBillingCost &&
-  previous.activeSpeechMessageKey === next.activeSpeechMessageKey &&
-  previous.speechPaused === next.speechPaused &&
-  previous.speechSupported === next.speechSupported &&
-  previous.retryModelOptions === next.retryModelOptions &&
+  previous.billingDisplayCurrency === next.billingDisplayCurrency &&
+  previous.billingDisplayUsdToCnyRate === next.billingDisplayUsdToCnyRate &&
+  previous.contentWidthClassName === next.contentWidthClassName &&
+  previous.screenshotMetaAlign === next.screenshotMetaAlign &&
+  previous.screenshotMetaModelName === next.screenshotMetaModelName &&
+  previous.screenshotMetaTimestamp === next.screenshotMetaTimestamp &&
+  previous.modelOptions === next.modelOptions &&
   previous.selectedPlatformModelName === next.selectedPlatformModelName &&
+  previous.onModelChange === next.onModelChange &&
+  previous.onModelCatalogRefresh === next.onModelCatalogRefresh &&
   previous.onEditImageAttachment === next.onEditImageAttachment &&
   previous.onOpenCodeArtifact === next.onOpenCodeArtifact &&
   areChatAreaMessagesRenderEqual(previous.item, next.item)
@@ -432,26 +434,24 @@ export function ChatArea({
   canOperateConversation,
   messages,
   busy,
-  messageViewportRef,
   messageContentRef,
-  messageEndRef,
   onScroll,
-  onScrollToLatest,
-  showScrollToLatestButton,
-  hasOlderMessages = false,
-  loadingOlderMessages = false,
-  onLoadOlderMessages,
   onRetryUserMessage,
   onRetryAssistantMessage,
   onContinueAssistantMessage,
   onDeleteMessage,
   onEditAssistantMessage,
   onEditUserMessage,
+  modelOptions,
+  selectedPlatformModelName,
+  onModelChange,
+  onModelCatalogRefresh,
   onEditImageAttachment,
   onOpenCodeArtifact,
   onCycleMessageBranch,
   onToggleStar,
   onRename,
+  onAutoRename,
   projectMenu,
   onShare,
   shareActive = false,
@@ -460,331 +460,303 @@ export function ChatArea({
   onExportImage,
   onCopyMarkdown,
   onDelete,
-  onQuoteSelection,
   readOnly = false,
-  modelOptions = [],
-  selectedPlatformModelName = "",
   markdownRender = true,
   showModelInfo = true,
   showLatency = true,
   showTokenUsage = true,
   showBillingCost = false,
+  billingDisplayCurrency = "USD",
+  billingDisplayUsdToCnyRate = null,
   splitRightInset = false,
+  contentWidthClassName = "max-w-[1080px]",
+  onScreenshotFull,
+  onScreenshotSelect,
+  screenshot,
 }: ChatAreaProps) {
   const t = useTranslations("chat");
-  const tSelection = useTranslations("chat.selection");
   const { locale } = useAppLocale();
-  const { getReaction, onReactAssistantMessage } = useMessageFeedback(messages);
+  const { getReaction, onReactAssistantMessage } = useChatMessageFeedback(messages);
   const { getBookmarked, onToggleMessageBookmark } = useMessageBookmark(messages);
   const messageSpeech = useMessageSpeech(locale);
   const stableOnRetryUserMessage = useStableEvent(onRetryUserMessage);
   const stableOnRetryAssistantMessage = useStableEvent(onRetryAssistantMessage);
   const stableOnContinueAssistantMessage = useStableEvent(onContinueAssistantMessage ?? (() => undefined));
-  const stableOnDeleteMessage = useStableEvent(onDeleteMessage);
   const stableOnEditAssistantMessage = useStableEvent(onEditAssistantMessage);
   const stableOnEditUserMessage = useStableEvent(onEditUserMessage);
+  const stableOnModelChange = useStableEvent(onModelChange);
+  const stableOnModelCatalogRefresh = useStableEvent(onModelCatalogRefresh ?? (() => undefined));
   const stableOnEditImageAttachment = useStableEvent((attachment: MessageAttachment, sourceModelName?: string) => {
     onEditImageAttachment?.(attachment, sourceModelName);
   });
   const stableOnCycleMessageBranch = useStableEvent(onCycleMessageBranch);
   const stableOnReactAssistantMessage = useStableEvent(onReactAssistantMessage);
   const stableOnToggleMessageBookmark = useStableEvent(onToggleMessageBookmark);
+  const stableOnToggleMessageSpeech = useStableEvent((message: ChatAreaMessage) => messageSpeech.toggleMessageSpeech(message));
   const editImageAttachmentHandler = onEditImageAttachment ? stableOnEditImageAttachment : undefined;
   const shareLabel = shareActive ? t("manageShare") : t("shareConversation");
   const shareExportLabel = t("labelMenu.shareAndExport");
-  const prefersReducedMotion = useReducedMotion();
-  const [findOpen, setFindOpen] = React.useState(false);
-  const [findQuery, setFindQuery] = React.useState("");
-  const [activeFindIndex, setActiveFindIndex] = React.useState(-1);
-  const [selectionToolbar, setSelectionToolbar] = React.useState<SelectionToolbarState | null>(null);
-  const findMatches = React.useMemo(
-    () => findConversationMatches(messages.map((item) => ({ key: item.key, content: item.content })), findQuery),
-    [findQuery, messages],
+  const tScreenshot = useTranslations("chat.screenshot");
+  const timeT = useTranslations("common.time");
+  const selectableMessagePublicIDs = React.useMemo(
+    () =>
+      messages
+        .filter((item) => !item.isPending && Boolean(item.publicID?.trim()))
+        .map((item) => item.publicID.trim()),
+    [messages],
   );
-  const activeFindMatch = activeFindIndex >= 0 ? findMatches[activeFindIndex] : undefined;
-
+  const selectionMode = screenshot?.selectionMode ?? false;
+  const onSelectAllMessages = React.useCallback(() => {
+    screenshot?.onSelectAll(selectableMessagePublicIDs);
+  }, [screenshot, selectableMessagePublicIDs]);
+  const pruneScreenshotSelection = screenshot?.onPruneSelection;
   React.useEffect(() => {
-    setActiveFindIndex(findMatches.length > 0 ? 0 : -1);
-  }, [findMatches.length, findQuery]);
-
-  React.useEffect(() => {
-    if (!activeFindMatch || !messageContentRef.current) {
+    if (!selectionMode) {
       return;
     }
-    const selector = `[data-chat-message-key="${CSS.escape(activeFindMatch.messageKey)}"]`;
-    const target = messageContentRef.current.querySelector<HTMLElement>(selector);
-    target?.scrollIntoView({ block: "center", behavior: prefersReducedMotion ? "auto" : "smooth" });
-  }, [activeFindMatch, messageContentRef, prefersReducedMotion]);
-
-  const stepFindMatch = React.useCallback(
-    (direction: "previous" | "next") => {
-      setActiveFindIndex((current) => nextConversationMatchIndex(current, findMatches.length, direction));
-    },
-    [findMatches.length],
+    pruneScreenshotSelection?.(selectableMessagePublicIDs);
+  }, [pruneScreenshotSelection, selectableMessagePublicIDs, selectionMode]);
+  const hasLiveMessage = React.useMemo(
+    () => messages.some((item) => item.isPending || item.isStreaming),
+    [messages],
   );
-  const loadOlderForFind = React.useCallback(() => {
-    void onLoadOlderMessages?.();
-  }, [onLoadOlderMessages]);
-
-  const updateSelectionToolbar = React.useCallback(() => {
-    if (typeof window === "undefined") {
-      return;
+  const messageViewportBoundaryRef = React.useRef<HTMLDivElement | null>(null);
+  const liveAnchorMessageKey = React.useMemo(() => {
+    if (!hasLiveMessage) {
+      return "";
     }
-    const root = messageContentRef.current;
-    const selection = window.getSelection();
-    if (!root || !selection || selection.isCollapsed || selection.rangeCount === 0) {
-      setSelectionToolbar(null);
-      return;
+    const liveMessageIndex = messages.findIndex((item) => item.isPending || item.isStreaming);
+    for (let index = liveMessageIndex - 1; index >= 0; index -= 1) {
+      const item = messages[index];
+      if (item?.role === "user") {
+        return item.key;
+      }
     }
-
-    const selectedText = selection.toString().trim();
-    const range = selection.getRangeAt(0);
-    const container =
-      range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-        ? range.commonAncestorContainer
-        : range.commonAncestorContainer.parentElement;
-    if (!selectedText || !(container instanceof Node) || !root.contains(container)) {
-      setSelectionToolbar(null);
-      return;
-    }
-
-    const rect = range.getBoundingClientRect();
-    if (!rect.width && !rect.height) {
-      setSelectionToolbar(null);
-      return;
-    }
-
-    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-    const centerX = rect.left + rect.width / 2;
-    setSelectionToolbar({
-      text: selectedText,
-      left: Math.min(Math.max(centerX, 96), Math.max(viewportWidth - 96, 96)),
-      top: Math.max(rect.top - 52, 8),
-    });
-  }, [messageContentRef]);
-
-  const scheduleSelectionToolbarUpdate = React.useCallback(() => {
-    window.setTimeout(updateSelectionToolbar, 0);
-  }, [updateSelectionToolbar]);
-
-  const quoteSelection = React.useCallback(() => {
-    if (!selectionToolbar) {
-      return;
-    }
-    onQuoteSelection?.(selectionToolbar.text);
-    setSelectionToolbar(null);
-    window.getSelection()?.removeAllRanges();
-  }, [onQuoteSelection, selectionToolbar]);
-
-  const copySelection = React.useCallback(async () => {
-    if (!selectionToolbar) {
-      return;
-    }
-    try {
-      await writeClipboardText(selectionToolbar.text);
-      toast.success(tSelection("copied"));
-      setSelectionToolbar(null);
-    } catch {
-      toast.error(tSelection("copyFailed"));
-    }
-  }, [selectionToolbar, tSelection]);
+    return "";
+  }, [hasLiveMessage, messages]);
 
   return (
     <>
       <div className={cn("px-3 py-2.5 md:pl-0", splitRightInset ? "md:pr-4" : "md:pr-0")}>
         <div className="flex w-full items-center justify-between gap-3">
-          {findOpen ? (
-            <ConversationFindBar
-              query={findQuery}
-              matchCount={findMatches.length}
-              activeIndex={activeFindIndex}
-              hasOlderMessages={hasOlderMessages}
-              loadingOlderMessages={loadingOlderMessages}
-              onQueryChange={setFindQuery}
-              onStep={stepFindMatch}
-              onLoadOlder={loadOlderForFind}
-              onClose={() => {
-                setFindOpen(false);
-                setFindQuery("");
-              }}
+          <ChatLabel
+            title={title}
+            starred={starred}
+            onToggleStar={canOperateConversation ? onToggleStar : undefined}
+            onRename={canOperateConversation ? onRename : undefined}
+            onAutoRename={canOperateConversation ? onAutoRename : undefined}
+            projectMenu={canOperateConversation ? projectMenu : undefined}
+            onShare={canOperateConversation ? onShare : undefined}
+            shareActive={shareActive}
+            onExport={canOperateConversation ? onExport : undefined}
+            onExportMarkdown={canOperateConversation ? onExportMarkdown : undefined}
+            onExportImage={canOperateConversation ? onExportImage : undefined}
+            onCopyMarkdown={canOperateConversation ? onCopyMarkdown : undefined}
+            onDelete={canOperateConversation ? onDelete : undefined}
+            screenshotFullLabel={tScreenshot("captureFull")}
+            screenshotSelectLabel={tScreenshot("captureSelect")}
+            onScreenshotFull={onScreenshotFull}
+            onScreenshotSelect={onScreenshotSelect}
+          />
+          {canOperateConversation ? (
+            <ConversationShareExportIconDropdown
+              label={shareExportLabel}
+              shareLabel={shareLabel}
+              exportLabel={t("labelMenu.exportJSON")}
+              active={shareActive}
+              onShare={onShare}
+              onExport={onExport}
+              exportMarkdownLabel={t("labelMenu.exportMarkdown")}
+              exportImageLabel={t("labelMenu.exportImage")}
+              copyMarkdownLabel={t("labelMenu.copyMarkdown")}
+              onExportMarkdown={onExportMarkdown}
+              onExportImage={onExportImage}
+              onCopyMarkdown={onCopyMarkdown}
+              screenshotFullLabel={tScreenshot("captureFull")}
+              screenshotSelectLabel={tScreenshot("captureSelect")}
+              onScreenshotFull={onScreenshotFull}
+              onScreenshotSelect={onScreenshotSelect}
             />
-          ) : (
-            <>
-              <ChatLabel
-                title={title}
-                starred={starred}
-                onToggleStar={canOperateConversation ? onToggleStar : undefined}
-                onRename={canOperateConversation ? onRename : undefined}
-                projectMenu={canOperateConversation ? projectMenu : undefined}
-                onShare={canOperateConversation ? onShare : undefined}
-                shareActive={shareActive}
-                onExport={canOperateConversation ? onExport : undefined}
-                onExportMarkdown={canOperateConversation ? onExportMarkdown : undefined}
-                onExportImage={canOperateConversation ? onExportImage : undefined}
-                onCopyMarkdown={canOperateConversation ? onCopyMarkdown : undefined}
-                onDelete={canOperateConversation ? onDelete : undefined}
-              />
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="relative size-8 rounded-full after:absolute after:-inset-1.5 after:content-[''] md:after:hidden"
-                  aria-label={t("find.open")}
-                  onClick={() => setFindOpen(true)}
-                >
-                  <Search className="size-4" strokeWidth={1.8} />
-                </Button>
-                {canOperateConversation ? (
-                  <ConversationShareExportIconDropdown
-                    label={shareExportLabel}
-                    shareLabel={shareLabel}
-                    exportLabel={t("labelMenu.exportJSON")}
-                    exportMarkdownLabel={t("labelMenu.exportMarkdown")}
-                    exportImageLabel={t("labelMenu.exportImage")}
-                    copyMarkdownLabel={t("labelMenu.copyMarkdown")}
-                    active={shareActive}
-                    onShare={onShare}
-                    onExport={onExport}
-                    onExportMarkdown={onExportMarkdown}
-                    onExportImage={onExportImage}
-                    onCopyMarkdown={onCopyMarkdown}
-                  />
-                ) : null}
-              </div>
-            </>
-          )}
+          ) : null}
         </div>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
-        <div
-          ref={messageViewportRef}
-          className="h-full min-h-0 overflow-y-auto px-3 pb-8 pt-2 [overflow-anchor:none] md:px-6"
-          aria-busy={busy}
-          aria-live="polite"
-          aria-relevant="additions text"
-          role="log"
-          onScroll={onScroll}
-          onKeyUp={scheduleSelectionToolbarUpdate}
-          onMouseUp={scheduleSelectionToolbarUpdate}
-          onTouchEnd={scheduleSelectionToolbarUpdate}
-        >
-          <div
-            ref={messageContentRef}
-            className="mx-auto w-full max-w-[760px]"
-            style={{ fontFamily: "var(--font-chat)", fontWeight: "var(--font-chat-weight)" }}
-          >
-            {messages.map((item, index) => {
-              const previousItem = index > 0 ? messages[index - 1] : null;
-              const spacingClass =
-                !previousItem
-                  ? ""
-                  : previousItem.role === "assistant" && item.role === "user"
-                    ? "mt-6 md:mt-12"
-                    : "mt-4";
-              const shouldAnimateLayout = !prefersReducedMotion && !item.isPending && !item.isStreaming;
-
-              const row = (
-                <ChatMessageRow
-                  item={item}
-                  busy={busy}
-                  reaction={getReaction(item)}
-                  bookmarked={getBookmarked(item)}
-                  onRetryUserMessage={stableOnRetryUserMessage}
-                  onRetryAssistantMessage={stableOnRetryAssistantMessage}
-                  onContinueAssistantMessage={onContinueAssistantMessage ? stableOnContinueAssistantMessage : undefined}
-                  onDeleteMessage={stableOnDeleteMessage}
-                  onEditAssistantMessage={stableOnEditAssistantMessage}
-                  onEditUserMessage={stableOnEditUserMessage}
-                  onEditImageAttachment={editImageAttachmentHandler}
-                  onCycleMessageBranch={stableOnCycleMessageBranch}
-                  onReactAssistantMessage={stableOnReactAssistantMessage}
-                  onToggleMessageBookmark={stableOnToggleMessageBookmark}
-                  onOpenCodeArtifact={onOpenCodeArtifact}
-                  activeSpeechMessageKey={messageSpeech.activeMessageKey}
-                  speechPaused={messageSpeech.paused}
-                  speechSupported={messageSpeech.supported}
-                  onToggleMessageSpeech={messageSpeech.toggleMessageSpeech}
-                  retryModelOptions={modelOptions}
-                  selectedPlatformModelName={selectedPlatformModelName}
-                  markdownRender={markdownRender}
-                  showModelInfo={showModelInfo}
-                  showLatency={showLatency}
-                  showTokenUsage={showTokenUsage}
-                  showBillingCost={showBillingCost}
-                  readOnly={readOnly}
-                />
-              );
-
-              const compactDivider = item.compactDone ? (
-                <CompactDivider summaryPreview={item.compactDone.summary_preview} />
-              ) : null;
-
-              if (!shouldAnimateLayout) {
-                return (
-                  <div
-                    key={item.key}
-                    data-chat-message-key={item.key}
-                    data-find-active={activeFindMatch?.messageKey === item.key ? "true" : undefined}
-                    className={cn(
-                      spacingClass,
-                      "rounded-xl [contain-intrinsic-size:1px_180px] [content-visibility:auto] transition-[background-color,box-shadow] duration-200 data-[find-active=true]:bg-primary/5 data-[find-active=true]:ring-2 data-[find-active=true]:ring-primary/20",
-                    )}
-                  >
-                    {compactDivider}
-                    {row}
-                  </div>
-                );
-              }
-
-              return (
-                <motion.div
-                  key={item.key}
-                  data-chat-message-key={item.key}
-                  data-find-active={activeFindMatch?.messageKey === item.key ? "true" : undefined}
-                  layout="position"
-                  className={cn(
-                    spacingClass,
-                    "rounded-xl [contain-intrinsic-size:1px_180px] [content-visibility:auto] transition-[background-color,box-shadow] duration-200 data-[find-active=true]:bg-primary/5 data-[find-active=true]:ring-2 data-[find-active=true]:ring-primary/20",
-                  )}
-                  transition={MESSAGE_SWITCH_TRANSITION}
-                  style={{ willChange: "transform" }}
-                >
-                  {compactDivider}
-                  {row}
-                </motion.div>
-              );
-            })}
-            <div ref={messageEndRef} aria-hidden="true" className="h-px" />
+      {selectionMode && screenshot ? (
+        <div className={cn("px-3 pb-1 md:px-6")} data-screenshot-exclude="true">
+          <div className={cn("mx-auto w-full", contentWidthClassName)}>
+            <ChatScreenshotSelectionBar
+              selectedCount={screenshot.selectedCount}
+              totalCount={selectableMessagePublicIDs.length}
+              capturing={screenshot.capturing}
+              onSelectAll={onSelectAllMessages}
+              onClearSelection={screenshot.onClearSelection}
+              onCapture={screenshot.onCapture}
+              onExit={screenshot.onExit}
+            />
           </div>
         </div>
+      ) : null}
 
-        {showScrollToLatestButton ? (
-          <button
-            type="button"
-            className="absolute bottom-4 left-1/2 z-20 inline-flex size-8 -translate-x-1/2 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground shadow-md transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 after:absolute after:-inset-1.5 after:content-[''] md:after:hidden"
-            aria-label={t("messages.scrollToBottom")}
-            title={t("messages.scrollToBottom")}
-            onClick={onScrollToLatest}
-          >
-            <ArrowDownToLine className="size-4" strokeWidth={1.8} />
-          </button>
-        ) : null}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <MessageScrollerProvider autoScroll defaultScrollPosition="end" scrollEdgeThreshold={16}>
+          <MessageScroller>
+            <MessageScrollerViewport
+              ref={messageViewportBoundaryRef}
+              className="px-3 pb-8 pt-2 [overflow-anchor:none] md:px-6"
+              onScroll={onScroll}
+              preserveScrollOnPrepend
+            >
+              <MessageScrollerContent
+                ref={messageContentRef}
+                className={cn("mx-auto w-full gap-0", contentWidthClassName)}
+                style={{ fontFamily: "var(--font-chat)", fontWeight: "var(--font-chat-weight)" }}
+              >
+                <ChatScreenshotBrandMark placement="top" />
+                {messages.map((item, index) => {
+                  const previousItem = index > 0 ? messages[index - 1] : null;
+                  const spacingClass =
+                    !previousItem
+                      ? ""
+                      : previousItem.role === "assistant" && item.role === "user"
+                        ? "mt-6 md:mt-12"
+                        : "mt-4";
+                  const publicID = item.publicID?.trim() ?? "";
+                  const selectable = selectionMode && Boolean(publicID) && !item.isPending;
+                  const isSelected = selectable && (screenshot?.selectedIDs.has(publicID) ?? false);
+                  const screenshotTimestamp = formatScreenshotMessageTimestamp(
+                    item.role === "assistant" ? item.updatedAt || item.createdAt : item.createdAt,
+                    (key, values) => timeT(key, values),
+                  );
 
-        {selectionToolbar ? (
-          <SelectionQuoteToolbar
-            state={selectionToolbar}
-            onQuote={quoteSelection}
-            onCopy={() => void copySelection()}
-          />
-        ) : null}
+                  const row = (
+                    <ChatMessageRow
+                      item={item}
+                      busy={busy}
+                      reaction={getReaction(item)}
+                      bookmarked={getBookmarked(item)}
+                      onRetryUserMessage={stableOnRetryUserMessage}
+                      onRetryAssistantMessage={stableOnRetryAssistantMessage}
+                      onContinueAssistantMessage={onContinueAssistantMessage ? stableOnContinueAssistantMessage : undefined}
+                      onDeleteMessage={onDeleteMessage}
+                      onEditAssistantMessage={stableOnEditAssistantMessage}
+                      onEditUserMessage={stableOnEditUserMessage}
+                      modelOptions={modelOptions}
+                      selectedPlatformModelName={selectedPlatformModelName}
+                      onModelChange={stableOnModelChange}
+                      onModelCatalogRefresh={onModelCatalogRefresh ? stableOnModelCatalogRefresh : undefined}
+                      onEditImageAttachment={editImageAttachmentHandler}
+                      onCycleMessageBranch={stableOnCycleMessageBranch}
+                      onReactAssistantMessage={stableOnReactAssistantMessage}
+                      onToggleMessageBookmark={stableOnToggleMessageBookmark}
+                      onOpenCodeArtifact={onOpenCodeArtifact}
+                      activeSpeechMessageKey={messageSpeech.activeMessageKey}
+                      speechPaused={messageSpeech.paused}
+                      speechSupported={messageSpeech.supported}
+                      onToggleMessageSpeech={stableOnToggleMessageSpeech}
+                      markdownRender={markdownRender}
+                      showModelInfo={showModelInfo}
+                      showLatency={showLatency}
+                      showTokenUsage={showTokenUsage}
+                      showBillingCost={showBillingCost}
+                      billingDisplayCurrency={billingDisplayCurrency}
+                      billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
+                      contentWidthClassName={contentWidthClassName}
+                      readOnly={readOnly}
+                      screenshotMetaAlign={item.role === "user" ? "end" : "start"}
+                      screenshotMetaModelName={item.role === "assistant" ? item.platformModelName?.trim() || "" : ""}
+                      screenshotMetaTimestamp={screenshotTimestamp}
+                    />
+                  );
+
+                  const rowContent = selectable ? (
+                    <div
+                      data-screenshot-selectable="true"
+                      className="chat-screenshot-selectable group relative cursor-pointer rounded-lg outline-none"
+                      role="checkbox"
+                      tabIndex={0}
+                      aria-checked={isSelected}
+                      aria-label={tScreenshot("selectMessage")}
+                      onClick={() => screenshot?.onToggleSelection(publicID)}
+                      onKeyDown={(event) => {
+                        if (event.key !== " " && event.key !== "Enter") {
+                          return;
+                        }
+                        event.preventDefault();
+                        screenshot?.onToggleSelection(publicID);
+                      }}
+                    >
+                      <div
+                        className={cn(
+                          "pointer-events-none absolute -inset-y-1 left-0 right-0 z-0 rounded-lg transition-colors group-focus-visible:ring-2 group-focus-visible:ring-ring/35",
+                          isSelected ? "bg-muted/35" : "group-hover:bg-muted/20",
+                        )}
+                        data-screenshot-exclude="true"
+                        aria-hidden="true"
+                      />
+                      <div
+                        className="absolute left-2 top-1.5 z-10 flex items-center"
+                        data-screenshot-exclude="true"
+                        aria-hidden="true"
+                      >
+                        <span
+                          className={cn(
+                            "pointer-events-none inline-flex size-4 items-center justify-center rounded-[5px] border border-border/70 bg-background/80 text-background transition-colors",
+                            isSelected && "border-foreground bg-foreground",
+                          )}
+                        >
+                          {isSelected ? <Check className="size-3" strokeWidth={2} /> : null}
+                        </span>
+                      </div>
+                      <div className="chat-screenshot-selectable-content pointer-events-none relative z-[1] pl-8 pr-2" inert>
+                        {row}
+                      </div>
+                    </div>
+                  ) : (
+                    row
+                  );
+
+                  const compactDivider = item.compactDone ? (
+                    <CompactDivider summaryPreview={item.compactDone.summary_preview} />
+                  ) : null;
+
+                  return (
+                    <MessageScrollerItem
+                      key={item.key}
+                      messageId={chatMessageScrollerID(item)}
+                      scrollAnchor={item.key === liveAnchorMessageKey}
+                      className={spacingClass}
+                      data-message-public-id={publicID || undefined}
+                    >
+                      <div>
+                        {compactDivider}
+                        {rowContent}
+                      </div>
+                    </MessageScrollerItem>
+                  );
+                })}
+                <ChatScreenshotBrandMark placement="bottom" />
+              </MessageScrollerContent>
+            </MessageScrollerViewport>
+            <MessageScrollerButton
+              aria-label={t("messages.scrollToBottom")}
+              title={t("messages.scrollToBottom")}
+              className="z-20 size-8 text-muted-foreground shadow-md hover:text-foreground"
+            >
+              <ArrowDownToLine className="size-4" strokeWidth={1.8} />
+            </MessageScrollerButton>
+            <ChatMessagePositionRail messages={messages} boundaryRef={messageViewportBoundaryRef} />
+          </MessageScroller>
+        </MessageScrollerProvider>
       </div>
     </>
   );
 }
 
-export function ChatAreaSkeleton() {
+export function ChatAreaSkeleton({
+  contentWidthClassName,
+}: {
+  contentWidthClassName: string;
+}) {
   return (
     <div aria-hidden="true" className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 px-3 py-2.5 md:px-0">
@@ -798,7 +770,7 @@ export function ChatAreaSkeleton() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden px-3 pb-8 pt-2 md:px-6">
-        <div className="mx-auto w-full max-w-[760px] space-y-6">
+        <div className={cn("mx-auto w-full space-y-6", contentWidthClassName)}>
           <ChatUserMessageSkeleton widthClassName="w-[min(26rem,70%)] max-sm:w-[88%]" />
 
           <ChatAssistantMessageSkeleton />
@@ -859,11 +831,10 @@ export function ChatAreaLoadError({
             className="rounded-sm font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => void onRefresh()}
           >
-          {t("refresh")}
-          </button>
+            {t("refresh")}
+          </button>{" "}
           {onNewConversation ? (
             <>
-              {" "}
               {t("or")}{" "}
               <button
                 type="button"
