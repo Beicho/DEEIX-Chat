@@ -755,9 +755,6 @@ func (r *Repo) AddUsageAndSettleBalance(ctx context.Context, usage *domainbillin
 			if err != nil {
 				return err
 			}
-			if deltaNanousd > 0 && account.BalanceNanousd < deltaNanousd {
-				return repository.ErrInsufficientBalance
-			}
 		}
 
 		if err := tx.Create(&record).Error; err != nil {
@@ -767,6 +764,8 @@ func (r *Repo) AddUsageAndSettleBalance(ctx context.Context, usage *domainbillin
 			return nil
 		}
 
+		// The upstream cost already exists, so settlement must be recorded in full.
+		// A negative balance is rejected by the existing pre-call access check.
 		nextBalance := account.BalanceNanousd - deltaNanousd
 		if err := tx.Model(account).Updates(map[string]interface{}{
 			"balance_nanousd": nextBalance,
@@ -845,9 +844,6 @@ func (r *Repo) AddPeriodUsageAndSettleOverage(
 			}
 		}
 		deltaNanousd := overageNanousd - reservedNanousd
-		if deltaNanousd > 0 && account.BalanceNanousd < deltaNanousd {
-			return repository.ErrInsufficientBalance
-		}
 
 		ledger := *usage
 		ledger.PricingSnapshotJSON = withPeriodSettlementSnapshot(ledger.PricingSnapshotJSON, map[string]interface{}{
@@ -869,6 +865,8 @@ func (r *Repo) AddPeriodUsageAndSettleOverage(
 			return nil
 		}
 
+		// The upstream cost already exists, so period overage must also be recorded
+		// in full. Later paid calls are blocked while this balance is negative.
 		nextBalance := account.BalanceNanousd - deltaNanousd
 		if err := tx.Model(account).Updates(map[string]interface{}{
 			"balance_nanousd": nextBalance,
