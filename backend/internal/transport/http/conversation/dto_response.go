@@ -344,7 +344,7 @@ type PublicSharedMessageResponse struct {
 	ErrorMessage      string                       `json:"errorMessage"`
 	Attachments       string                       `json:"attachments"`
 	PlatformModelName string                       `json:"platformModelName"`
-	UpstreamModelName string                       `json:"upstreamModelName"`
+	UpstreamModelName string                       `json:"-"` // INF-002: 不向外泄露上游模型名
 	ModelVendor       string                       `json:"modelVendor"`
 	ModelIcon         string                       `json:"modelIcon"`
 	ProcessTrace      *MessageProcessTraceResponse `json:"processTrace,omitempty"`
@@ -383,13 +383,13 @@ func toPublicSharedMessageResponse(
 		ErrorMessage:      item.ErrorMessage,
 		Attachments:       item.Attachments,
 		PlatformModelName: platformModelName,
-		UpstreamModelName: runModel.UpstreamModelName,
-		ModelVendor:       runModel.ModelVendor,
-		ModelIcon:         runModel.ModelIcon,
-		ProcessTrace:      toPublicMessageProcessTraceResponse(item.ProcessTrace),
-		EditedAt:          item.EditedAt,
-		CreatedAt:         item.CreatedAt,
-		UpdatedAt:         item.UpdatedAt,
+		// UpstreamModelName 不再返回给前端（INF-002）
+		ModelVendor:  runModel.ModelVendor,
+		ModelIcon:    runModel.ModelIcon,
+		ProcessTrace: toPublicMessageProcessTraceResponse(item.ProcessTrace),
+		EditedAt:     item.EditedAt,
+		CreatedAt:    item.CreatedAt,
+		UpdatedAt:    item.UpdatedAt,
 	}
 }
 
@@ -831,7 +831,7 @@ type MessageResponse struct {
 	ErrorMessage      string                       `json:"errorMessage"`
 	Attachments       string                       `json:"attachments"`
 	PlatformModelName string                       `json:"platformModelName"`
-	UpstreamModelName string                       `json:"upstreamModelName"`
+	UpstreamModelName string                       `json:"-"` // INF-002: 不向外泄露上游模型名
 	ModelVendor       string                       `json:"modelVendor"`
 	ModelIcon         string                       `json:"modelIcon"`
 	ParentPublicID    string                       `json:"parentPublicID"`
@@ -1059,20 +1059,20 @@ func toMessageResponseWithRunAndFallback(m model.Message, run model.Run, fallbac
 		ErrorMessage:      m.ErrorMessage,
 		Attachments:       m.Attachments,
 		PlatformModelName: platformModelName,
-		UpstreamModelName: strings.TrimSpace(run.UpstreamModelName),
-		ModelVendor:       strings.TrimSpace(run.ModelVendor),
-		ModelIcon:         strings.TrimSpace(run.ModelIcon),
-		ParentPublicID:    m.ParentPublicID,
-		SourcePublicID:    m.SourcePublicID,
-		MyFeedback:        m.MyFeedback,
-		ThumbsUpCount:     m.ThumbsUpCount,
-		ThumbsDownCount:   m.ThumbsDownCount,
-		Bookmarked:        m.Bookmarked,
-		BillingCost:       toMessageBillingCostResponse(m),
-		ProcessTrace:      toMessageProcessTraceResponse(m.ProcessTrace),
-		EditedAt:          m.EditedAt,
-		CreatedAt:         m.CreatedAt,
-		UpdatedAt:         m.UpdatedAt,
+		// UpstreamModelName 不再返回给前端（INF-002）
+		ModelVendor:     strings.TrimSpace(run.ModelVendor),
+		ModelIcon:       strings.TrimSpace(run.ModelIcon),
+		ParentPublicID:  m.ParentPublicID,
+		SourcePublicID:  m.SourcePublicID,
+		MyFeedback:      m.MyFeedback,
+		ThumbsUpCount:   m.ThumbsUpCount,
+		ThumbsDownCount: m.ThumbsDownCount,
+		Bookmarked:      m.Bookmarked,
+		BillingCost:     toMessageBillingCostResponse(m),
+		ProcessTrace:    toMessageProcessTraceResponse(m.ProcessTrace),
+		EditedAt:        m.EditedAt,
+		CreatedAt:       m.CreatedAt,
+		UpdatedAt:       m.UpdatedAt,
 	}
 }
 
@@ -1188,7 +1188,7 @@ type RunResponse struct {
 	RoutedBindingCode   string     `json:"routedBindingCode"`
 	ModelVendor         string     `json:"modelVendor"`
 	ModelIcon           string     `json:"modelIcon"`
-	UpstreamModelName   string     `json:"upstreamModelName"`
+	UpstreamModelName   string     `json:"-"` // INF-002: 不向外泄露上游模型名
 	InputTokens         int64      `json:"inputTokens"`
 	OutputTokens        int64      `json:"outputTokens"`
 	CacheReadTokens     int64      `json:"cacheReadTokens"`

@@ -13,6 +13,7 @@ import (
 	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/sqlutil"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -551,7 +552,7 @@ func (r *Repo) ListPaymentOrders(ctx context.Context, filter repository.PaymentO
 		query = query.Where("provider = ?", provider)
 	}
 	if search := strings.TrimSpace(filter.Query); search != "" {
-		like := "%" + strings.ToLower(search) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(search)) + "%"
 		query = query.Where(
 			"LOWER(order_no) LIKE ? OR LOWER(external_payment_id) LIKE ? OR LOWER(external_checkout_id) LIKE ?",
 			like,
@@ -1079,7 +1080,7 @@ func (r *Repo) ListBalanceTransactions(ctx context.Context, filter repository.Ba
 		query = query.Where("created_at <= ?", *filter.To)
 	}
 	if search := strings.TrimSpace(filter.Query); search != "" {
-		like := "%" + strings.ToLower(search) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(search)) + "%"
 		query = query.Where("LOWER(ref_no) LIKE ? OR LOWER(description) LIKE ? OR LOWER(ref_type) LIKE ?", like, like, like)
 	}
 	if err := query.Count(&total).Error; err != nil {
@@ -1658,7 +1659,7 @@ func (r *Repo) ListRedemptionCodes(ctx context.Context, filter repository.Redemp
 		}
 	}
 	if keyword := strings.TrimSpace(filter.Query); keyword != "" {
-		like := "%" + strings.ToLower(keyword) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(keyword)) + "%"
 		query = query.Where("LOWER(description) LIKE ? OR LOWER(code_hint) LIKE ?", like, like)
 	}
 	if err := query.Count(&total).Error; err != nil {
@@ -1906,7 +1907,7 @@ func (r *Repo) ListRedemptions(ctx context.Context, filter repository.Redemption
 		query = query.Where("mode = ?", mode)
 	}
 	if search := strings.TrimSpace(filter.Query); search != "" {
-		like := "%" + strings.ToLower(search) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(search)) + "%"
 		query = query.Where("LOWER(ref_no) LIKE ? OR LOWER(snapshot_json) LIKE ?", like, like)
 	}
 	if err := query.Count(&total).Error; err != nil {
@@ -2019,7 +2020,7 @@ func (r *Repo) ListModelPricing(ctx context.Context, query string, offset int, l
 
 	dbq := r.db.WithContext(ctx).Model(&model.ModelPricing{})
 	if keyword := strings.TrimSpace(query); keyword != "" {
-		like := "%" + strings.ToLower(keyword) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(keyword)) + "%"
 		dbq = dbq.Where("LOWER(platform_model_name) LIKE ?", like)
 	}
 
@@ -2090,7 +2091,7 @@ func (r *Repo) ListUsageByUser(ctx context.Context, userID uint, filter reposito
 	var total int64
 	query := r.db.WithContext(ctx).Model(&model.UsageLedger{}).Where("user_id = ?", userID)
 	if search := strings.TrimSpace(filter.Query); search != "" {
-		like := "%" + strings.ToLower(search) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(search)) + "%"
 		query = query.Where("LOWER(platform_model_name) LIKE ?", like)
 	}
 	switch strings.TrimSpace(filter.Status) {
@@ -2143,7 +2144,7 @@ func (r *Repo) ListUsageLogs(ctx context.Context, filter repository.UsageLogList
 		query = query.Where("user_id = ?", filter.UserID)
 	}
 	if search := strings.TrimSpace(filter.Query); search != "" {
-		like := "%" + strings.ToLower(search) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(search)) + "%"
 		query = query.Where(
 			"LOWER(platform_model_name) LIKE ? OR LOWER(upstream_model_name) LIKE ? OR LOWER(upstream_name) LIKE ? OR LOWER(routed_binding_code) LIKE ? OR LOWER(provider_protocol) LIKE ?",
 			like,
@@ -2269,14 +2270,73 @@ func (r *Repo) GetBillingRiskSummary(ctx context.Context) (*domainbilling.RiskSu
 		return nil, translateError(err)
 	}
 	if strings.TrimSpace(tableName) != "" {
+		if err := r.db.WithContext(ctx).Raw(`SELECT COALESCE(to_regclass('public.device_fingerprints')::text, '')`).Scan(&tableName).Error; err != nil {
+			return nil, translateError(err)
+		}
+	}
+	if strings.TrimSpace(tableName) != "" {
 		clusterSQL := `
+			WITH association_users AS (
+				SELECT
+					fa.id AS association_id,
+					u.id AS user_id
+				FROM fingerprint_associations fa
+				LEFT JOIN LATERAL jsonb_array_elements_text(
+					CASE
+						WHEN jsonb_typeof(fa.user_ids_json::jsonb) = 'array' THEN fa.user_ids_json::jsonb
+						ELSE '[]'::jsonb
+					END
+				) AS user_ids(user_id_text) ON true
+				JOIN identity_users u
+					ON u.id = CASE
+						WHEN user_ids.user_id_text ~ '^[0-9]+$' THEN user_ids.user_id_text::bigint
+						ELSE NULL
+					END
+					AND u.deleted_at IS NULL
+			),
+			corroborated_associations AS (
+				SELECT DISTINCT au.association_id
+				FROM association_users au
+				JOIN fingerprint_associations fa ON fa.id = au.association_id
+				JOIN device_fingerprints df
+					ON df.fingerprint_id = fa.fingerprint_id
+					AND df.user_id = au.user_id
+					AND df.deleted_at IS NULL
+					AND COALESCE(df.ip_address, '') <> ''
+				GROUP BY au.association_id, df.ip_address
+				HAVING count(DISTINCT df.user_id) = (
+					SELECT count(DISTINCT inner_au.user_id)
+					FROM association_users inner_au
+					WHERE inner_au.association_id = au.association_id
+				)
+				UNION
+				SELECT DISTINCT au.association_id
+				FROM association_users au
+				JOIN fingerprint_associations fa ON fa.id = au.association_id
+				JOIN device_fingerprints df
+					ON df.fingerprint_id = fa.fingerprint_id
+					AND df.user_id = au.user_id
+					AND df.deleted_at IS NULL
+					AND COALESCE(df.tls_fingerprint, '') <> ''
+				GROUP BY au.association_id, df.tls_fingerprint
+				HAVING count(DISTINCT df.user_id) = (
+					SELECT count(DISTINCT inner_au.user_id)
+					FROM association_users inner_au
+					WHERE inner_au.association_id = au.association_id
+				)
+			),
+			corroborated AS (
+				SELECT fa.*
+				FROM fingerprint_associations fa
+				WHERE fa.deleted_at IS NULL
+					AND fa.id IN (SELECT association_id FROM corroborated_associations)
+			)
 			SELECT
 				COALESCE(count(*) FILTER (WHERE ignored_at IS NULL), 0) AS multi_account_cluster_count,
 				COALESCE(count(*) FILTER (WHERE ignored_at IS NULL AND (risk_level = 'high' OR confidence_score >= 0.9)), 0) AS high_risk_cluster_count,
 				COALESCE(count(*) FILTER (WHERE ignored_at IS NOT NULL), 0) AS ignored_cluster_count,
 				COALESCE(count(DISTINCT fingerprint_id), 0) AS unique_fingerprint_count
-			FROM fingerprint_associations
-			WHERE deleted_at IS NULL`
+			FROM corroborated`
 		if err := r.db.WithContext(ctx).Raw(clusterSQL).Scan(stats).Error; err != nil {
 			return nil, translateError(err)
 		}

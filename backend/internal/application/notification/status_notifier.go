@@ -106,6 +106,9 @@ func (n EmailStatusNotifier) Notify(ctx context.Context, title string, message s
 	if n.Username != "" || n.Password != "" {
 		auth = smtp.PlainAuth("", n.Username, n.Password, n.Host)
 	}
+	// INJ-004: 清理 CRLF，防止邮件头注入。
+	title = strings.ReplaceAll(strings.ReplaceAll(title, "\r", ""), "\n", " ")
+	message = strings.ReplaceAll(strings.ReplaceAll(message, "\r", ""), "\n", " ")
 	body := []byte("To: " + n.Recipient + "\r\nSubject: " + title + "\r\n\r\n" + message)
 	return smtp.SendMail(addr, auth, n.From, []string{n.Recipient}, body)
 }

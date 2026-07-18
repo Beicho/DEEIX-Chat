@@ -509,7 +509,7 @@ func Load() Config {
 		HTTPMaxHeaderBytes:           envOrInt("HTTP_MAX_HEADER_BYTES", yc.Server.MaxHeaderBytes, defaultHTTPMaxHeaderBytes),
 		JWTSecret:                    envOr("JWT_SECRET", yc.Security.JWTSecret, defaultJWTSecret),
 		DataEncryptionKey:            envOr("DATA_ENCRYPTION_KEY", yc.Security.DataEncryptionKey, defaultDataEncryptionKey),
-		SSRFProtectionEnabled:        envOrBoolPtr("SSRF_PROTECTION_ENABLED", yc.Security.SSRFProtectionEnabled, false),
+		SSRFProtectionEnabled:        envOrBoolPtr("SSRF_PROTECTION_ENABLED", yc.Security.SSRFProtectionEnabled, true),
 		DatabaseDriver:               normalizeDatabaseDriver(envOr("DATABASE_DRIVER", yc.Database.Driver, "postgres")),
 		PostgresDSN:                  envOr("POSTGRES_DSN", yc.Database.Postgres.DSN, "host=127.0.0.1 user=deeix_chat password=deeix_chat_dev_2026 dbname=deeix_chat port=5432 sslmode=disable TimeZone=Asia/Shanghai"),
 		PostgresMaxOpenConns:         envOrInt("POSTGRES_MAX_OPEN_CONNS", yc.Database.Postgres.MaxOpenConns, 30),

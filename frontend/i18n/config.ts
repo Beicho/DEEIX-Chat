@@ -24,8 +24,13 @@ export function normalizeAppLocale(value: string | null | undefined): AppLocale 
 }
 
 export function resolveBrowserLocale(languages: readonly string[] | undefined): AppLocale {
+  let hasLanguage = false;
   for (const language of languages ?? []) {
     const normalized = String(language ?? "").trim().toLowerCase().replace("_", "-");
+    if (!normalized) {
+      continue;
+    }
+    hasLanguage = true;
     if (normalized === "zh" || normalized.startsWith("zh-")) {
       return "zh-CN";
     }
@@ -33,7 +38,8 @@ export function resolveBrowserLocale(languages: readonly string[] | undefined): 
       return "en-US";
     }
   }
-  return DEFAULT_LOCALE;
+  // UI-014: 非中文浏览器默认使用英文；仅在没有任何语言信息时回退 DEFAULT_LOCALE。
+  return hasLanguage ? "en-US" : DEFAULT_LOCALE;
 }
 
 export function resolveAcceptLanguageLocale(value: string | null | undefined): AppLocale {

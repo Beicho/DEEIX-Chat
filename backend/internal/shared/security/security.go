@@ -220,7 +220,10 @@ func isProductionEnv(env string) bool {
 }
 
 func shouldEnforceSSRFProtection(env string, enabled bool) bool {
-	return enabled && isProductionEnv(env)
+	// INJ-002: 只要开关开启就强制启用，不再限定生产环境。
+	_ = env
+	_ = isProductionEnv // 保留函数以备后续按环境细分策略
+	return enabled
 }
 
 func normalizeURLHostname(host string) string {

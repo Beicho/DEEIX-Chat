@@ -8,6 +8,7 @@ import (
 	domainaudit "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/audit"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/sqlutil"
 	"gorm.io/gorm"
 )
 
@@ -48,7 +49,7 @@ func (r *Repo) List(ctx context.Context, offset int, limit int, filter repositor
 
 	query := r.db.WithContext(ctx).Model(&model.AuditLog{})
 	if keyword := strings.TrimSpace(filter.Query); keyword != "" {
-		like := "%" + keyword + "%"
+		like := "%" + sqlutil.EscapeLIKE(keyword) + "%"
 		query = query.Where(
 			"request_id LIKE ? OR action LIKE ? OR resource LIKE ? OR resource_id LIKE ? OR ip LIKE ? OR user_agent LIKE ? OR detail_json LIKE ?",
 			like,
