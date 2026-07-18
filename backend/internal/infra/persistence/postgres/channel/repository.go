@@ -10,6 +10,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/dberror"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/sqlutil"
 	"gorm.io/gorm"
 )
 
@@ -202,7 +203,7 @@ func upstreamListStatsJoinSQL() string {
 
 func applyUpstreamListFilters(query *gorm.DB, input repository.ListChannelUpstreamsInput) *gorm.DB {
 	if keyword := strings.TrimSpace(input.Query); keyword != "" {
-		like := "%" + strings.ToLower(keyword) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(keyword)) + "%"
 		query = query.Where("LOWER(name) LIKE ? OR LOWER(base_url) LIKE ?", like, like)
 	}
 	if status := strings.TrimSpace(input.Status); status == "active" || status == "inactive" {
@@ -538,7 +539,7 @@ func applyModelListFilters(query *gorm.DB, input repository.ListChannelModelsInp
 		query = query.Where("m.status = ?", status)
 	}
 	if keyword := strings.TrimSpace(input.Query); keyword != "" {
-		like := "%" + strings.ToLower(keyword) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(keyword)) + "%"
 		query = query.Where("LOWER(m.name) LIKE ? OR LOWER(m.vendor) LIKE ? OR LOWER(m.description) LIKE ?", like, like, like)
 	}
 	if vendor := strings.TrimSpace(input.Vendor); vendor != "" {
@@ -894,7 +895,7 @@ func (r *Repo) GetUpstreamModelRouteByNames(
 
 func applyUpstreamModelListFilters(query *gorm.DB, input repository.ListChannelUpstreamModelsInput) *gorm.DB {
 	if keyword := strings.TrimSpace(input.Query); keyword != "" {
-		like := "%" + strings.ToLower(keyword) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(keyword)) + "%"
 		query = query.Where(
 			"LOWER(um.upstream_model_name) LIKE ? OR LOWER(um.binding_code) LIKE ? OR LOWER(pm.name) LIKE ? OR LOWER(r.protocol) LIKE ?",
 			like,

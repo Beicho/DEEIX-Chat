@@ -14,6 +14,7 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/dberror"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/sqlutil"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -548,7 +549,7 @@ func (r *Repo) ListPaymentOrders(ctx context.Context, filter repository.PaymentO
 		query = query.Where("provider = ?", provider)
 	}
 	if search := strings.TrimSpace(filter.Query); search != "" {
-		like := "%" + strings.ToLower(search) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(search)) + "%"
 		query = query.Where(
 			"LOWER(order_no) LIKE ? OR LOWER(provider) LIKE ? OR LOWER(status) LIKE ? OR LOWER(external_payment_id) LIKE ? OR LOWER(external_checkout_id) LIKE ?",
 			like,
@@ -1215,7 +1216,7 @@ func (r *Repo) ListBalanceTransactions(ctx context.Context, filter repository.Ba
 		query = query.Where("created_at <= ?", *filter.To)
 	}
 	if search := strings.TrimSpace(filter.Query); search != "" {
-		like := "%" + strings.ToLower(search) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(search)) + "%"
 		query = query.Where("LOWER(ref_no) LIKE ? OR LOWER(description) LIKE ? OR LOWER(ref_type) LIKE ?", like, like, like)
 	}
 	if err := query.Count(&total).Error; err != nil {
@@ -1805,7 +1806,7 @@ func (r *Repo) ListRedemptionCodes(ctx context.Context, filter repository.Redemp
 		}
 	}
 	if keyword := strings.TrimSpace(filter.Query); keyword != "" {
-		like := "%" + strings.ToLower(keyword) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(keyword)) + "%"
 		query = query.Where("LOWER(description) LIKE ? OR LOWER(code_hint) LIKE ?", like, like)
 	}
 	if err := query.Count(&total).Error; err != nil {
@@ -2053,7 +2054,7 @@ func (r *Repo) ListRedemptions(ctx context.Context, filter repository.Redemption
 		query = query.Where("mode = ?", mode)
 	}
 	if search := strings.TrimSpace(filter.Query); search != "" {
-		like := "%" + strings.ToLower(search) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(search)) + "%"
 		query = query.Where("LOWER(ref_no) LIKE ? OR LOWER(snapshot_json) LIKE ?", like, like)
 	}
 	if err := query.Count(&total).Error; err != nil {
@@ -2166,7 +2167,7 @@ func (r *Repo) ListModelPricing(ctx context.Context, query string, offset int, l
 
 	dbq := r.db.WithContext(ctx).Model(&model.ModelPricing{})
 	if keyword := strings.TrimSpace(query); keyword != "" {
-		like := "%" + strings.ToLower(keyword) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(keyword)) + "%"
 		dbq = dbq.Where("LOWER(platform_model_name) LIKE ?", like)
 	}
 
@@ -2237,7 +2238,7 @@ func (r *Repo) ListUsageByUser(ctx context.Context, userID uint, filter reposito
 	var total int64
 	query := r.db.WithContext(ctx).Model(&model.UsageLedger{}).Where("user_id = ?", userID)
 	if search := strings.TrimSpace(filter.Query); search != "" {
-		like := "%" + strings.ToLower(search) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(search)) + "%"
 		query = query.Where("LOWER(platform_model_name) LIKE ?", like)
 	}
 	switch strings.TrimSpace(filter.Status) {
@@ -2290,7 +2291,7 @@ func (r *Repo) ListUsageLogs(ctx context.Context, filter repository.UsageLogList
 		query = query.Where("user_id = ?", filter.UserID)
 	}
 	if search := strings.TrimSpace(filter.Query); search != "" {
-		like := "%" + strings.ToLower(search) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(search)) + "%"
 		query = query.Where(
 			"LOWER(platform_model_name) LIKE ? OR LOWER(upstream_model_name) LIKE ? OR LOWER(upstream_name) LIKE ? OR LOWER(routed_binding_code) LIKE ? OR LOWER(provider_protocol) LIKE ?",
 			like,

@@ -16,6 +16,7 @@ import (
 	models "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/sqlitevec"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/sqlutil"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -185,7 +186,7 @@ func (r *Repo) SearchConversationsByUser(ctx context.Context, userID uint, query
 		offset = 0
 	}
 
-	like := "%" + strings.ToLower(normalizedQuery) + "%"
+	like := "%" + sqlutil.EscapeLIKE(strings.ToLower(normalizedQuery)) + "%"
 	type conversationSearchRow struct {
 		models.Conversation `gorm:"embedded"`
 		MessagePublicID     string     `gorm:"column:message_public_id"`
@@ -1848,7 +1849,7 @@ func (r *Repo) ListMessageBookmarks(ctx context.Context, userID uint, queryText 
 		Where("message_bookmarks.user_id = ?", userID)
 
 	if normalized := strings.TrimSpace(queryText); normalized != "" {
-		like := "%" + strings.ToLower(normalized) + "%"
+		like := "%" + sqlutil.EscapeLIKE(strings.ToLower(normalized)) + "%"
 		query = query.Where(
 			"(LOWER(message_bookmarks.note) LIKE ? OR LOWER(message_bookmarks.tags_json) LIKE ? OR LOWER(m.content) LIKE ? OR LOWER(c.title) LIKE ?)",
 			like,
@@ -2640,7 +2641,7 @@ func (r *Repo) ListFileObjectsByUserWithFilter(
 		Where("user_id = ? AND status = ?", userID, "active")
 	normalizedQuery := strings.TrimSpace(searchQuery)
 	if normalizedQuery != "" {
-		pattern := "%" + strings.ToLower(normalizedQuery) + "%"
+		pattern := "%" + sqlutil.EscapeLIKE(strings.ToLower(normalizedQuery)) + "%"
 		query = query.Where(
 			"LOWER(file_id) LIKE ? OR LOWER(file_name) LIKE ? OR LOWER(mime_type) LIKE ? OR LOWER(purpose) LIKE ? OR LOWER(sha256) LIKE ?",
 			pattern,
@@ -3527,7 +3528,7 @@ func (r *Repo) keywordSearchFileChunks(ctx context.Context, userID uint, fileObj
 		if strings.TrimSpace(term) == "" {
 			continue
 		}
-		dbq = dbq.Where("LOWER(content) LIKE ?", "%"+term+"%")
+		dbq = dbq.Where("LOWER(content) LIKE ?", "%"+sqlutil.EscapeLIKE(term)+"%")
 	}
 	rows := make([]models.FileChunk, 0, topK)
 	if err := dbq.Order("id ASC").Limit(topK).Find(&rows).Error; err != nil {

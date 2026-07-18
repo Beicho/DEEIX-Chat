@@ -7,7 +7,13 @@ import type { UserDTO } from "@/shared/api/auth.types";
 import { USER_PROFILE_UPDATED_EVENT } from "@/shared/auth/user-profile-events";
 import { reportFingerprintOnce } from "@/shared/security/fingerprint-reporter";
 
-type AuthSessionUserStatus = "loading" | "ready" | "failed";
+type AuthSessionUserStatus = "loading" | "ready" | "failed" | "error";
+
+function isAuthError(error: unknown): boolean {
+  const status =
+    (error as { status?: number })?.status ?? (error as { response?: { status?: number } })?.response?.status;
+  return status === 401 || status === 403;
+}
 
 type AuthSessionContextValue = {
   accessToken: string;
@@ -35,9 +41,14 @@ export function AuthSessionProvider({
       setUser(nextUser);
       setUserStatus("ready");
       return nextUser;
-    } catch {
-      setUser(null);
-      setUserStatus("failed");
+    } catch (error) {
+      // UI-010: 仅在鉴权错误时清空用户态；网络/5xx 闪断保留现有用户。
+      if (isAuthError(error)) {
+        setUser(null);
+        setUserStatus("failed");
+      } else {
+        setUserStatus("error");
+      }
       return null;
     }
   }, [accessToken]);
@@ -53,10 +64,15 @@ export function AuthSessionProvider({
           setUser(nextUser);
           setUserStatus("ready");
         }
-      } catch {
+      } catch (error) {
         if (!cancelled) {
-          setUser(null);
-          setUserStatus("failed");
+          // UI-010: 仅在鉴权错误时清空用户态；网络/5xx 闪断保留现有用户。
+          if (isAuthError(error)) {
+            setUser(null);
+            setUserStatus("failed");
+          } else {
+            setUserStatus("error");
+          }
         }
       }
     }
