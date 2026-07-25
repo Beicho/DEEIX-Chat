@@ -76,6 +76,15 @@
       "noteLink": "返回登录页",
       "noteSuffix": "后重新选择。",
       "signInExistingAccount": "登录已有账号"
+    },
+    "invitation": {
+      "title": "输入邀请码",
+      "description": "本站注册需要邀请码，请输入后完成账号创建。",
+      "label": "邀请码",
+      "placeholder": "请输入邀请码",
+      "submit": "完成注册",
+      "submitting": "正在创建账号…",
+      "failed": "邀请码校验失败，请检查后重试"
     }
   },
   "backToLogin": "返回登录",

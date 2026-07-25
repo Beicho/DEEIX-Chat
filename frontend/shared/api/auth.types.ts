@@ -56,6 +56,8 @@ export type LoginData = {
   twoFactorRequired: boolean;
   twoFactorChallengeToken?: string;
   verificationMethods?: SecurityVerificationMethod[];
+  invitationRequired?: boolean;
+  pendingRegistrationToken?: string;
 };
 
 export type TwoFactorStatusData = {
@@ -167,6 +169,7 @@ export type LoginOptionsData = {
   passwordResetEnabled: boolean;
   emailCodeLoginEnabled: boolean;
   inviteRegistrationRequired: boolean;
+  inviteProviderRegistration: boolean;
   turnstileRegistrationEnabled: boolean;
   turnstileSiteKey: string;
   providers: IdentityProviderDTO[];

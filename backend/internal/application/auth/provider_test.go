@@ -33,7 +33,7 @@ func TestResolveProviderUserLoginAutoRegistersWhenProviderRegistrationEnabled(t 
 		DefaultRole:         domainuser.RoleUser,
 	}
 
-	userItem, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "new@example.com", "New User", "", true, `{"sub":"sub-1"}`, providerIntentLogin)
+	userItem, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "new@example.com", "New User", "", true, `{"sub":"sub-1"}`, providerIntentLogin, "")
 	if err != nil {
 		t.Fatalf("expected login to auto-register, got %v", err)
 	}
@@ -103,7 +103,7 @@ func TestResolveProviderUserAutoRegistrationAddsUsernameSuffixOnCollision(t *tes
 		DefaultRole:         domainuser.RoleUser,
 	}
 
-	userItem, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "new@example.com", "New User", "", true, `{"sub":"sub-1"}`, providerIntentLogin)
+	userItem, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "new@example.com", "New User", "", true, `{"sub":"sub-1"}`, providerIntentLogin, "")
 	if err != nil {
 		t.Fatalf("expected login to retry with suffixed username, got %v", err)
 	}
@@ -128,7 +128,7 @@ func TestResolveProviderUserLoginRequiresRegistrationEnabledForNewAccount(t *tes
 		DefaultRole:         domainuser.RoleUser,
 	}
 
-	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "new@example.com", "New User", "", true, `{"sub":"sub-1"}`, providerIntentLogin)
+	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "new@example.com", "New User", "", true, `{"sub":"sub-1"}`, providerIntentLogin, "")
 	if err == nil || err.Error() != "provider account is not registered" {
 		t.Fatalf("expected not registered error, got %v", err)
 	}
@@ -155,7 +155,7 @@ func TestResolveProviderUserAutoLinksVerifiedProviderEmailBeforeProvisioning(t *
 		DefaultRole:         domainuser.RoleUser,
 	}
 
-	userItem, err := service.resolveProviderUser(context.Background(), provider, "sub-1", existing.Email, "Verified User", "", true, `{"sub":"sub-1"}`, providerIntentLogin)
+	userItem, err := service.resolveProviderUser(context.Background(), provider, "sub-1", existing.Email, "Verified User", "", true, `{"sub":"sub-1"}`, providerIntentLogin, "")
 	if err != nil {
 		t.Fatalf("expected verified email to auto-link, got %v", err)
 	}
@@ -188,7 +188,7 @@ func TestResolveProviderUserNormalizesProviderEmailBeforeAutoLink(t *testing.T) 
 		DefaultRole:         domainuser.RoleUser,
 	}
 
-	userItem, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "Verified@Example.com", "Verified User", "", true, `{"sub":"sub-1"}`, providerIntentLogin)
+	userItem, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "Verified@Example.com", "Verified User", "", true, `{"sub":"sub-1"}`, providerIntentLogin, "")
 	if err != nil {
 		t.Fatalf("expected normalized provider email to auto-link, got %v", err)
 	}
@@ -391,7 +391,7 @@ func TestCompleteProviderLoginAutoLinksGitHubVerifiedPrimaryEmail(t *testing.T) 
 		t.Fatalf("sign provider state: %v", err)
 	}
 
-	result, err := service.CompleteProviderLogin(context.Background(), "github", "code", state, redirectURI, codeVerifier, providerIntentLogin, "request-id", requestmeta.SessionAuditContext{})
+	result, err := service.CompleteProviderLogin(context.Background(), "github", "code", state, redirectURI, codeVerifier, providerIntentLogin, "", "request-id", requestmeta.SessionAuditContext{})
 	if err != nil {
 		t.Fatalf("expected github login to auto-link existing email, got %v", err)
 	}
@@ -470,7 +470,7 @@ func TestCompleteProviderLoginReturnsErrorWhenGitHubEmailsUnavailable(t *testing
 		t.Fatalf("sign provider state: %v", err)
 	}
 
-	_, err = service.CompleteProviderLogin(context.Background(), "github", "code", state, redirectURI, codeVerifier, providerIntentLogin, "request-id", requestmeta.SessionAuditContext{})
+	_, err = service.CompleteProviderLogin(context.Background(), "github", "code", state, redirectURI, codeVerifier, providerIntentLogin, "", "request-id", requestmeta.SessionAuditContext{})
 	if err == nil || !strings.Contains(err.Error(), "github provider emails failed") {
 		t.Fatalf("expected github email lookup error, got %v", err)
 	}
@@ -497,7 +497,7 @@ func TestResolveProviderUserReturnsStructuredEmailConflict(t *testing.T) {
 		DefaultRole:         domainuser.RoleUser,
 	}
 
-	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", existing.Email, "Consumer User", "", false, `{"sub":"sub-1"}`, providerIntentLogin)
+	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", existing.Email, "Consumer User", "", false, `{"sub":"sub-1"}`, providerIntentLogin, "")
 	var conflictErr *ProviderEmailConflictError
 	if !errors.As(err, &conflictErr) {
 		t.Fatalf("expected structured email conflict, got %v", err)
@@ -537,7 +537,7 @@ func TestResolveProviderUserRejectsSuspendedBoundUserWithReasonWithoutUpdatingId
 		DefaultRole:         domainuser.RoleUser,
 	}
 
-	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "bound@example.com", "Bound User", "", true, `{"sub":"sub-1"}`, providerIntentLogin)
+	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "bound@example.com", "Bound User", "", true, `{"sub":"sub-1"}`, providerIntentLogin, "")
 	var suspendedErr *AccountSuspendedError
 	if !errors.As(err, &suspendedErr) {
 		t.Fatalf("expected suspended account error, got %v", err)
@@ -579,7 +579,7 @@ func TestResolveProviderUserRejectsSuspendedAutoLinkUserWithReasonWithoutBinding
 		DefaultRole:         domainuser.RoleUser,
 	}
 
-	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", existing.Email, "Suspended User", "", true, `{"sub":"sub-1"}`, providerIntentLogin)
+	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", existing.Email, "Suspended User", "", true, `{"sub":"sub-1"}`, providerIntentLogin, "")
 	var suspendedErr *AccountSuspendedError
 	if !errors.As(err, &suspendedErr) {
 		t.Fatalf("expected suspended account error, got %v", err)
@@ -633,7 +633,6 @@ func TestLoginReturnsSuspendedAccountErrorWithReason(t *testing.T) {
 	}
 }
 
-
 func TestResolveProviderUserReturnsIdentityCreateErrorWithoutCleanupCompensation(t *testing.T) {
 	repo := &providerLoginRepo{createIdentityErr: errors.New("duplicate identity")}
 	service := NewService(config.Config{JWTSecret: "test-secret"}, repo, nil)
@@ -647,7 +646,7 @@ func TestResolveProviderUserReturnsIdentityCreateErrorWithoutCleanupCompensation
 		DefaultRole:         domainuser.RoleUser,
 	}
 
-	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "new@example.com", "New User", "", true, `{"sub":"sub-1"}`, providerIntentLogin)
+	_, err := service.resolveProviderUser(context.Background(), provider, "sub-1", "new@example.com", "New User", "", true, `{"sub":"sub-1"}`, providerIntentLogin, "")
 	if err == nil || err.Error() != "duplicate identity" {
 		t.Fatalf("expected identity creation error, got %v", err)
 	}
@@ -778,6 +777,7 @@ func TestUnlinkCurrentUserIdentityAllowsOneOfMultiplePasswordlessLoginMethods(t 
 type providerLoginRepo struct {
 	repository.AuthRepository
 
+	usersByUsername           map[string]*domainuser.User
 	nextUserID                uint
 	nextIdentityID            uint
 	createUserCount           int

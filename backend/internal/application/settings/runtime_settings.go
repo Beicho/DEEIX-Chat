@@ -88,6 +88,8 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.RateLimitEnabled = toBool(item.Value, cfg.RateLimitEnabled)
 	case "auth:rate_limit_rpm":
 		cfg.RateLimitRPM = toInt(item.Value, cfg.RateLimitRPM)
+	case "auth:public_auth_rate_limit_enabled":
+		cfg.PublicAuthRateLimitEnabled = toBool(item.Value, cfg.PublicAuthRateLimitEnabled)
 	case "auth:public_auth_rate_limit_rpm":
 		cfg.PublicAuthRateLimitRPM = toInt(item.Value, cfg.PublicAuthRateLimitRPM)
 	case "auth:username_login_enabled":
@@ -102,6 +104,8 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.EmailVerificationEnabled = toBool(item.Value, cfg.EmailVerificationEnabled)
 	case "auth:invite_registration_required":
 		cfg.InviteRegistrationRequired = toBool(item.Value, cfg.InviteRegistrationRequired)
+	case "auth:invite_provider_registration":
+		cfg.InviteProviderRegistration = toBool(item.Value, cfg.InviteProviderRegistration)
 	case "auth:password_reset_enabled":
 		cfg.PasswordResetEnabled = toBool(item.Value, cfg.PasswordResetEnabled)
 	case "auth:smtp_host":
@@ -375,6 +379,29 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.StatusNotifierWebhookURL = strings.TrimSpace(item.Value)
 	case "status:notifier_email":
 		cfg.StatusNotifierEmail = strings.TrimSpace(item.Value)
+		// 资损风控
+	case "risk:cost_guard_enabled":
+		cfg.RiskCostGuardEnabled = toBool(item.Value, cfg.RiskCostGuardEnabled)
+	case "risk:new_user_cooldown_hours":
+		cfg.RiskNewUserCooldownHours = toInt(item.Value, cfg.RiskNewUserCooldownHours)
+	case "risk:new_user_cooldown_cost_usd":
+		cfg.RiskNewUserCooldownCostUSD = toFloat(item.Value, cfg.RiskNewUserCooldownCostUSD)
+	case "risk:daily_spend_limit_usd":
+		cfg.RiskDailySpendLimitUSD = toFloat(item.Value, cfg.RiskDailySpendLimitUSD)
+	case "risk:max_concurrent_generations":
+		cfg.RiskMaxConcurrentGenerations = toInt(item.Value, cfg.RiskMaxConcurrentGenerations)
+	case "risk:auto_suspend_debt_usd":
+		cfg.RiskAutoSuspendDebtUSD = toFloat(item.Value, cfg.RiskAutoSuspendDebtUSD)
+	case "risk:spend_alert_single_call_usd":
+		cfg.RiskSpendAlertSingleCallUSD = toFloat(item.Value, cfg.RiskSpendAlertSingleCallUSD)
+	case "risk:spend_alert_daily_user_usd":
+		cfg.RiskSpendAlertDailyUserUSD = toFloat(item.Value, cfg.RiskSpendAlertDailyUserUSD)
+	case "risk:fingerprint_alert_enabled":
+		cfg.RiskFingerprintAlertEnabled = toBool(item.Value, cfg.RiskFingerprintAlertEnabled)
+	case "risk:fingerprint_alert_min_accounts":
+		cfg.RiskFingerprintAlertMinAccts = toInt(item.Value, cfg.RiskFingerprintAlertMinAccts)
+	case "risk:fingerprint_auto_suspend":
+		cfg.RiskFingerprintAutoSuspend = toInt(item.Value, cfg.RiskFingerprintAutoSuspend)
 		// MCP 配置
 	case "mcp:mcp_enable":
 		cfg.MCPEnable = toBool(item.Value, cfg.MCPEnable)
@@ -434,7 +461,11 @@ func (r *RuntimeSettings) normalizeConfig(cfg *config.Config) {
 	}
 	if !cfg.EmailRegistrationEnabled {
 		cfg.TurnstileRegistrationEnabled = false
-		cfg.InviteRegistrationRequired = false
+		// 邀请码开关不再随邮箱注册关闭而清零：第三方登录注册同样受它约束。
+		// 邮箱注册表单是否展示邀请码输入，由 LoginOptions 侧再与邮箱注册开关取与。
+		if !cfg.ThirdPartyLoginEnabled || !cfg.InviteProviderRegistration {
+			cfg.InviteRegistrationRequired = false
+		}
 	}
 	if !cfg.EmailVerificationEnabled || (!cfg.UsernameLoginEnabled && !cfg.EmailLoginEnabled) {
 		cfg.PasswordResetEnabled = false

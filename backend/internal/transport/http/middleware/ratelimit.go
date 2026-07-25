@@ -84,9 +84,12 @@ func RateLimit(limiter RateLimiter, runtime *config.Runtime) gin.HandlerFunc {
 }
 
 // PublicAuthRateLimit 保护公开接口，按 IP、接口与风险等级限流。
+//
+// 该限流有独立开关：站内聊天限流（RateLimitEnabled）关闭时，
+// 登录/注册/令牌刷新等公开接口仍需保持限流，否则撞库与验证码轰炸完全无阻。
 func PublicAuthRateLimit(limiter RateLimiter, runtime *config.Runtime) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if limiter == nil || !rateLimitEnabled(runtime) {
+		if limiter == nil || !publicAuthRateLimitEnabled(runtime) {
 			c.Next()
 			return
 		}
@@ -113,6 +116,14 @@ func PublicAuthRateLimit(limiter RateLimiter, runtime *config.Runtime) gin.Handl
 
 func rateLimitEnabled(runtime *config.Runtime) bool {
 	return runtime != nil && runtime.Snapshot().RateLimitEnabled
+}
+
+func publicAuthRateLimitEnabled(runtime *config.Runtime) bool {
+	if runtime == nil {
+		return true
+	}
+	snapshot := runtime.Snapshot()
+	return snapshot.PublicAuthRateLimitEnabled || snapshot.RateLimitEnabled
 }
 
 func authenticatedRateLimitRPM(runtime *config.Runtime) int {

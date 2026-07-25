@@ -19,7 +19,8 @@
     "conversationSettings": "Conversation",
     "chatFiles": "Files & retrieval",
     "about": "About",
-    "upstreams": "Upstreams"
+    "upstreams": "Upstreams",
+    "invitations": "Invitation codes"
   },
   "dashboardPage": {
     "title": "Operations dashboard",

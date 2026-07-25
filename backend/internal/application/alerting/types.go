@@ -16,6 +16,10 @@ import (
 const (
 	EventTypeCircuitOpen   = "circuit_open"
 	EventTypeCircuitClosed = "circuit_closed"
+	// EventTypeRiskSpend 资损风控告警（单次高额消费 / 单日超额 / 欠费停用）。
+	EventTypeRiskSpend = "risk_spend"
+	// EventTypeRiskFingerprint 多账号关联风控告警。
+	EventTypeRiskFingerprint = "risk_fingerprint"
 )
 
 // 告警通道标识。

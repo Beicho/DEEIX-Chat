@@ -164,6 +164,9 @@ func (h *Handler) ensureMediaImageBillingModelAccess(c *gin.Context, conversatio
 		c.Request.Context(),
 		mediaImageBillingInput(middleware.MustUserID(c), conversation, req, nil),
 	); err != nil {
+		if writeRiskControlError(c, err) {
+			return err
+		}
 		if errors.Is(err, billing.ErrPeriodCreditExceeded) {
 			response.Error(c, http.StatusPaymentRequired, "period usage credit exceeded")
 			return err
@@ -339,6 +342,9 @@ func (h *Handler) ensureMediaVideoBillingModelAccess(c *gin.Context, conversatio
 		c.Request.Context(),
 		mediaVideoBillingInput(middleware.MustUserID(c), conversation, req, nil),
 	); err != nil {
+		if writeRiskControlError(c, err) {
+			return err
+		}
 		if errors.Is(err, billing.ErrPeriodCreditExceeded) {
 			response.Error(c, http.StatusPaymentRequired, "period usage credit exceeded")
 			return err

@@ -37,6 +37,8 @@ type LoginOptions struct {
 	PasswordResetEnabled         bool
 	EmailCodeLoginEnabled        bool
 	InviteRegistrationRequired   bool
+	// InviteProviderRegistration 表示第三方登录首次注册也需要邀请码。
+	InviteProviderRegistration   bool
 	TurnstileRegistrationEnabled bool
 	TurnstileSiteKey             string
 	Providers                    []IdentityProviderView
@@ -158,6 +160,7 @@ func (s *Service) GetLoginOptions(ctx context.Context) (*LoginOptions, error) {
 		PasswordResetEnabled:         passwordResetEnabled(cfg),
 		EmailCodeLoginEnabled:        cfg.EmailLoginEnabled && smtpReady(cfg),
 		InviteRegistrationRequired:   cfg.EmailRegistrationEnabled && cfg.InviteRegistrationRequired,
+		InviteProviderRegistration:   cfg.ThirdPartyLoginEnabled && cfg.InviteRegistrationRequired && cfg.InviteProviderRegistration,
 		TurnstileRegistrationEnabled: cfg.TurnstileRegistrationEnabled,
 		TurnstileSiteKey:             cfg.TurnstileSiteKey,
 		Providers:                    providerViews,
@@ -319,6 +322,7 @@ func (s *Service) CompleteProviderLogin(
 	redirectURI string,
 	codeVerifier string,
 	intent string,
+	invitationCode string,
 	requestID string,
 	auditCtx requestmeta.SessionAuditContext,
 ) (*LoginResult, error) {
@@ -376,8 +380,29 @@ func (s *Service) CompleteProviderLogin(
 	avatarURL := claimString(profile, provider.AvatarField)
 	emailVerified := resolveProviderEmailVerified(profile, *provider)
 
-	userItem, err := s.resolveProviderUser(ctx, *provider, subject, email, displayName, avatarURL, emailVerified, string(profileJSON), verifiedState.Intent)
+	userItem, err := s.resolveProviderUser(ctx, *provider, subject, email, displayName, avatarURL, emailVerified, string(profileJSON), verifiedState.Intent, invitationCode)
 	if err != nil {
+		var invitationRequired *ProviderInvitationRequiredError
+		if errors.As(err, &invitationRequired) {
+			// 授权已完成但尚未提供邀请码：签发短期注册令牌，由前端补交邀请码后完成注册。
+			token, signErr := s.signPendingRegistration(pendingProviderRegistration{
+				ProviderSlug:  provider.Slug,
+				Subject:       subject,
+				Email:         email,
+				DisplayName:   displayName,
+				AvatarURL:     avatarURL,
+				EmailVerified: emailVerified,
+				ProfileJSON:   string(profileJSON),
+				ExpiresAt:     time.Now().Add(pendingRegistrationTTL).Unix(),
+			})
+			if signErr != nil {
+				return nil, signErr
+			}
+			return &LoginResult{
+				InvitationRequired:       true,
+				PendingRegistrationToken: token,
+			}, nil
+		}
 		return nil, err
 	}
 
@@ -1201,7 +1226,7 @@ func parseOIDCDiscoveryDocument(reader io.Reader) (oidcDiscoveryDocument, error)
 	}, nil
 }
 
-func (s *Service) resolveProviderUser(ctx context.Context, provider domainuser.IdentityProvider, subject string, email string, displayName string, avatarURL string, emailVerified bool, profileJSON string, intent string) (*domainuser.User, error) {
+func (s *Service) resolveProviderUser(ctx context.Context, provider domainuser.IdentityProvider, subject string, email string, displayName string, avatarURL string, emailVerified bool, profileJSON string, intent string, invitationCode string) (*domainuser.User, error) {
 	identity, err := s.repo.GetUserIdentityByProviderSubject(ctx, provider.ID, subject)
 	if err == nil {
 		if !provider.LoginEnabled {
@@ -1256,6 +1281,15 @@ func (s *Service) resolveProviderUser(ctx context.Context, provider domainuser.I
 	}
 	if !provider.RegistrationEnabled {
 		return nil, fmt.Errorf("provider account is not registered")
+	}
+	// 首次通过第三方授权创建账号时，按站点配置要求补交邀请码。
+	if s.invitationRequiredForProviderRegistration() {
+		if strings.TrimSpace(invitationCode) == "" {
+			return nil, &ProviderInvitationRequiredError{ProviderSlug: provider.Slug}
+		}
+		if err = s.consumeInvitationCode(ctx, invitationCode); err != nil {
+			return nil, err
+		}
 	}
 
 	emailVerifiedAt := (*time.Time)(nil)

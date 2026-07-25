@@ -1,0 +1,33 @@
+{
+  "title": "Invitation codes",
+  "description": "When invitation-only registration is on, new users must enter a code after third-party sign-in to create an account.",
+  "refresh": "Refresh",
+  "generateTitle": "Batch generate",
+  "countLabel": "How many",
+  "maxUsesLabel": "Uses per code",
+  "labelLabel": "Note",
+  "labelPlaceholder": "e.g. Forum campaign",
+  "expiresLabel": "Expires at (optional)",
+  "generate": "Generate",
+  "generateAndDownload": "Generate and download CSV",
+  "plaintextNotice": "Plaintext codes are shown only once at generation; the server stores hashes only. Save the download.",
+  "generatedTitle": "{count} generated",
+  "copyAll": "Copy all",
+  "copySuccess": "Copied to clipboard",
+  "copyFailed": "Copy failed",
+  "generateSuccess": "{count} invitation codes generated",
+  "generateFailed": "Generation failed",
+  "downloadSuccess": "Download started",
+  "downloadFailed": "Download failed",
+  "loadFailed": "Failed to load",
+  "updateFailed": "Update failed",
+  "empty": "No invitation codes yet",
+  "untitled": "Untitled",
+  "columns": {
+    "label": "Note",
+    "usage": "Used / limit",
+    "expires": "Expires",
+    "lastUsed": "Last used",
+    "enabled": "Enabled"
+  }
+}

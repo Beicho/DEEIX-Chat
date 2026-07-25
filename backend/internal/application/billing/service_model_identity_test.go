@@ -1011,3 +1011,7 @@ func TestListModelPricingReturnsModelDisplayIdentity(t *testing.T) {
 		t.Fatalf("expected model metadata identity, got %#v", item)
 	}
 }
+
+func ptrTime(value time.Time) *time.Time {
+	return &value
+}

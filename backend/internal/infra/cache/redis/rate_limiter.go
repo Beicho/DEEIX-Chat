@@ -125,3 +125,41 @@ func (r *rateLimiter) ClearUserRateLimitOverride(ctx context.Context, userID uin
 	}
 	return r.client.Del(ctx, userRateLimitOverrideKey(userID)).Err()
 }
+
+// AcquireConcurrencySlot 占用一个并发槽位；超出上限时返回 false 且不占用。
+func (r *rateLimiter) AcquireConcurrencySlot(ctx context.Context, key string, limit int, ttl time.Duration) (bool, error) {
+	if r == nil || r.client == nil || key == "" || limit <= 0 {
+		return true, nil
+	}
+	if ttl <= 0 {
+		ttl = 15 * time.Minute
+	}
+	count, err := r.client.Incr(ctx, key).Result()
+	if err != nil {
+		return true, err
+	}
+	// 每次占用都续期，保证长任务期间槽位不过期；异常退出时由 TTL 兜底释放。
+	if expireErr := r.client.Expire(ctx, key, ttl).Err(); expireErr != nil {
+		return true, expireErr
+	}
+	if count > int64(limit) {
+		r.client.Decr(ctx, key)
+		return false, nil
+	}
+	return true, nil
+}
+
+// ReleaseConcurrencySlot 释放一个并发槽位。
+func (r *rateLimiter) ReleaseConcurrencySlot(ctx context.Context, key string) error {
+	if r == nil || r.client == nil || key == "" {
+		return nil
+	}
+	count, err := r.client.Decr(ctx, key).Result()
+	if err != nil {
+		return err
+	}
+	if count <= 0 {
+		return r.client.Del(ctx, key).Err()
+	}
+	return nil
+}

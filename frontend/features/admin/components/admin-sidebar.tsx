@@ -22,6 +22,7 @@ const ADMIN_SECTION_LABEL_KEYS: Record<AdminSection, string> = {
   dashboard: "sections.dashboard",
   accounts: "sections.accounts",
   security: "sections.security",
+  invitations: "sections.invitations",
   upstreams: "sections.upstreams",
   models: "sections.models",
   "tool-settings": "sections.toolSettings",

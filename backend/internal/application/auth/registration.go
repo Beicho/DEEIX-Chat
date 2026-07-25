@@ -167,7 +167,7 @@ func (s *Service) RequestEmailRegistration(ctx context.Context, email string, tu
 	}, nil
 }
 
-func (s *Service) RegisterWithEmail(ctx context.Context, email string, password string, code string, turnstileToken string, remoteIP string, requestID string, auditCtx requestmeta.SessionAuditContext) (*LoginResult, error) {
+func (s *Service) RegisterWithEmail(ctx context.Context, email string, password string, code string, turnstileToken string, invitationCode string, remoteIP string, requestID string, auditCtx requestmeta.SessionAuditContext) (*LoginResult, error) {
 	cfg := s.cfg.Snapshot()
 	if !cfg.EmailLoginEnabled || !cfg.EmailRegistrationEnabled {
 		return nil, fmt.Errorf("email registration is disabled")
@@ -194,6 +194,11 @@ func (s *Service) RegisterWithEmail(ctx context.Context, email string, password 
 		return nil, fmt.Errorf("email already exists")
 	} else if !errors.Is(err, repository.ErrNotFound) {
 		return nil, err
+	}
+	if s.invitationRequiredForEmailRegistration() {
+		if err = s.consumeInvitationCode(ctx, invitationCode); err != nil {
+			return nil, err
+		}
 	}
 
 	now := time.Now()

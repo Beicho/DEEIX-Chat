@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { SpinnerLabel } from "@/components/ui/spinner";
 import {
   providerPKCEStorageKey,
@@ -13,7 +15,7 @@ import {
 } from "@/features/auth/model/login-page";
 import { getSuspendedAccountReason, isSuspendedAccountError } from "@/features/auth/lib/suspended-account-message";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
-import { completeProviderBind, completeProviderLogin } from "@/shared/api/auth";
+import { completeProviderBind, completeProviderLogin, completeProviderRegistration } from "@/shared/api/auth";
 import { ApiError } from "@/shared/api/http-client";
 import { DEFAULT_AUTH_NEXT_PATH, normalizeAuthNextPath } from "@/shared/auth/local-path";
 import { AppLogo } from "@/shared/components/app-logo";
@@ -41,6 +43,11 @@ export function AuthCallbackPage() {
   const router = useRouter();
   const [error, setError] = React.useState("");
   const [emailConflict, setEmailConflict] = React.useState<EmailConflictState | null>(null);
+  const [pendingRegistrationToken, setPendingRegistrationToken] = React.useState("");
+  const [invitationCode, setInvitationCode] = React.useState("");
+  const [invitationError, setInvitationError] = React.useState("");
+  const [submittingInvitation, setSubmittingInvitation] = React.useState(false);
+  const [pendingNextPath, setPendingNextPath] = React.useState(DEFAULT_AUTH_NEXT_PATH);
   const handledRef = React.useRef(false);
 
   const redirectToLogin = React.useCallback(() => {
@@ -112,6 +119,11 @@ export function AuthCallbackPage() {
 
     void completeProviderLogin(provider, code, state, redirectURI, codeVerifier, intent)
       .then((result) => {
+        if (result.invitationRequired && result.pendingRegistrationToken) {
+          setPendingNextPath(nextPath);
+          setPendingRegistrationToken(result.pendingRegistrationToken);
+          return;
+        }
         if (result.twoFactorRequired) {
           window.sessionStorage.setItem(TWO_FACTOR_CHALLENGE_STORAGE_KEY, result.twoFactorChallengeToken ?? "");
           window.sessionStorage.setItem(TWO_FACTOR_METHODS_STORAGE_KEY, JSON.stringify(result.verificationMethods ?? ["two_factor"]));
@@ -137,6 +149,27 @@ export function AuthCallbackPage() {
       });
   }, [resolveCallbackError, router, t]);
 
+  const submitInvitationCode = React.useCallback(async () => {
+    const trimmed = invitationCode.trim();
+    if (!trimmed || submittingInvitation) {
+      return;
+    }
+    setSubmittingInvitation(true);
+    setInvitationError("");
+    try {
+      const result = await completeProviderRegistration(pendingRegistrationToken, trimmed);
+      writeSessionSnapshot({
+        accessToken: result.accessToken,
+        sessionID: result.sessionID,
+      });
+      router.replace(pendingNextPath);
+    } catch (caught) {
+      setInvitationError(resolveCallbackError(caught, t("invitation.failed")));
+    } finally {
+      setSubmittingInvitation(false);
+    }
+  }, [invitationCode, pendingNextPath, pendingRegistrationToken, resolveCallbackError, router, submittingInvitation, t]);
+
   const conflictProviderLabel = React.useMemo(() => {
     if (!emailConflict?.providerSlug) {
       return t("emailConflict.providerUnknown");
@@ -161,6 +194,51 @@ export function AuthCallbackPage() {
               {t("backToLogin")}
             </Button>
           </div>
+        ) : pendingRegistrationToken ? (
+          <form
+            className="mt-7 space-y-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitInvitationCode();
+            }}
+          >
+            <div className="space-y-2 text-center">
+              <h1 className="text-xl font-semibold leading-7">{t("invitation.title")}</h1>
+              <p className="text-sm leading-6 text-muted-foreground">{t("invitation.description")}</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="provider-invitation-code">{t("invitation.label")}</Label>
+              <Input
+                id="provider-invitation-code"
+                value={invitationCode}
+                onChange={(event) => {
+                  setInvitationCode(event.target.value);
+                  setInvitationError("");
+                }}
+                placeholder={t("invitation.placeholder")}
+                autoComplete="one-time-code"
+                autoFocus
+                maxLength={64}
+              />
+              {invitationError ? (
+                <p className="break-words text-sm leading-5 text-destructive">{invitationError}</p>
+              ) : null}
+            </div>
+
+            <div className="space-y-3">
+              <Button
+                type="submit"
+                className="h-9 w-full rounded-md bg-foreground text-sm font-semibold text-background shadow-none hover:bg-foreground/90"
+                disabled={submittingInvitation || !invitationCode.trim()}
+              >
+                {submittingInvitation ? <SpinnerLabel>{t("invitation.submitting")}</SpinnerLabel> : t("invitation.submit")}
+              </Button>
+              <Button type="button" variant="ghost" className="h-9 w-full rounded-md text-sm" onClick={redirectToLogin}>
+                {t("backToLogin")}
+              </Button>
+            </div>
+          </form>
         ) : emailConflict ? (
           <div className="mt-7 space-y-5">
             <div className="space-y-2 text-center">

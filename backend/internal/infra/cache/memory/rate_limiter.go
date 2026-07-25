@@ -111,3 +111,53 @@ func (c *Cache) ClearUserRateLimitOverride(ctx context.Context, userID uint) err
 	c.maybeSweepLocked(time.Now())
 	return nil
 }
+
+type concurrencySlot struct {
+	count     int
+	expiresAt time.Time
+}
+
+// AcquireConcurrencySlot 占用一个并发槽位；超出上限时返回 false 且不占用。
+func (c *Cache) AcquireConcurrencySlot(ctx context.Context, key string, limit int, ttl time.Duration) (bool, error) {
+	if c == nil || strings.TrimSpace(key) == "" || limit <= 0 {
+		return true, nil
+	}
+	if ttl <= 0 {
+		ttl = 15 * time.Minute
+	}
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	slot, ok := c.concurrencySlots[key]
+	if !ok || !slot.expiresAt.After(now) {
+		slot = concurrencySlot{}
+	}
+	if slot.count >= limit {
+		return false, nil
+	}
+	slot.count++
+	slot.expiresAt = now.Add(ttl)
+	c.concurrencySlots[key] = slot
+	c.maybeSweepLocked(now)
+	return true, nil
+}
+
+// ReleaseConcurrencySlot 释放一个并发槽位。
+func (c *Cache) ReleaseConcurrencySlot(ctx context.Context, key string) error {
+	if c == nil || strings.TrimSpace(key) == "" {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	slot, ok := c.concurrencySlots[key]
+	if !ok {
+		return nil
+	}
+	slot.count--
+	if slot.count <= 0 {
+		delete(c.concurrencySlots, key)
+		return nil
+	}
+	c.concurrencySlots[key] = slot
+	return nil
+}

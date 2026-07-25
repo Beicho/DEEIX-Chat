@@ -677,6 +677,9 @@ func (h *Handler) ensureBillingModelAccess(c *gin.Context, conversation *model.C
 		c.Request.Context(),
 		sendMessageBillingInput(middleware.MustUserID(c), conversation, req, nil),
 	); err != nil {
+		if writeRiskControlError(c, err) {
+			return err
+		}
 		if errors.Is(err, billing.ErrPeriodCreditExceeded) {
 			response.Error(c, http.StatusPaymentRequired, "period usage credit exceeded")
 			return err

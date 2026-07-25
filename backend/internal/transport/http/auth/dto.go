@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strings"
 	"time"
 
 	appauth "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/auth"
@@ -76,6 +77,17 @@ type EmailRegistrationCompleteRequest struct {
 	Password       string `json:"password" binding:"required,min=8,max=128"`
 	Code           string `json:"code" binding:"omitempty,len=6"`
 	TurnstileToken string `json:"turnstileToken" binding:"omitempty,max=2048"`
+	InvitationCode string `json:"invitationCode" binding:"omitempty,max=64"`
+	// InviteCode 兼容前端历史字段名。
+	InviteCode string `json:"inviteCode" binding:"omitempty,max=64"`
+}
+
+// ResolvedInvitationCode 返回本次请求提交的邀请码，兼容新旧字段名。
+func (r EmailRegistrationCompleteRequest) ResolvedInvitationCode() string {
+	if strings.TrimSpace(r.InvitationCode) != "" {
+		return r.InvitationCode
+	}
+	return r.InviteCode
 }
 
 type PasswordResetStartRequest struct {
@@ -227,6 +239,7 @@ type LoginOptionsResponse struct {
 	PasswordResetEnabled         bool                       `json:"passwordResetEnabled"`
 	EmailCodeLoginEnabled        bool                       `json:"emailCodeLoginEnabled"`
 	InviteRegistrationRequired   bool                       `json:"inviteRegistrationRequired"`
+	InviteProviderRegistration   bool                       `json:"inviteProviderRegistration"`
 	TurnstileRegistrationEnabled bool                       `json:"turnstileRegistrationEnabled"`
 	TurnstileSiteKey             string                     `json:"turnstileSiteKey"`
 	Providers                    []IdentityProviderResponse `json:"providers"`
@@ -261,11 +274,18 @@ type ReorderIdentityProvidersRequest struct {
 }
 
 type CompleteProviderLoginRequest struct {
-	Code         string `json:"code" binding:"required"`
-	State        string `json:"state" binding:"required,max=4096"`
-	RedirectURI  string `json:"redirectURI" binding:"required,max=2048"`
-	CodeVerifier string `json:"codeVerifier" binding:"required,min=43,max=128"`
-	Intent       string `json:"intent" binding:"omitempty,oneof=login register bind"`
+	Code           string `json:"code" binding:"required"`
+	State          string `json:"state" binding:"required,max=4096"`
+	RedirectURI    string `json:"redirectURI" binding:"required,max=2048"`
+	CodeVerifier   string `json:"codeVerifier" binding:"required,min=43,max=128"`
+	Intent         string `json:"intent" binding:"omitempty,oneof=login register bind"`
+	InvitationCode string `json:"invitationCode" binding:"omitempty,max=64"`
+}
+
+// CompleteProviderRegistrationRequest 用待注册令牌 + 邀请码完成第三方注册。
+type CompleteProviderRegistrationRequest struct {
+	RegistrationToken string `json:"registrationToken" binding:"required,max=4096"`
+	InvitationCode    string `json:"invitationCode" binding:"required,max=64"`
 }
 
 type CompleteProviderBindRequest struct {
@@ -353,6 +373,9 @@ type LoginResponse struct {
 	TwoFactorRequired       bool         `json:"twoFactorRequired"`
 	TwoFactorChallengeToken string       `json:"twoFactorChallengeToken,omitempty"`
 	VerificationMethods     []string     `json:"verificationMethods,omitempty"`
+	// InvitationRequired 为 true 时前端需引导用户输入邀请码并调用注册完成接口。
+	InvitationRequired       bool   `json:"invitationRequired,omitempty"`
+	PendingRegistrationToken string `json:"pendingRegistrationToken,omitempty"`
 }
 
 // MeResponse 当前用户信息响应。
@@ -556,6 +579,9 @@ func toLoginResponse(d *appauth.LoginResult) LoginResponse {
 		TwoFactorRequired:       d.TwoFactorRequired,
 		TwoFactorChallengeToken: d.TwoFactorChallengeToken,
 		VerificationMethods:     toSecurityVerificationMethods(d.VerificationMethods),
+
+		InvitationRequired:       d.InvitationRequired,
+		PendingRegistrationToken: d.PendingRegistrationToken,
 	}
 }
 
@@ -618,6 +644,7 @@ func toLoginOptionsResponse(d *appauth.LoginOptions) LoginOptionsResponse {
 		PasswordResetEnabled:         d.PasswordResetEnabled,
 		EmailCodeLoginEnabled:        d.EmailCodeLoginEnabled,
 		InviteRegistrationRequired:   d.InviteRegistrationRequired,
+		InviteProviderRegistration:   d.InviteProviderRegistration,
 		TurnstileRegistrationEnabled: d.TurnstileRegistrationEnabled,
 		TurnstileSiteKey:             d.TurnstileSiteKey,
 		Providers:                    toIdentityProviderResponses(d.Providers),

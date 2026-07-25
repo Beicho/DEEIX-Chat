@@ -14,12 +14,35 @@ import (
 
 // FingerprintService records browser fingerprints and flags shared devices.
 type FingerprintService struct {
-	repo repository.FingerprintRepository
+	repo      repository.FingerprintRepository
+	alertHook MultiAccountAlertHook
 }
 
 // NewFingerprintService creates fingerprint risk service.
 func NewFingerprintService(repo repository.FingerprintRepository) *FingerprintService {
 	return &FingerprintService{repo: repo}
+}
+
+// MultiAccountAlertHook 在检测到高危多账号关联时被调用。
+type MultiAccountAlertHook func(ctx context.Context, detection domainsecurity.MultiAccountDetection)
+
+// SetMultiAccountAlertHook 注入多账号关联告警回调。
+func (s *FingerprintService) SetMultiAccountAlertHook(hook MultiAccountAlertHook) {
+	if s == nil {
+		return
+	}
+	s.alertHook = hook
+}
+
+// notifyMultiAccount 仅在高危关联首次落库时触发告警。
+func (s *FingerprintService) notifyMultiAccount(ctx context.Context, detection *domainsecurity.MultiAccountDetection) {
+	if s == nil || s.alertHook == nil || detection == nil {
+		return
+	}
+	if detection.RiskLevel != "high" {
+		return
+	}
+	s.alertHook(ctx, *detection)
 }
 
 // RecordFingerprint saves a fingerprint and returns a detection when it is shared.
@@ -48,6 +71,7 @@ func (s *FingerprintService) RecordFingerprint(ctx context.Context, input domain
 		if err = s.repo.UpsertAssociation(ctx, association); err != nil {
 			return nil, err
 		}
+		s.notifyMultiAccount(ctx, detection)
 	}
 	return detection, nil
 }
@@ -80,6 +104,7 @@ func (s *FingerprintService) TouchFingerprint(ctx context.Context, userID uint, 
 		ConfidenceScore: detection.ConfidenceScore,
 		RiskLevel:       detection.RiskLevel,
 	})
+	s.notifyMultiAccount(ctx, detection)
 }
 
 // DetectMultiAccount evaluates whether a fingerprint is shared by multiple users.

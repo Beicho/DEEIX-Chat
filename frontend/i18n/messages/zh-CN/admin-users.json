@@ -19,7 +19,8 @@
     "conversationSettings": "会话配置",
     "chatFiles": "文件与检索",
     "about": "关于",
-    "upstreams": "上游"
+    "upstreams": "上游",
+    "invitations": "邀请码"
   },
   "dashboardPage": {
     "title": "运营看板",

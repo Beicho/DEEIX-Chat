@@ -330,6 +330,16 @@ export async function completeProviderLogin(
   });
 }
 
+export async function completeProviderRegistration(
+  registrationToken: string,
+  invitationCode: string,
+): Promise<LoginData> {
+  return apiRequest<LoginData>("/api/v1/auth/register/provider/complete", {
+    method: "POST",
+    body: { registrationToken, invitationCode },
+  });
+}
+
 export async function refresh(): Promise<LoginData> {
   return apiRequest<LoginData>("/api/v1/auth/refresh", {
     method: "POST",

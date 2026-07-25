@@ -76,6 +76,15 @@
       "noteLink": "return to sign-in",
       "noteSuffix": " and choose again.",
       "signInExistingAccount": "Sign in to existing account"
+    },
+    "invitation": {
+      "title": "Enter invitation code",
+      "description": "Registration on this site requires an invitation code. Enter it to finish creating your account.",
+      "label": "Invitation code",
+      "placeholder": "Enter your invitation code",
+      "submit": "Finish registration",
+      "submitting": "Creating account…",
+      "failed": "Invitation code check failed, please try again"
     }
   },
   "backToLogin": "Back to sign-in",

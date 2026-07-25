@@ -41,4 +41,12 @@ var (
 	ErrRedemptionUserLimitExceeded = errors.New("redemption user limit exceeded")
 	// ErrNewAPIDailyLimitExceeded 已达到 NewAPI 单日划转上限。
 	ErrNewAPIDailyLimitExceeded = errors.New("newapi daily transfer limit exceeded")
+	// ErrCallCostNotCovered 剩余额度与余额不足以覆盖本次调用的预估成本。
+	ErrCallCostNotCovered = errors.New("call cost is not covered by available credit")
+	// ErrNewUserCooldown 新注册账号冷却期内禁止使用高价模型。
+	ErrNewUserCooldown = errors.New("new user cooldown is active")
+	// ErrDailySpendLimitExceeded 已达到单日消费上限。
+	ErrDailySpendLimitExceeded = errors.New("daily spend limit exceeded")
+	// ErrConcurrentGenerationLimit 并发生成任务数超过上限。
+	ErrConcurrentGenerationLimit = errors.New("concurrent generation limit exceeded")
 )

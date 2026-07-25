@@ -36,6 +36,8 @@ import (
 	appsystemevent "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/systemevent"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/usersettings"
+	domainsecurity "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/security"
+	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	platformcache "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/cache/redis"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/embedding"
@@ -215,6 +217,16 @@ func NewApp() (*App, error) {
 	billingService := billing.NewService(billingRepo)
 	billingService.SetAuditWriter(auditService)
 	billingService.SetRedemptionCodeSecret(cfg.DataEncryptionKey)
+	billingService.SetRiskConfigProvider(func() billing.RiskControlConfig {
+		snapshot := runtimeCfg.Snapshot()
+		return billing.RiskControlConfig{
+			CostGuardEnabled:       snapshot.RiskCostGuardEnabled,
+			NewUserCooldownHours:   snapshot.RiskNewUserCooldownHours,
+			NewUserCooldownCostUSD: snapshot.RiskNewUserCooldownCostUSD,
+			DailySpendLimitUSD:     snapshot.RiskDailySpendLimitUSD,
+			AutoSuspendDebtUSD:     snapshot.RiskAutoSuspendDebtUSD,
+		}
+	})
 	if values, valueErr := settingsService.RuntimeValuesByNamespace(context.Background(), "billing"); valueErr == nil {
 		billingService.SetNewAPIClient(billing.NewNewAPIClient(billing.NewAPIClientConfig{
 			BaseURL: values["newapi_bridge_base_url"],
@@ -349,6 +361,89 @@ func NewApp() (*App, error) {
 	alertingDebouncer := appalerting.NewRedisDebouncer(redisClient)
 	alertingService := appalerting.NewService(alertingStore, alertingDebouncer, runtimeCfg, log)
 	channelService.SetCircuitAlertSink(appalerting.NewChannelAlertSink(alertingService))
+	// 结算后资损风控：高额消费告警 + 欠费自动停用。
+	billingService.SetSettlementRiskHook(func(ctx context.Context, event billing.SettlementRiskEvent) {
+		billedUSD := float64(event.BilledNanousd) / 1e9
+		balanceUSD := float64(event.BalanceNanousd) / 1e9
+		dailyUSD := float64(event.DailySpendNanousd) / 1e9
+		if event.ShouldSuspend {
+			now := time.Now()
+			suspendedBy := uint(0)
+			if err := userService.UpdateUserStatus(ctx, event.UserID, domainuser.StatusSuspended); err != nil {
+				log.Warn("risk auto suspend failed", zap.Uint("user_id", event.UserID), zap.Error(err))
+			} else if err := userService.SetUserSuspension(
+				ctx,
+				event.UserID,
+				"billing_debt",
+				fmt.Sprintf("欠费 %.2f USD 触发自动停用", -balanceUSD),
+				&now,
+				&suspendedBy,
+			); err != nil {
+				log.Warn("risk auto suspend detail failed", zap.Uint("user_id", event.UserID), zap.Error(err))
+			}
+		}
+		alertingService.Dispatch(appalerting.AlertEvent{
+			Type:      appalerting.EventTypeRiskSpend,
+			ChannelID: int(event.UserID),
+			Timestamp: time.Now(),
+			Message: fmt.Sprintf(
+				"⚠️ 资损风控\n用户: #%d\n模型: %s\n本次: %.2f USD\n当日累计: %.2f USD\n余额: %.2f USD\n处置: %s",
+				event.UserID,
+				event.PlatformModelName,
+				billedUSD,
+				dailyUSD,
+				balanceUSD,
+				riskDispositionLabel(event.ShouldSuspend),
+			),
+		})
+	})
+	// 多账号关联风控：高危关联告警 + 可选自动停用。
+	fingerprintService.SetMultiAccountAlertHook(func(ctx context.Context, detection domainsecurity.MultiAccountDetection) {
+		snapshot := runtimeCfg.Snapshot()
+		accountCount := len(detection.AssociatedUsers)
+		// 设备指纹会被同型号设备、同出口代理放大：账号数太少时不打扰，
+		// 自动停用默认关闭，一律交人工复核。
+		minAccounts := snapshot.RiskFingerprintAlertMinAccts
+		if minAccounts <= 0 {
+			minAccounts = 5
+		}
+		suspended := false
+		if threshold := snapshot.RiskFingerprintAutoSuspend; threshold > 0 && accountCount >= threshold {
+			now := time.Now()
+			actor := uint(0)
+			for _, userID := range detection.AssociatedUsers {
+				if err := userService.UpdateUserStatus(ctx, userID, domainuser.StatusSuspended); err != nil {
+					log.Warn("fingerprint auto suspend failed", zap.Uint("user_id", userID), zap.Error(err))
+					continue
+				}
+				if err := userService.SetUserSuspension(
+					ctx,
+					userID,
+					"multi_account",
+					fmt.Sprintf("同一设备关联 %d 个账号，触发自动停用", accountCount),
+					&now,
+					&actor,
+				); err != nil {
+					log.Warn("fingerprint auto suspend detail failed", zap.Uint("user_id", userID), zap.Error(err))
+				}
+				suspended = true
+			}
+		}
+		if !suspended && (!snapshot.RiskFingerprintAlertEnabled || accountCount < minAccounts) {
+			return
+		}
+		alertingService.Dispatch(appalerting.AlertEvent{
+			Type:      appalerting.EventTypeRiskFingerprint,
+			Timestamp: time.Now(),
+			Message: fmt.Sprintf(
+				"⚠️ 多账号关联（需人工复核，同机场/同型号设备可能误报）\n设备指纹: %s\n关联账号数: %d\n置信度: %.0f%%\n处置: %s",
+				detection.FingerprintID,
+				accountCount,
+				detection.ConfidenceScore*100,
+				riskDispositionLabel(suspended),
+			),
+		})
+	})
 	alertingHandler := alertinghttp.NewHandler(alertingService)
 	alertingModule := alertinghttp.NewModule(alertingHandler)
 
@@ -497,4 +592,12 @@ func (a *App) Close() {
 	defer cancel()
 	platformtracing.Shutdown(shutdownCtx)
 	a.logger.Sync() //nolint:errcheck
+}
+
+// riskDispositionLabel 返回风控处置的中文说明。
+func riskDispositionLabel(suspended bool) string {
+	if suspended {
+		return "已自动停用账号"
+	}
+	return "仅告警"
 }

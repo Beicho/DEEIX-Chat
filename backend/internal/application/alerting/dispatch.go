@@ -146,6 +146,10 @@ func defaultAlertText(event AlertEvent) string {
 		ts = time.Now()
 	}
 	timeStr := ts.Format("2006-01-02 15:04:05")
+	// 风控类告警的文案由调用方直接给出，这里只补时间。
+	if event.Type == EventTypeRiskSpend || event.Type == EventTypeRiskFingerprint {
+		return fmt.Sprintf("%s\n时间: %s", firstNonEmpty(event.Message, "风控告警"), timeStr)
+	}
 	if event.Type == EventTypeCircuitClosed {
 		return fmt.Sprintf("🟢 渠道恢复\n渠道: %s\n影响模型: %s\n时间: %s",
 			displayName(event.ChannelName), models, timeStr)
@@ -162,6 +166,7 @@ func displayName(name string) string {
 }
 
 // dedupeKey 构造去抖 key：按渠道 + 事件类型，使熔断/恢复各自独立去抖。
+// 风控告警按事件类型 + 主体 ID（ChannelID 复用为 userID）去抖。
 func dedupeKey(event AlertEvent) string {
 	return fmt.Sprintf("%d:%s", event.ChannelID, event.Type)
 }

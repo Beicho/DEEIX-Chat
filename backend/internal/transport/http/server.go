@@ -165,6 +165,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		authRequired.Use(middleware.FingerprintMiddleware(modules.Fingerprint))
 	}
 	authRequired.Use(middleware.RateLimit(limiter, cfg))
+	if slotStore, ok := limiter.(middleware.GenerationSlotStore); ok && slotStore != nil {
+		authRequired.Use(middleware.GenerationConcurrencyLimit(slotStore, cfg))
+	}
 
 	if modules.Auth != nil {
 		modules.Auth.RegisterProtectedRoutes(authRequired)

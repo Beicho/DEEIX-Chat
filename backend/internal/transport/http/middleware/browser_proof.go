@@ -34,6 +34,7 @@ var protectedBrowserProofRoutes = []protectedBrowserProofRoute{
 	{method: http.MethodPost, pattern: regexp.MustCompile(`^/api/v1/conversations/[^/]+/messages/stream$`), action: "send_message"},
 	{method: http.MethodPost, pattern: regexp.MustCompile(`^/api/v1/conversations/[^/]+/media/images/generations/stream$`), action: "generate_image"},
 	{method: http.MethodPost, pattern: regexp.MustCompile(`^/api/v1/conversations/[^/]+/media/images/edits/stream$`), action: "generate_image"},
+	{method: http.MethodPost, pattern: regexp.MustCompile(`^/api/v1/conversations/[^/]+/media/videos/generations/stream$`), action: "generate_video"},
 	{method: http.MethodPost, pattern: regexp.MustCompile(`^/api/v1/files$`), action: "upload_file"},
 	{method: http.MethodPost, pattern: regexp.MustCompile(`^/api/v1/conversation-runs/[^/]+/cancel$`), action: "cancel_generation"},
 }

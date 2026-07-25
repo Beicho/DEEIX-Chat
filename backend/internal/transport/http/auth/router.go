@@ -18,6 +18,7 @@ func (m *Module) RegisterPublicRoutes(api *gin.RouterGroup) {
 	api.GET("/auth/providers/:slug/start", m.Handler.StartProviderLogin)
 	api.GET("/auth/providers/:slug/callback", m.Handler.ProviderCallback)
 	api.POST("/auth/providers/:slug/callback", m.Handler.CompleteProviderLogin)
+	api.POST("/auth/register/provider/complete", m.Handler.CompleteProviderRegistration)
 	api.GET("/auth/providers/:slug/logo", m.Handler.IdentityProviderLogo)
 }
 
@@ -60,4 +61,8 @@ func (m *Module) RegisterAdminRoutes(adminGroup *gin.RouterGroup) {
 	adminGroup.PATCH("/auth/provider-order", m.Handler.ReorderIdentityProviders)
 	adminGroup.PATCH("/auth/providers/:provider_id", m.Handler.UpdateIdentityProvider)
 	adminGroup.DELETE("/auth/providers/:provider_id", m.Handler.DeleteIdentityProvider)
+	adminGroup.GET("/auth/invitation-codes", m.Handler.ListInvitationCodes)
+	adminGroup.POST("/auth/invitation-codes", m.Handler.CreateInvitationCodes)
+	adminGroup.POST("/auth/invitation-codes/export", m.Handler.ExportInvitationCodes)
+	adminGroup.PATCH("/auth/invitation-codes/:code_id", m.Handler.UpdateInvitationCode)
 }

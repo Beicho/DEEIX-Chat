@@ -358,6 +358,7 @@ type Config struct {
 	LoginLockMinutes             int
 	RateLimitEnabled             bool
 	RateLimitRPM                 int
+	PublicAuthRateLimitEnabled   bool
 	PublicAuthRateLimitRPM       int
 	UsernameLoginEnabled         bool
 	EmailLoginEnabled            bool
@@ -365,6 +366,7 @@ type Config struct {
 	EmailRegistrationEnabled     bool
 	EmailVerificationEnabled     bool
 	InviteRegistrationRequired   bool
+	InviteProviderRegistration   bool
 	PasswordResetEnabled         bool
 	EmailRegistrationDomains     string
 	EmailRegistrationNoAlias     bool
@@ -501,6 +503,20 @@ type Config struct {
 	StatusNotifierEnabled              bool
 	StatusNotifierWebhookURL           string
 	StatusNotifierEmail                string
+	// 资损风控（调用前成本准入 / 滥用处置）
+	RiskCostGuardEnabled         bool    // 调用前校验「剩余额度+余额」是否够本次预估成本
+	RiskNewUserCooldownHours     int     // 新注册账号冷却小时数，<=0 关闭
+	RiskNewUserCooldownCostUSD   float64 // 冷却期内禁止的单次预估成本阈值（美元）
+	RiskDailySpendLimitUSD       float64 // 单用户单日消费上限（美元），<=0 不限
+	RiskMaxConcurrentGenerations int     // 单用户并发生成上限，<=0 不限
+	RiskAutoSuspendDebtUSD       float64 // 欠费自动停用阈值（美元），<=0 关闭
+	RiskSpendAlertSingleCallUSD  float64 // 单次调用消费告警阈值（美元），<=0 关闭
+	RiskSpendAlertDailyUserUSD   float64 // 单用户单日消费告警阈值（美元），<=0 关闭
+	RiskFingerprintAlertEnabled  bool    // 高危多账号关联触发告警
+	RiskFingerprintAlertMinAccts int     // 触发多账号告警的最少关联账号数
+	// RiskFingerprintAutoSuspend 关联账号数达到该值自动停用，<=0 关闭。
+	// 设备指纹会被同型号设备与同出口代理放大，默认关闭，只做人工复核。
+	RiskFingerprintAutoSuspend int
 	// MCP 配置
 	MCPEnable                     bool
 	MCPToolTimeoutSeconds         int
@@ -626,6 +642,7 @@ func Load() Config {
 		LoginLockMinutes:                   15,
 		RateLimitEnabled:                   false,
 		RateLimitRPM:                       60,
+		PublicAuthRateLimitEnabled:         true,
 		PublicAuthRateLimitRPM:             30,
 		UsernameLoginEnabled:               true,
 		EmailLoginEnabled:                  true,
@@ -633,6 +650,7 @@ func Load() Config {
 		EmailRegistrationEnabled:           true,
 		EmailVerificationEnabled:           false,
 		InviteRegistrationRequired:         false,
+		InviteProviderRegistration:         true,
 		PasswordResetEnabled:               false,
 		EmailRegistrationDomains:           "",
 		EmailRegistrationNoAlias:           false,
@@ -757,6 +775,17 @@ func Load() Config {
 		StatusNotifierEnabled:              false,
 		StatusNotifierWebhookURL:           "",
 		StatusNotifierEmail:                "",
+		RiskCostGuardEnabled:               true,
+		RiskNewUserCooldownHours:           24,
+		RiskNewUserCooldownCostUSD:         1,
+		RiskDailySpendLimitUSD:             0,
+		RiskMaxConcurrentGenerations:       3,
+		RiskAutoSuspendDebtUSD:             5,
+		RiskSpendAlertSingleCallUSD:        5,
+		RiskSpendAlertDailyUserUSD:         50,
+		RiskFingerprintAlertEnabled:        true,
+		RiskFingerprintAlertMinAccts:       5,
+		RiskFingerprintAutoSuspend:         0,
 		MCPEnable:                          false,
 		MCPToolTimeoutSeconds:              60,
 		MCPToolRetryCount:                  0,
@@ -781,7 +810,6 @@ func Load() Config {
 		VoiceTTSProvider:                   "disabled",
 		VoiceTTSModel:                      "",
 		VoiceTTSVoice:                      "",
-
 	}
 }
 
@@ -1120,6 +1148,7 @@ func defaultPoWBaseDifficulty(yamlVal map[string]int) map[string]int {
 	defaults := map[string]int{
 		"send_message":           5,
 		"generate_image":         7,
+		"generate_video":         8,
 		"stream_expensive_model": 6,
 		"upload_file":            4,
 		"cancel_generation":      4,

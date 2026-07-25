@@ -182,6 +182,7 @@ func (h *Handler) CompleteEmailRegistration(c *gin.Context) {
 		req.Password,
 		req.Code,
 		req.TurnstileToken,
+		req.ResolvedInvitationCode(),
 		c.ClientIP(),
 		middleware.MustRequestID(c),
 		middleware.ResolveSessionAuditContext(c),
@@ -600,6 +601,7 @@ func (h *Handler) CompleteProviderLogin(c *gin.Context) {
 		req.RedirectURI,
 		req.CodeVerifier,
 		req.Intent,
+		req.InvitationCode,
 		middleware.MustRequestID(c),
 		middleware.ResolveSessionAuditContext(c),
 	)
@@ -1501,4 +1503,29 @@ func (h *Handler) LogoutSession(c *gin.Context) {
 	}
 
 	response.Success(c, LogoutResponse{Revoked: true})
+}
+
+// CompleteProviderRegistration 用待注册令牌与邀请码完成第三方注册。
+func (h *Handler) CompleteProviderRegistration(c *gin.Context) {
+	var req CompleteProviderRegistrationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	result, err := h.service.CompletePendingProviderRegistration(
+		c.Request.Context(),
+		req.RegistrationToken,
+		req.InvitationCode,
+		middleware.MustRequestID(c),
+		middleware.ResolveSessionAuditContext(c),
+	)
+	if err != nil {
+		if writeAccountSuspendedError(c, err) {
+			return
+		}
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	h.writeRefreshTokenCookie(c, result)
+	response.Success(c, toLoginResponse(result))
 }

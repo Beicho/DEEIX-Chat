@@ -59,6 +59,8 @@ type Service struct {
 	auditWriter                   auditWriter
 	redemptionCodeSecret          string
 	newAPIClient                  newAPIBridgeClient
+	riskConfig                    riskConfigProvider
+	settlementRiskHook            settlementRiskHook
 }
 
 type newAPIBridgeClient interface {
@@ -1193,6 +1195,7 @@ func (s *Service) RecordUsageWithReservation(ctx context.Context, usage *domainb
 			}
 			return err
 		}
+		s.evaluateSettlementRisk(ctx, usage)
 		return nil
 	}
 	if mode == "period" {
@@ -1212,6 +1215,7 @@ func (s *Service) RecordUsageWithReservation(ctx context.Context, usage *domainb
 			}
 			return err
 		}
+		s.evaluateSettlementRisk(ctx, usage)
 		return nil
 	}
 	return s.repo.AddUsage(ctx, usage)
@@ -1248,6 +1252,10 @@ func (s *Service) ReserveUsageBalance(ctx context.Context, userID uint, platform
 	prepaidNanousd, err := s.repo.GetBillingPrepaidAmountNanousd(ctx)
 	if err != nil {
 		return nil, err
+	}
+	// 可精确预估的按次/按时长模型必须按真实成本预扣，否则并发请求会击穿余额。
+	if estimated := EstimateCallCostNanousd(pricing, 0); IsHighCostPricing(pricing) && estimated > prepaidNanousd {
+		prepaidNanousd = estimated
 	}
 	if prepaidNanousd <= 0 {
 		return nil, nil
@@ -1311,7 +1319,10 @@ func (s *Service) EnsureModelUsable(ctx context.Context, userID uint, platformMo
 		return ErrModelPricingRequired
 	}
 	if mode == "usage" {
-		return s.ensureUsageBalance(ctx, userID)
+		if err = s.ensureUsageBalance(ctx, userID); err != nil {
+			return err
+		}
+		return s.enforceRiskControl(ctx, userID, pricing, mode, now)
 	}
 	if mode != "period" {
 		return nil
@@ -1325,10 +1336,28 @@ func (s *Service) EnsureModelUsable(ctx context.Context, userID uint, platformMo
 	if err != nil {
 		return err
 	}
-	if plan.PeriodCreditNanousd > 0 && usedNanousd < plan.PeriodCreditNanousd {
-		return nil
+	if plan.PeriodCreditNanousd <= 0 || usedNanousd >= plan.PeriodCreditNanousd {
+		// 套餐额度不可用时退回按量余额校验。
+		if err = s.ensureUsageBalance(ctx, userID); err != nil {
+			return err
+		}
 	}
-	return s.ensureUsageBalance(ctx, userID)
+	return s.enforceRiskControl(ctx, userID, pricing, mode, now)
+}
+
+// enforceRiskControl 汇总执行调用前资损风控（成本覆盖 / 新号冷却 / 单日上限）。
+func (s *Service) enforceRiskControl(
+	ctx context.Context,
+	userID uint,
+	pricing *domainbilling.ModelPricing,
+	mode string,
+	now time.Time,
+) error {
+	available, err := s.availableSpendNanousd(ctx, userID, mode, now)
+	if err != nil {
+		return err
+	}
+	return s.ensureRiskControlAccess(ctx, userID, pricing, available, now)
 }
 
 func (s *Service) periodCreditExceeded(ctx context.Context, userID uint, now time.Time) (bool, error) {

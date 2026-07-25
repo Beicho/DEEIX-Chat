@@ -17,6 +17,9 @@ type LoginResult struct {
 	TwoFactorRequired       bool
 	TwoFactorChallengeToken string
 	VerificationMethods     []SecurityVerificationMethod
+	// InvitationRequired 表示第三方授权已完成，但仍需补交邀请码才能创建账号。
+	InvitationRequired       bool
+	PendingRegistrationToken string
 }
 
 // MeResult 当前用户信息内部传输结构，不携带序列化标记。

@@ -34,6 +34,7 @@ type Cache struct {
 	slidingHTTP        map[string][]time.Time
 	fixedHTTP          map[string]fixedWindowCounter
 	rateLimitOverrides map[uint]rateLimitOverride
+	concurrencySlots   map[string]concurrencySlot
 }
 
 type rateLimitOverride struct {
@@ -67,6 +68,7 @@ func New() *Cache {
 		slidingHTTP:        map[string][]time.Time{},
 		fixedHTTP:          map[string]fixedWindowCounter{},
 		rateLimitOverrides: map[uint]rateLimitOverride{},
+		concurrencySlots:   map[string]concurrencySlot{},
 	}
 }
 
