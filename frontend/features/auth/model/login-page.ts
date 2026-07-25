@@ -18,6 +18,7 @@ export const DEFAULT_LOGIN_OPTIONS: LoginOptionsData = {
   passwordResetEnabled: false,
   emailCodeLoginEnabled: false,
   inviteRegistrationRequired: false,
+  inviteProviderRegistration: false,
   turnstileRegistrationEnabled: false,
   turnstileSiteKey: "",
   providers: [],
