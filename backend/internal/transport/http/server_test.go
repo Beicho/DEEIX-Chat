@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
+	channelhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/channel"
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,6 +39,32 @@ func TestVersionEndpointIsPublicAndUncached(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `"buildID"`) {
 		t.Fatalf("expected version response to include buildID, got %q", recorder.Body.String())
+	}
+}
+
+func TestNewEngineRegistersChannelPublicRoutesOnce(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	channelModule := channelhttp.NewModule(channelhttp.NewHandler(nil))
+	engine, err := NewEngine(
+		config.NewRuntime(config.Config{AppName: "test", JWTSecret: "test-jwt-secret-value"}),
+		nil,
+		Modules{Channel: channelModule},
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create engine with channel module: %v", err)
+	}
+
+	const iconAssetPath = "/api/v1/llm/icon-assets/:public_id"
+	registrations := 0
+	for _, route := range engine.Routes() {
+		if route.Method == http.MethodGet && route.Path == iconAssetPath {
+			registrations++
+		}
+	}
+	if registrations != 1 {
+		t.Fatalf("icon asset route registrations = %d, want 1", registrations)
 	}
 }
 
