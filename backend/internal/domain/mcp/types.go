@@ -13,12 +13,23 @@ const (
 // Server 表示管理员维护的 MCP 服务。
 type Server struct {
 	ID                                   uint
+	OwnerUserID                          uint
 	Name                                 string
 	BaseURL                              string
 	AuthTokenEnc                         string
 	HeadersJSON                          string
 	Status                               string
 	SortOrder                            int
+	TimeoutSeconds                       int
+	OAuthClientID                        string
+	OAuthClientSecretEnc                 string
+	OAuthAuthURL                         string
+	OAuthTokenURL                        string
+	OAuthScopes                          string
+	OAuthAccessTokenEnc                  string
+	OAuthRefreshTokenEnc                 string
+	OAuthTokenExpiresAt                  *time.Time
+	OAuthStatus                          string
 	ToolCount                            int
 	ActiveToolCount                      int
 	RequiresToolMetadataSyncConfirmation bool
@@ -48,6 +59,9 @@ type Tool struct {
 	AttachmentPromptArgument string
 	Status                   string
 	SortOrder                int
+	DefaultEnabled           bool
+	RequiresConfirm          bool
+	ToolKind                 string
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
 }

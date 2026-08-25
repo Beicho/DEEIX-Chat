@@ -1,10 +1,11 @@
-import { Layers } from "@/components/animate-ui/icons/layers";
-import { MessageCircleMore } from "@/components/animate-ui/icons/message-circle-more";
-import { PlusIcon } from "@/components/ui/plus";
-import { Search } from "@/components/animate-ui/icons/search";
-import { Blend } from "@/components/animate-ui/icons/blend";
-import { BookOpen } from "@/components/animate-ui/icons/book-open";
-import type { NavigationItem } from "@/features/layouts/types/navigation";
+import { createElement } from "react"
+import { Bell, Bookmark, Gift, Swords } from "lucide-react"
+import { Layers } from "@/components/animate-ui/icons/layers"
+import { MessageCircleMore } from "@/components/animate-ui/icons/message-circle-more"
+import { PlusIcon } from "@/components/ui/plus"
+import { Search } from "@/components/animate-ui/icons/search"
+import { Blend } from "@/components/animate-ui/icons/blend"
+import type { NavigationItem } from "@/features/layouts/types/navigation"
 
 function BellIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" }) {
   return createElement(Bell, { size, strokeWidth, className })
@@ -25,7 +26,8 @@ function SwordsIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number
 export const NAVIGATION_ITEMS = [
   {
     id: "newChat",
-    kind: "command",
+    title: "New chat",
+    url: "#",
     icon: PlusIcon,
     variant: "primary",
     group: "primary",
@@ -33,15 +35,16 @@ export const NAVIGATION_ITEMS = [
   },
   {
     id: "search",
-    kind: "command",
+    title: "Search",
+    url: "#",
     icon: Search,
     group: "primary",
     shortcut: ["command", "K"],
   },
   {
     id: "recent",
-    kind: "link",
-    href: "/recent",
+    title: "Recent",
+    url: "/recent",
     icon: MessageCircleMore,
     group: "secondary",
   },
@@ -75,23 +78,16 @@ export const NAVIGATION_ITEMS = [
   },
   {
     id: "files",
-    kind: "link",
-    href: "/files",
+    title: "Files",
+    url: "/files",
     icon: Layers,
     group: "secondary",
   },
   {
-    id: "knowledgeBases",
-    kind: "link",
-    href: "/knowledges",
-    icon: BookOpen,
-    group: "secondary",
-  },
-  {
     id: "skillsPrompt",
-    kind: "link",
-    href: "/skills-prompt",
+    title: "Skills & Prompts",
+    url: "/skills-prompt",
     icon: Blend,
     group: "secondary",
   },
-] as const satisfies readonly NavigationItem[];
+] as const satisfies readonly NavigationItem[]

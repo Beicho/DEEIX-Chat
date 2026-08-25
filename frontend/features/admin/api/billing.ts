@@ -23,7 +23,8 @@ import type {
   AdminModelPricingDTO,
   AdminModelPricingData,
   AdminModelPricingPage,
-  AdminOfficialPricingCatalogData,
+  AdjustAdminBillingAccountBalanceRequest,
+  CreateAdminBillingPlanRequest,
   CreateAdminRedemptionCodeRequest,
   UpdateAdminRedemptionCodeRequest,
   UpdateAdminBillingConfigRequest,
@@ -315,22 +316,6 @@ export async function upsertAdminModelPricing(
   return authedRequest<AdminModelPricingData>(
     "/api/v1/admin/billing/model-prices",
     { method: "PUT", accessToken, body: payload },
-    true,
-  );
-}
-
-export async function getAdminOpenRouterOfficialPricing(
-  accessToken: string,
-  options: { refresh?: boolean } = {},
-): Promise<AdminOfficialPricingCatalogData> {
-  const params = new URLSearchParams();
-  if (options.refresh) {
-    params.set("refresh", "true");
-  }
-  const suffix = params.size > 0 ? `?${params.toString()}` : "";
-  return authedRequest<AdminOfficialPricingCatalogData>(
-    `/api/v1/admin/billing/official-pricing/openrouter${suffix}`,
-    { accessToken },
     true,
   );
 }

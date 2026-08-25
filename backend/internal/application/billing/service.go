@@ -20,14 +20,15 @@ import (
 )
 
 const (
-	defaultPageSize            = 20
-	maxPageSize                = 1000
-	defaultMonthlyUsageMonths  = 12
-	maxMonthlyUsageMonths      = 24
-	defaultDailyUsageDays      = 30
-	maxDailyUsageDays          = 90
-	publicModelPricingCacheTTL = 30 * time.Second
-	nativeToolPricingSource    = "provider_official_defaults"
+	defaultPageSize             = 20
+	maxPageSize                 = 1000
+	defaultMonthlyUsageMonths   = 12
+	maxMonthlyUsageMonths       = 24
+	defaultDailyUsageDays       = 30
+	maxDailyUsageDays           = 90
+	publicModelPricingCacheTTL  = 30 * time.Second
+	nativeToolPricingSource     = "provider_official_defaults"
+	defaultCheckInRewardNanousd = int64(10_000_000)
 )
 
 // UserSubscriptionSnapshot 描述用户当前订阅的派生结果。

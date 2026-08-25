@@ -11,16 +11,16 @@ import {
 import {
   createAdminUser,
   deleteAdminUser,
-  getAdminBillingConfig,
-  listAdminBillingPlans,
+  getAdminReferenceData,
   patchAdminUser,
   resetAdminUserPassword,
   resetAdminUserTwoFactor,
   revokeAdminUserSessions,
   updateAdminBillingAccountBalance,
 } from "@/features/admin/api";
-import type { AdminUserDTO, AdminUserRole, AdminUserStatus } from "@/features/admin/api/admin.types";
+import type { AdminUserRole, AdminUserStatus } from "@/features/admin/api/admin.types";
 import type { AdminBillingMode, AdminBillingPlanDTO } from "@/features/admin/api/billing.types";
+import type { UserDTO } from "@/shared/api/auth.types";
 import {
   isDisplayNameLengthValid,
   isPasswordPolicyValid,
@@ -44,15 +44,11 @@ import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { patchByID, removeByID, removeManyByID, replaceByID, restoreAt, restoreManyAt } from "@/shared/lib/optimistic-list";
 import { runBulkActionInChunks, runSettledBulkItems } from "@/shared/lib/bulk-action";
 import { resolveTimeZoneOptions } from "@/shared/lib/time-zone";
-import {
-  normalizeBillingDisplayCurrency,
-  type BillingDisplayOptions,
-} from "@/shared/lib/billing-display";
 import { useAdminUserFilters } from "./use-admin-user-filters";
 import { useAdminUserSelection } from "./use-admin-user-selection";
 
 type UseAdminUsersPageParams = {
-  items: AdminUserDTO[];
+  items: UserDTO[];
   total: number;
   page: number;
   pageSize: number;
@@ -61,7 +57,7 @@ type UseAdminUsersPageParams = {
   viewerRole?: string;
   onLoadUsers: () => Promise<void>;
   onSetPage: (value: number) => void;
-  onSetUsers: React.Dispatch<React.SetStateAction<AdminUserDTO[]>>;
+  onSetUsers: React.Dispatch<React.SetStateAction<UserDTO[]>>;
   onSetTotal: React.Dispatch<React.SetStateAction<number>>;
 };
 
@@ -74,16 +70,16 @@ type UseAdminUsersPageState = {
   setCreateDialogOpen: (open: boolean) => void;
   avatarDialog: AvatarDialogState;
   setAvatarDialog: React.Dispatch<React.SetStateAction<AvatarDialogState>>;
-  editDialogTarget: AdminUserDTO | null;
-  setEditDialogTarget: (target: AdminUserDTO | null) => void;
-  resetDialogTarget: AdminUserDTO | null;
-  setResetDialogTarget: (target: AdminUserDTO | null) => void;
-  revokeDialogTarget: AdminUserDTO | null;
-  setRevokeDialogTarget: (target: AdminUserDTO | null) => void;
-  deleteDialogTarget: AdminUserDTO | null;
-  setDeleteDialogTarget: (target: AdminUserDTO | null) => void;
-  resetTwoFactorDialogTarget: AdminUserDTO | null;
-  setResetTwoFactorDialogTarget: (target: AdminUserDTO | null) => void;
+  editDialogTarget: UserDTO | null;
+  setEditDialogTarget: (target: UserDTO | null) => void;
+  resetDialogTarget: UserDTO | null;
+  setResetDialogTarget: (target: UserDTO | null) => void;
+  revokeDialogTarget: UserDTO | null;
+  setRevokeDialogTarget: (target: UserDTO | null) => void;
+  deleteDialogTarget: UserDTO | null;
+  setDeleteDialogTarget: (target: UserDTO | null) => void;
+  resetTwoFactorDialogTarget: UserDTO | null;
+  setResetTwoFactorDialogTarget: (target: UserDTO | null) => void;
   query: string;
   setQuery: (value: string) => void;
   roleFilter: string;
@@ -110,32 +106,31 @@ type UseAdminUsersPageState = {
   resetPasswordDraft: string;
   setResetPasswordDraft: (value: string) => void;
   billingMode: AdminBillingMode;
-  billingDisplay: BillingDisplayOptions;
   billingPlans: AdminBillingPlanDTO[];
   createAvatarSource: Pick<CreateUserPayload, "username" | "displayName">;
   avatarDialogPreviewSrc: string | undefined;
   editStatusChanged: boolean;
   batchTimezoneOptions: { label: string; value: string }[];
-  filteredItems: AdminUserDTO[];
+  filteredItems: UserDTO[];
   selectAllState: boolean | "indeterminate";
-  canManageUser: (user: AdminUserDTO) => boolean;
+  canManageUser: (user: UserDTO) => boolean;
   resolveInlineKey: (userID: number, field: InlineEditableField) => string;
   refreshUsers: (nextPage?: number) => Promise<void>;
-  handleOpenEditDialog: (user: AdminUserDTO) => void;
-  handleOpenAvatarDialog: (user: AdminUserDTO) => void;
+  handleOpenEditDialog: (user: UserDTO) => void;
+  handleOpenAvatarDialog: (user: UserDTO) => void;
   handleOpenCreateAvatarDialog: () => void;
   handleInlineUserPatch: (
-    item: AdminUserDTO,
+    item: UserDTO,
     field: InlineEditableField,
-    payload: Partial<Pick<AdminUserDTO, "role" | "status">>,
+    payload: Partial<Pick<UserDTO, "role" | "status">>,
   ) => Promise<void>;
   onCreateUser: (event: React.FormEvent<HTMLFormElement>) => Promise<void>;
   handleSaveAvatarDialog: () => Promise<void>;
   handleSaveEditDialog: () => Promise<void>;
   onResetPassword: () => Promise<void>;
-  onResetTwoFactor: (user: AdminUserDTO) => Promise<void>;
+  onResetTwoFactor: (user: UserDTO) => Promise<void>;
   onRevokeSessions: (userID: number) => Promise<void>;
-  onDeleteUser: (user: AdminUserDTO) => Promise<void>;
+  onDeleteUser: (user: UserDTO) => Promise<void>;
   handleSelectAllVisible: (checked: boolean) => void;
   handleToggleSelectedUser: (userID: number, checked: boolean) => void;
   onBulkApplyRole: () => Promise<void>;
@@ -161,7 +156,7 @@ type AdminUserPatchPayload = {
   reason?: string;
 };
 
-function createEditPayload(user: AdminUserDTO, fallbackSubscriptionTier = "free"): EditUserPayload {
+function createEditPayload(user: UserDTO, fallbackSubscriptionTier = "free"): EditUserPayload {
   const subscriptionTier = user.subscriptionTier.trim() || fallbackSubscriptionTier;
   return {
     avatarURL: user.avatarURL.trim(),
@@ -185,15 +180,15 @@ function hasPatchChanges(payload: AdminUserPatchPayload): boolean {
 }
 
 function roundBillingBalance(value: number): number {
-  return Math.round(value * 1_000_000) / 1_000_000;
+  return Math.round(Math.max(0, value) * 1_000_000) / 1_000_000;
 }
 
-function userFromUnknownResponse(response: unknown): AdminUserDTO | null {
+function userFromUnknownResponse(response: unknown): UserDTO | null {
   if (!response || typeof response !== "object" || !("user" in response)) {
     return null;
   }
   const user = (response as { user?: unknown }).user;
-  return user && typeof user === "object" ? (user as AdminUserDTO) : null;
+  return user && typeof user === "object" ? (user as UserDTO) : null;
 }
 
 export function useAdminUsersPage({
@@ -218,11 +213,11 @@ export function useAdminUsersPage({
 
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false);
   const [avatarDialog, setAvatarDialog] = React.useState<AvatarDialogState>({ mode: "closed" });
-  const [editDialogTarget, setEditDialogTarget] = React.useState<AdminUserDTO | null>(null);
-  const [resetDialogTarget, setResetDialogTarget] = React.useState<AdminUserDTO | null>(null);
-  const [revokeDialogTarget, setRevokeDialogTarget] = React.useState<AdminUserDTO | null>(null);
-  const [deleteDialogTarget, setDeleteDialogTarget] = React.useState<AdminUserDTO | null>(null);
-  const [resetTwoFactorDialogTarget, setResetTwoFactorDialogTarget] = React.useState<AdminUserDTO | null>(null);
+  const [editDialogTarget, setEditDialogTarget] = React.useState<UserDTO | null>(null);
+  const [resetDialogTarget, setResetDialogTarget] = React.useState<UserDTO | null>(null);
+  const [revokeDialogTarget, setRevokeDialogTarget] = React.useState<UserDTO | null>(null);
+  const [deleteDialogTarget, setDeleteDialogTarget] = React.useState<UserDTO | null>(null);
+  const [resetTwoFactorDialogTarget, setResetTwoFactorDialogTarget] = React.useState<UserDTO | null>(null);
   const {
     roleFilter,
     setRoleFilter,
@@ -235,7 +230,7 @@ export function useAdminUsersPage({
     filteredItems,
   } = useAdminUserFilters(items);
   const canManageUser = React.useCallback(
-    (user: AdminUserDTO) => viewerRole === "superadmin" || user.role !== "superadmin",
+    (user: UserDTO) => viewerRole === "superadmin" || user.role !== "superadmin",
     [viewerRole],
   );
   const selectableFilteredItems = React.useMemo(
@@ -273,7 +268,6 @@ export function useAdminUsersPage({
   });
   const [resetPasswordDraft, setResetPasswordDraft] = React.useState("");
   const [billingMode, setBillingMode] = React.useState<AdminBillingMode>("self");
-  const [billingDisplay, setBillingDisplay] = React.useState<BillingDisplayOptions>({ currency: "USD" });
   const [billingPlans, setBillingPlans] = React.useState<AdminBillingPlanDTO[]>([]);
 
   const createAvatarSource = React.useMemo(
@@ -306,23 +300,13 @@ export function useAdminUsersPage({
         if (!token) {
           return null;
         }
-        return Promise.allSettled([
-          getAdminBillingConfig(token),
-          listAdminBillingPlans(token),
-        ]);
+        return getAdminReferenceData(token);
       })
-      .then((results) => {
-        if (!cancelled && results) {
-          const [configResult, plansResult] = results;
-          if (configResult.status === "fulfilled") {
-            setBillingMode(configResult.value.config.mode);
-            setBillingDisplay({
-              currency: normalizeBillingDisplayCurrency(configResult.value.config.displayCurrency),
-              usdToCnyRate: configResult.value.config.usdToCNYRate,
-            });
-          }
-          if (plansResult.status === "fulfilled") {
-            setBillingPlans(plansResult.value);
+      .then((billing) => {
+        if (!cancelled) {
+          if (billing) {
+            setBillingMode(billing.billingConfig.config.mode);
+            setBillingPlans(billing.billingPlans);
           }
         }
       })
@@ -364,7 +348,7 @@ export function useAdminUsersPage({
     [onLoadUsers, onSetPage, page],
   );
 
-  const handleOpenEditDialog = React.useCallback((user: AdminUserDTO) => {
+  const handleOpenEditDialog = React.useCallback((user: UserDTO) => {
     if (!canManageUser(user)) {
       return;
     }
@@ -373,7 +357,7 @@ export function useAdminUsersPage({
     setEditPayload(createEditPayload(user, fallbackSubscriptionTier));
   }, [billingPlans, canManageUser]);
 
-  const handleOpenAvatarDialog = React.useCallback((user: AdminUserDTO) => {
+  const handleOpenAvatarDialog = React.useCallback((user: UserDTO) => {
     if (!canManageUser(user)) {
       return;
     }
@@ -386,9 +370,9 @@ export function useAdminUsersPage({
 
   const handleInlineUserPatch = React.useCallback(
     async (
-      item: AdminUserDTO,
+      item: UserDTO,
       field: InlineEditableField,
-      payload: Partial<Pick<AdminUserDTO, "role" | "status">>,
+      payload: Partial<Pick<UserDTO, "role" | "status">>,
     ) => {
       if (!canManageUser(item)) {
         return;
@@ -403,7 +387,9 @@ export function useAdminUsersPage({
           throw new Error(t("toast.sessionExpired"));
         }
 
-        onSetUsers((current) => patchByID<AdminUserDTO, number>(current, item.id, (user) => user.id, payload));
+        onSetUsers((current) => patchByID<UserDTO, number>(current, item.id, (user) => user.id, payload));
+        const inlineReason =
+          payload.status === "suspended" ? t("editor.defaultSuspensionReason") : "admin_status_update";
         const response = await patchAdminUser(token, item.id, {
           role: payload.role as AdminUserRole | undefined,
           status: payload.status as AdminUserStatus | undefined,
@@ -633,11 +619,7 @@ export function useAdminUsersPage({
       Number.isFinite(nextBillingBalance) &&
       roundBillingBalance(nextBillingBalance) !== roundBillingBalance(editDialogTarget.billingBalanceUSD ?? 0);
 
-    if (billingMode !== "self" && !Number.isFinite(nextBillingBalance)) {
-      toast.error(t("toast.editFailed"), { description: t("validation.invalidUsageBalance") });
-      return;
-    }
-    if (billingBalanceChanged && nextBillingBalance < 0) {
+    if (billingMode !== "self" && (!Number.isFinite(nextBillingBalance) || nextBillingBalance < 0)) {
       toast.error(t("toast.editFailed"), { description: t("validation.invalidUsageBalance") });
       return;
     }
@@ -656,7 +638,7 @@ export function useAdminUsersPage({
         return;
       }
 
-      let nextUser: AdminUserDTO = editDialogTarget;
+      let nextUser: UserDTO = editDialogTarget;
       if (hasPatchChanges(patchPayload)) {
         const response = await patchAdminUser(token, editDialogTarget.id, patchPayload);
         nextUser = response.user;
@@ -721,7 +703,7 @@ export function useAdminUsersPage({
     }
   }, [canManageUser, pendingAction, resetDialogTarget, resetPasswordDraft, t]);
 
-  const onResetTwoFactor = React.useCallback(async (user: AdminUserDTO) => {
+  const onResetTwoFactor = React.useCallback(async (user: UserDTO) => {
     if (pendingAction || !user) {
       return;
     }
@@ -780,7 +762,7 @@ export function useAdminUsersPage({
     }
   }, [canManageUser, items, pendingAction, t]);
 
-  const onDeleteUser = React.useCallback(async (user: AdminUserDTO) => {
+  const onDeleteUser = React.useCallback(async (user: UserDTO) => {
     if (pendingAction) {
       return;
     }
@@ -1177,7 +1159,6 @@ export function useAdminUsersPage({
     resetPasswordDraft,
     setResetPasswordDraft,
     billingMode,
-    billingDisplay,
     billingPlans,
     createAvatarSource,
     avatarDialogPreviewSrc,

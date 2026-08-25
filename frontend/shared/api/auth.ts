@@ -313,11 +313,7 @@ export async function getLoginPageSettings(): Promise<LoginPageSettings> {
 }
 
 export async function getLoginOptions(): Promise<LoginOptionsData> {
-  const result = await apiRequest<LoginOptionsData>("/api/v1/auth/login-options");
-  return {
-    ...result,
-    providerAuthBridge: result.providerAuthBridge ?? { callbackBaseURL: "", enabled: false, protocolVersion: 0 },
-  };
+  return apiRequest<LoginOptionsData>("/api/v1/auth/login-options");
 }
 
 export async function completeProviderLogin(
@@ -334,35 +330,13 @@ export async function completeProviderLogin(
   });
 }
 
-export type ProviderAuthBridgeStartData = {
-  authorizationURL: string;
-  expiresAt: string;
-};
-
-export async function startProviderAuthBridge(
-  slug: string,
-  input: {
-    clientID: string;
-    redirectURI: string;
-    codeChallenge: string;
-    clientState: string;
-    intent: "login" | "register";
-    next: string;
-  },
-): Promise<ProviderAuthBridgeStartData> {
-  return apiRequest<ProviderAuthBridgeStartData>(`/api/v1/auth/providers/${pathParam(slug)}/authorize`, {
-    method: "POST",
-    body: input,
-  });
-}
-
-export async function exchangeProviderAuthBridgeGrant(
-  slug: string,
-  input: { clientID: string; grant: string; codeVerifier: string },
+export async function completeProviderRegistration(
+  registrationToken: string,
+  invitationCode: string,
 ): Promise<LoginData> {
-  return apiRequest<LoginData>(`/api/v1/auth/providers/${pathParam(slug)}/exchange`, {
+  return apiRequest<LoginData>("/api/v1/auth/register/provider/complete", {
     method: "POST",
-    body: input,
+    body: { registrationToken, invitationCode },
   });
 }
 

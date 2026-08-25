@@ -13,7 +13,6 @@ import type { PendingAttachment } from "@/features/chat/types/chat-runtime";
 
 const CHAT_COMPOSER_STORAGE_KEY = "deeix-chat:chat-composer:v1";
 const NEW_CONVERSATION_COMPOSER_KEY = "__new__";
-const TRANSIENT_COMPOSER_KEY = "__transient__";
 
 type PersistedAttachment = Pick<
   PendingAttachment,
@@ -260,21 +259,9 @@ export function resolveConversationComposerKey(conversationID: string | null): s
 
 export function useChatComposerState(
   conversationID: string | null,
-  {
-    preserveDrafts = true,
-    resetToken = 0,
-    transient = false,
-  }: {
-    preserveDrafts?: boolean;
-    resetToken?: number;
-    transient?: boolean;
-  } = {},
+  { preserveDrafts = true, resetToken = 0 }: { preserveDrafts?: boolean; resetToken?: number } = {},
 ) {
-  const conversationKey = React.useMemo(
-    () => transient ? TRANSIENT_COMPOSER_KEY : resolveConversationComposerKey(conversationID),
-    [conversationID, transient],
-  );
-  const persistenceEnabled = preserveDrafts && !transient;
+  const conversationKey = React.useMemo(() => resolveConversationComposerKey(conversationID), [conversationID]);
   const [state, setState] = React.useState<ComposerState>(() => createEmptyComposerState(conversationKey));
   const [hydratedConversationKey, setHydratedConversationKey] = React.useState<string | null>(null);
   const [serverHydratedConversationKey, setServerHydratedConversationKey] = React.useState<string | null>(null);
@@ -285,19 +272,27 @@ export function useChatComposerState(
     if (resetToken <= 0 || conversationID) {
       return;
     }
-    if (!transient) {
-      ComposerStorageOps.removeEntry(conversationKey);
-    }
+    ComposerStorageOps.removeEntry(conversationKey);
+    void resolveAccessToken().then((accessToken) => {
+      if (accessToken) {
+        return deleteConversationDraft(accessToken, conversationKey).catch(() => undefined);
+      }
+      return undefined;
+    });
     setHydratedConversationKey(conversationKey);
     setServerHydratedConversationKey(conversationKey);
     setState(createEmptyComposerState(conversationKey));
-  }, [conversationID, conversationKey, resetToken, transient]);
+  }, [conversationID, conversationKey, resetToken]);
 
   useIsomorphicLayoutEffect(() => {
-    if (!persistenceEnabled) {
-      if (!transient) {
-        ComposerStorageOps.removeEntry(conversationKey);
-      }
+    if (!preserveDrafts) {
+      ComposerStorageOps.removeEntry(conversationKey);
+      void resolveAccessToken().then((accessToken) => {
+        if (accessToken) {
+          return deleteConversationDraft(accessToken, conversationKey).catch(() => undefined);
+        }
+        return undefined;
+      });
       setState((prev) => (prev.conversationKey === conversationKey ? prev : createEmptyComposerState(conversationKey)));
       setHydratedConversationKey(conversationKey);
       setServerHydratedConversationKey(conversationKey);
@@ -334,20 +329,73 @@ export function useChatComposerState(
       return nextHasContent ? nextState : createEmptyComposerState(conversationKey);
     });
     setHydratedConversationKey(conversationKey);
-  }, [conversationKey, persistenceEnabled, transient]);
+  }, [conversationKey, preserveDrafts]);
 
   React.useEffect(() => {
-    if (hydratedConversationKey !== state.conversationKey || state.conversationKey !== conversationKey) {
+    if (!preserveDrafts) {
       return;
     }
-    if (!persistenceEnabled) {
-      if (!transient) {
-        ComposerStorageOps.removeEntry(state.conversationKey);
-      }
+
+    const seq = serverHydrateSeqRef.current + 1;
+    serverHydrateSeqRef.current = seq;
+    setServerHydratedConversationKey(null);
+    const localState = ComposerStorageOps.readEntry(conversationKey);
+    const localFingerprint = composerFingerprint(localState);
+    let cancelled = false;
+
+    void resolveAccessToken()
+      .then((accessToken) => {
+        if (!accessToken || cancelled || serverHydrateSeqRef.current !== seq) {
+          return null;
+        }
+        return getConversationDraft(accessToken, conversationKey).catch(() => null);
+      })
+      .then((remoteDraft) => {
+        if (!remoteDraft || cancelled || serverHydrateSeqRef.current !== seq) {
+          return;
+        }
+
+        const remoteState = composerStateFromDraftDTO(conversationKey, remoteDraft);
+        if (!hasComposerContent(remoteState)) {
+          return;
+        }
+
+        setHydratedConversationKey(conversationKey);
+        setState((prev) => {
+          const current = prev.conversationKey === conversationKey ? prev : createEmptyComposerState(conversationKey);
+          const currentFingerprint = composerFingerprint(current);
+          if (currentFingerprint !== localFingerprint && hasComposerContent(current)) {
+            return prev;
+          }
+          if (!hasComposerContent(current) || isRemoteDraftNewer(remoteState.updatedAt, localState.updatedAt)) {
+            ComposerStorageOps.writeEntry(conversationKey, remoteState.draft, remoteState.attachments);
+            return remoteState;
+          }
+          return prev;
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled && serverHydrateSeqRef.current === seq) {
+          setServerHydratedConversationKey(conversationKey);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationKey, preserveDrafts]);
+
+  React.useEffect(() => {
+    if (hydratedConversationKey !== state.conversationKey) {
+      return;
+    }
+    if (!preserveDrafts) {
+      ComposerStorageOps.removeEntry(state.conversationKey);
       return;
     }
     ComposerStorageOps.writeEntry(state.conversationKey, state.draft, state.attachments);
-  }, [conversationKey, hydratedConversationKey, persistenceEnabled, state, transient]);
+  }, [hydratedConversationKey, preserveDrafts, state]);
 
   React.useEffect(() => {
     if (typeof window === "undefined") {
@@ -445,12 +493,22 @@ export function useChatComposerState(
       return;
     }
 
-    if (!persistenceEnabled) {
+    if (!preserveDrafts) {
       return;
     }
 
     ComposerStorageOps.appendAttachments(targetConversationKey, items);
-  }, [conversationKey, persistenceEnabled]);
+    const nextEntry = ComposerStorageOps.readEntry(targetConversationKey);
+    void resolveAccessToken().then((accessToken) => {
+      if (!accessToken) {
+        return undefined;
+      }
+      return upsertConversationDraft(accessToken, targetConversationKey, {
+        draft: nextEntry.draft,
+        attachments: sanitizeAttachments(nextEntry.attachments),
+      }).catch(() => undefined);
+    });
+  }, [conversationKey, preserveDrafts]);
 
   return {
     conversationKey: visibleState.conversationKey,

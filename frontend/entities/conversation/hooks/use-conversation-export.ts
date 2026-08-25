@@ -10,9 +10,6 @@ import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 type UseConversationExportOptions = {
   successMessage: string;
   failureMessage: string;
-  format?: "json" | "markdown" | "image";
-  action?: "download" | "copy";
-  imageLabels?: ConversationImageExportLabels;
 };
 
 export function useConversationExport({
@@ -28,29 +25,14 @@ export function useConversationExport({
 
       try {
         const data = await exportConversation(token, conversationPublicID);
-        if (format === "image") {
-          if (!imageLabels) {
-            return;
-          }
-          await downloadConversationImageExport(data, imageLabels);
-        } else if (format === "markdown") {
-          if (action === "copy") {
-            await copyConversationMarkdownExport(data);
-          } else {
-            downloadConversationMarkdownExport(data);
-          }
-        } else {
-          downloadConversationExport(data);
-        }
+        downloadConversationExport(data);
         toast.success(successMessage);
       } catch (error) {
         toast.error(failureMessage, {
-          description: format === "image" ? undefined : error instanceof Error ? error.message : undefined,
+          description: error instanceof Error ? error.message : undefined,
         });
       }
     },
-    [action, failureMessage, format, imageLabels, successMessage],
+    [failureMessage, successMessage],
   );
 }
-
-export const useConversationExportAction = useChatConversationExport;

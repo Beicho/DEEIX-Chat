@@ -24,15 +24,13 @@ import type {
   PublicSharedMessageDTO,
 } from "@/shared/api/conversation.types";
 import { fetchSharedFileContent, type FileContentResult } from "@/shared/api/file";
-import type { PreviewDialogFile } from "@/shared/components/file-preview/preview-dialog";
+import type { PreviewDialogFile } from "@/shared/components/file-preview/file-preview-dialog";
 import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AppLogo, DeeixLogo } from "@/shared/components/app-logo";
-import { useBranding } from "@/shared/config/branding-provider";
-import { CustomBrandAttribution } from "@/shared/components/powered-by-deeix";
+import { AppLogo } from "@/shared/components/app-logo";
 import { useOptionalAuthSession } from "@/shared/auth/auth-session-context";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { useAppLocale } from "@/i18n/app-i18n-provider";
@@ -103,7 +101,8 @@ function toReadOnlyMessageDTO(item: PublicSharedMessageDTO): MessageDTO {
     errorCode: item.errorCode || "",
     errorMessage: item.errorMessage || "",
     attachments: item.attachments || "[]",
-		processTrace: item.processTrace,
+    processTrace: item.processTrace,
+    bookmarked: false,
     myFeedback: "",
     thumbsUpCount: 0,
     thumbsDownCount: 0,
@@ -126,17 +125,8 @@ function rewriteSharedFileContentURLs(content: string, shareID: string): string 
   );
 }
 
-function mapPublicSharedMessage(
-  item: PublicSharedMessageDTO,
-  fallbackModel: string,
-  shareID: string,
-  labels: {
-    generationInterrupted: string;
-    moderationBlocked: string;
-    moderationBlockedDescription: string;
-  },
-): ChatAreaMessage {
-  const message = mapServerMessage(toReadOnlyMessageDTO(item), labels);
+function mapPublicSharedMessage(item: PublicSharedMessageDTO, fallbackModel: string, shareID: string): ChatAreaMessage {
+  const message = mapServerMessage(toReadOnlyMessageDTO(item));
   const platformModelName = item.platformModelName?.trim() || fallbackModel.trim();
   return {
     ...message,
@@ -179,6 +169,7 @@ function PublicSharedMessage({
     return (
       <ChatMessageUser
         item={item}
+        busy={false}
         onRetryUserMessage={noopAsync}
         onEditUserMessage={async () => false}
         onCycleMessageBranch={onCycleBranch}
@@ -194,6 +185,7 @@ function PublicSharedMessage({
     return (
       <ChatMessageBot
         item={item}
+        busy={false}
         reaction={null}
         onRetryAssistantMessage={noopAsync}
         onEditAssistantMessage={async () => false}
@@ -220,9 +212,6 @@ function PublicSharedMessage({
 
 export function PublicSharePage() {
   const t = useTranslations("share");
-  const messageT = useTranslations("chat.messages");
-  const submitT = useTranslations("chat.submit");
-  const branding = useBranding();
   const { locale } = useAppLocale();
   const resolveErrorMessage = useLocalizedErrorMessage();
   const router = useRouter();
@@ -332,17 +321,8 @@ export function PublicSharePage() {
   }, [authSession?.accessToken]);
 
   const messages = React.useMemo(
-    () => data?.messages.map((message) => mapPublicSharedMessage(
-      message,
-      data.model,
-      data.shareID,
-      {
-        generationInterrupted: messageT("generationInterrupted"),
-        moderationBlocked: submitT("moderationBlocked"),
-        moderationBlockedDescription: submitT("moderationBlockedDescription"),
-      },
-    )) ?? [],
-    [data, messageT, submitT],
+    () => data?.messages.map((message) => mapPublicSharedMessage(message, data.model, data.shareID)) ?? [],
+    [data],
   );
   const defaultSelectionKey = React.useMemo(
     () => `${data?.shareID ?? ""}:${data?.defaultMessagePublicIDs?.join(",") ?? ""}`,
@@ -460,19 +440,7 @@ export function PublicSharePage() {
   return (
     <main className="h-full min-h-0 w-full overflow-y-auto bg-background text-foreground">
       <div className="mx-auto min-h-full w-full max-w-[820px] px-4 pb-24 pt-5 md:pt-6">
-        <header className="flex items-center border-b border-border/50 pb-3">
-          {branding.logoURL ? (
-            <span className="inline-flex h-8 shrink-0 items-center">
-              <AppLogo width={78} height={24} priority className="h-6 w-auto" />
-            </span>
-          ) : (
-            <Link href="/" aria-label={branding.title} className="inline-flex h-8 shrink-0 items-center">
-              <AppLogo width={78} height={24} priority className="h-6 w-auto" />
-            </Link>
-          )}
-        </header>
-
-        <div className="pb-5 pt-4">
+        <header className="flex items-start justify-between gap-4 pb-5">
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-base font-semibold leading-6">{data.title || t("title")}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -480,7 +448,10 @@ export function PublicSharePage() {
               <span>{t("snapshotMessages", { count: data.messages.length })}</span>
             </div>
           </div>
-        </div>
+          <Link href="/" aria-label="DEEIX Chat" className="mt-0.5 inline-flex h-8 shrink-0 items-center">
+            <AppLogo width={78} height={24} priority className="h-6 w-auto" />
+          </Link>
+        </header>
 
         {locked ? (
           <section className="mx-auto mt-8 w-full max-w-sm rounded-xl border border-border bg-card p-4 text-card-foreground shadow-sm">
@@ -530,28 +501,6 @@ export function PublicSharePage() {
           </div>
         )}
 
-        <div className="mt-12 flex items-center justify-center border-t border-border/50 pt-3">
-          <div className="inline-flex items-center gap-3">
-            {branding.logoURL ? (
-              <>
-                <span className="inline-flex h-8 shrink-0 items-center">
-                  <AppLogo width={78} height={24} className="h-6 w-auto opacity-75" />
-                </span>
-                <span aria-hidden="true" className="h-4 w-px bg-border" />
-              </>
-            ) : null}
-            <a
-              href="https://github.com/DEEIX-AI/DEEIX-Chat"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="DEEIX Chat on GitHub"
-              className="inline-flex h-8 shrink-0 items-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2"
-            >
-              <DeeixLogo width={78} height={24} className="h-6 w-auto opacity-75" />
-            </a>
-          </div>
-        </div>
-
         <div className="pointer-events-none fixed inset-x-0 bottom-5 z-30 flex justify-center">
           <Button
             type="button"
@@ -562,8 +511,6 @@ export function PublicSharePage() {
             {accessToken ? (cloning ? t("continuing") : t("continueConversation")) : t("signInToContinue")}
           </Button>
         </div>
-
-        <CustomBrandAttribution className="fixed bottom-4 right-4" />
       </div>
     </main>
   );

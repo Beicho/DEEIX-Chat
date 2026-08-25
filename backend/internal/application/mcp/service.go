@@ -30,6 +30,7 @@ var (
 	ErrInvalidToolDesc             = errors.New("invalid mcp tool description")
 	ErrInvalidToolAttachmentConfig = errors.New("invalid mcp tool attachment configuration")
 	ErrInvalidToolSelection        = errors.New("invalid mcp tool selection")
+	ErrServerNotFound              = errors.New("mcp server not found")
 	ErrMCPClientUnavailable        = errors.New("mcp client unavailable")
 )
 
