@@ -25720,17 +25720,32 @@
                 "knowledgeBaseIDs"
             ],
             "properties": {
+                "assistantID": {
+                    "type": "string",
+                    "maxLength": 32
+                },
                 "branchReason": {
                     "type": "string",
                     "enum": [
                         "default",
                         "retry",
-                        "edit"
+                        "edit",
+                        "arena"
                     ]
                 },
                 "clientRunID": {
                     "type": "string",
                     "maxLength": 64
+                },
+                "codeSandboxEnabled": {
+                    "type": "boolean"
+                },
+                "confirmedToolIDs": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "content": {
                     "type": "string"
@@ -25752,6 +25767,13 @@
                         "type": "string"
                     }
                 },
+                "htmlVisualColorMode": {
+                    "type": "string",
+                    "enum": [
+                        "light",
+                        "dark"
+                    ]
+                },
                 "htmlVisualPrompt": {
                     "type": "boolean"
                 },
@@ -25761,6 +25783,10 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "messageGroupID": {
+                    "type": "string",
+                    "maxLength": 64
                 },
                 "model": {
                     "type": "string",
@@ -25773,6 +25799,16 @@
                 "parentMessagePublicID": {
                     "type": "string",
                     "maxLength": 32
+                },
+                "researchMaxLLMCalls": {
+                    "type": "integer",
+                    "maximum": 32,
+                    "minimum": 0
+                },
+                "researchMaxToolCalls": {
+                    "type": "integer",
+                    "maximum": 64,
+                    "minimum": 0
                 },
                 "selectedToolIDs": {
                     "type": "array",
@@ -25791,6 +25827,9 @@
                 "sourceMessagePublicID": {
                     "type": "string",
                     "maxLength": 32
+                },
+                "webSearchEnabled": {
+                    "type": "boolean"
                 }
             }
         },

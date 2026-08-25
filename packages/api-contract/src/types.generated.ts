@@ -3328,27 +3328,46 @@ export interface SecurityVerificationStartRequest {
 }
 
 export interface SendMessageRequest {
-  branchReason?: "default" | "retry" | "edit";
+  /** @maxLength 32 */
+  assistantID?: string;
+  branchReason?: "default" | "retry" | "edit" | "arena";
   /** @maxLength 64 */
   clientRunID?: string;
+  codeSandboxEnabled?: boolean;
+  /** @maxItems 128 */
+  confirmedToolIDs?: number[];
   content: string;
   contentType: "text" | "markdown" | "image" | "file" | "mixed";
   /** @maxItems 20 */
   fileIDs?: string[];
+  htmlVisualColorMode?: "light" | "dark";
   htmlVisualPrompt?: boolean;
   /** @maxItems 8 */
   knowledgeBaseIDs: string[];
+  /** @maxLength 64 */
+  messageGroupID?: string;
   /** @maxLength 128 */
   model?: string;
   options?: Record<string, any>;
   /** @maxLength 32 */
   parentMessagePublicID?: string;
+  /**
+   * @min 0
+   * @max 32
+   */
+  researchMaxLLMCalls?: number;
+  /**
+   * @min 0
+   * @max 64
+   */
+  researchMaxToolCalls?: number;
   /** @maxItems 128 */
   selectedToolIDs?: number[];
   /** @maxItems 128 */
   skillIDs?: number[];
   /** @maxLength 32 */
   sourceMessagePublicID?: string;
+  webSearchEnabled?: boolean;
 }
 
 export interface SendMessageResponse {

@@ -25727,17 +25727,32 @@ const docTemplate = `{
                 "knowledgeBaseIDs"
             ],
             "properties": {
+                "assistantID": {
+                    "type": "string",
+                    "maxLength": 32
+                },
                 "branchReason": {
                     "type": "string",
                     "enum": [
                         "default",
                         "retry",
-                        "edit"
+                        "edit",
+                        "arena"
                     ]
                 },
                 "clientRunID": {
                     "type": "string",
                     "maxLength": 64
+                },
+                "codeSandboxEnabled": {
+                    "type": "boolean"
+                },
+                "confirmedToolIDs": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "content": {
                     "type": "string"
@@ -25759,6 +25774,13 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "htmlVisualColorMode": {
+                    "type": "string",
+                    "enum": [
+                        "light",
+                        "dark"
+                    ]
+                },
                 "htmlVisualPrompt": {
                     "type": "boolean"
                 },
@@ -25768,6 +25790,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "messageGroupID": {
+                    "type": "string",
+                    "maxLength": 64
                 },
                 "model": {
                     "type": "string",
@@ -25780,6 +25806,16 @@ const docTemplate = `{
                 "parentMessagePublicID": {
                     "type": "string",
                     "maxLength": 32
+                },
+                "researchMaxLLMCalls": {
+                    "type": "integer",
+                    "maximum": 32,
+                    "minimum": 0
+                },
+                "researchMaxToolCalls": {
+                    "type": "integer",
+                    "maximum": 64,
+                    "minimum": 0
                 },
                 "selectedToolIDs": {
                     "type": "array",
@@ -25798,6 +25834,9 @@ const docTemplate = `{
                 "sourceMessagePublicID": {
                     "type": "string",
                     "maxLength": 32
+                },
+                "webSearchEnabled": {
+                    "type": "boolean"
                 }
             }
         },
