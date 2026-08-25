@@ -1400,22 +1400,6 @@ export interface CreateRedemptionCodeRequest {
   quantity?: number;
 }
 
-export interface CreateServerRequest {
-  authToken?: string;
-  baseURL: string;
-  headersJSON?: string;
-  name: string;
-  oauthAccessToken: string;
-  oauthAuthURL: string;
-  oauthClientID: string;
-  oauthClientSecret: string;
-  oauthRefreshToken: string;
-  oauthScopes: string;
-  oauthTokenURL: string;
-  status?: string;
-  timeoutSeconds: number;
-}
-
 export interface CreateUpstreamRequest {
   /**
    * @minLength 2
@@ -1528,15 +1512,6 @@ export interface DeletePermissionGroupResponse {
 
 export interface DeletePermissionGroupResponseDoc {
   data: DeletePermissionGroupResponse;
-  errorMsg: string;
-}
-
-export interface DeleteServerResponse {
-  deleted: boolean;
-}
-
-export interface DeleteServerResponseDoc {
-  data: DeleteServerResponse;
   errorMsg: string;
 }
 
@@ -1969,10 +1944,6 @@ export interface LogoutResponse {
 
 export interface LogoutResponseDoc {
   data: LogoutResponse;
-  errorMsg: string;
-}
-
-export interface McpErrorDoc {
   errorMsg: string;
 }
 
@@ -3227,15 +3198,6 @@ export interface ReorderModelsRequest {
   modelIDs: number[];
 }
 
-export interface ReorderServerOrderItem {
-  serverID: number;
-  toolIDs: number[];
-}
-
-export interface ReorderServersRequest {
-  servers: ReorderServerOrderItem[];
-}
-
 export interface ResetUpstreamCircuitResponseDoc {
   data: CircuitResetResponse;
   errorMsg: string;
@@ -3353,62 +3315,6 @@ export interface SendMessageResponse {
 export interface SendMessageResponseDoc {
   data: SendMessageResponse;
   errorMsg: string;
-}
-
-export interface ServerDataResponse {
-  server: ServerResponse;
-}
-
-export interface ServerDataResponseDoc {
-  data: ServerDataResponse;
-  errorMsg: string;
-}
-
-export interface ServerListResponse {
-  results: ServerResponse[];
-}
-
-export interface ServerListResponseDoc {
-  data: ServerListResponse;
-  errorMsg: string;
-}
-
-export interface ServerResponse {
-  activeToolCount: number;
-  baseURL: string;
-  createdAt: string;
-  headersJSON: string;
-  id: number;
-  lastError: string;
-  lastSyncedAt: string | null;
-  name: string;
-  oauthAuthURL: string;
-  oauthClientID: string;
-  oauthScopes: string;
-  oauthStatus: string;
-  oauthTokenURL: string;
-  ownerUserID: number;
-  requiresToolMetadataSyncConfirmation: boolean;
-  scope: string;
-  sortOrder: number;
-  status: string;
-  timeoutSeconds: number;
-  toolCount: number;
-  updatedAt: string;
-}
-
-export interface ServerToolOrderListResponse {
-  results: ServerToolOrderResponse[];
-}
-
-export interface ServerToolOrderListResponseDoc {
-  data: ServerToolOrderListResponse;
-  errorMsg: string;
-}
-
-export interface ServerToolOrderResponse {
-  server: ServerResponse;
-  tools: ToolResponse[];
 }
 
 export interface SetConversationArchiveRequest {
@@ -3680,41 +3586,6 @@ export interface TemporaryChatMessageRequest {
   skillIDs?: number[];
 }
 
-export interface ToolListResponse {
-  results: ToolResponse[];
-}
-
-export interface ToolListResponseDoc {
-  data: ToolListResponse;
-  errorMsg: string;
-}
-
-export interface ToolResponse {
-  attachmentArgument: string;
-  attachmentEncoding: "" | "base64" | "data_url";
-  attachmentInputMode: "none" | "image";
-  attachmentPromptArgument: string;
-  createdAt: string;
-  defaultEnabled: boolean;
-  description: string;
-  displayName: string;
-  id: number;
-  inputSchemaJSON: string;
-  name: string;
-  requiresConfirmation: boolean;
-  serverID: number;
-  serverName: string;
-  sortOrder: number;
-  status: string;
-  toolKind: string;
-  updatedAt: string;
-}
-
-export interface ToolResponseDoc {
-  data: ToolResponse;
-  errorMsg: string;
-}
-
 export interface UnreadCountDataResponse {
   unreadCount: number;
 }
@@ -3886,23 +3757,6 @@ export interface UpdatePermissionGroupRequest {
    * @max 10000
    */
   rateMultiplierPercent?: number;
-}
-
-export interface UpdateServerToolsStatusRequest {
-  status: string;
-  toolIDs: number[];
-}
-
-export interface UpdateToolRequest {
-  attachmentArgument?: string;
-  attachmentEncoding?: "base64" | "data_url";
-  attachmentInputMode?: "none" | "image";
-  attachmentPromptArgument?: string;
-  defaultEnabled: boolean;
-  description?: string;
-  displayName?: string;
-  requiresConfirmation: boolean;
-  status?: string;
 }
 
 export interface UpdateUpstreamRequest {
@@ -6686,171 +6540,6 @@ export namespace Admin {
   }
 
   /**
-   * @description 管理员查看已配置的 MCP 服务及其工具统计
-   * @tags admin-mcp
-   * @name McpServersList
-   * @summary 获取 MCP 服务列表
-   * @request GET:/admin/mcp/servers
-   * @secure
-   */
-  export namespace McpServersList {
-    export type RequestParams = {};
-    export type RequestQuery = {};
-    export type RequestBody = never;
-    export type RequestHeaders = {};
-    export type ResponseBody = ServerListResponseDoc;
-  }
-
-  /**
-   * @description 管理员创建一个 MCP 服务配置
-   * @tags admin-mcp
-   * @name McpServersCreate
-   * @summary 创建 MCP 服务
-   * @request POST:/admin/mcp/servers
-   * @secure
-   */
-  export namespace McpServersCreate {
-    export type RequestParams = {};
-    export type RequestQuery = {};
-    export type RequestBody = CreateServerRequest;
-    export type RequestHeaders = {};
-    export type ResponseBody = ServerDataResponseDoc;
-  }
-
-  /**
-   * @description 管理员保存 MCP 服务及其工具的展示顺序
-   * @tags admin-mcp
-   * @name McpServersOrderPartialUpdate
-   * @summary 调整 MCP 服务及工具顺序
-   * @request PATCH:/admin/mcp/servers/order
-   * @secure
-   */
-  export namespace McpServersOrderPartialUpdate {
-    export type RequestParams = {};
-    export type RequestQuery = {};
-    export type RequestBody = ReorderServersRequest;
-    export type RequestHeaders = {};
-    export type ResponseBody = ServerToolOrderListResponseDoc;
-  }
-
-  /**
-   * @description 管理员删除一个 MCP 服务及其工具
-   * @tags admin-mcp
-   * @name McpServersDelete
-   * @summary 删除 MCP 服务
-   * @request DELETE:/admin/mcp/servers/{id}
-   * @secure
-   */
-  export namespace McpServersDelete {
-    export type RequestParams = {
-      /** MCP 服务 ID */
-      id: number;
-    };
-    export type RequestQuery = {};
-    export type RequestBody = never;
-    export type RequestHeaders = {};
-    export type ResponseBody = DeleteServerResponseDoc;
-  }
-
-  /**
-   * @description 管理员更新一个 MCP 服务配置
-   * @tags admin-mcp
-   * @name McpServersPartialUpdate
-   * @summary 更新 MCP 服务
-   * @request PATCH:/admin/mcp/servers/{id}
-   * @secure
-   */
-  export namespace McpServersPartialUpdate {
-    export type RequestParams = {
-      /** MCP 服务 ID */
-      id: number;
-    };
-    export type RequestQuery = {};
-    export type RequestBody = CreateServerRequest;
-    export type RequestHeaders = {};
-    export type ResponseBody = ServerDataResponseDoc;
-  }
-
-  /**
-   * @description 管理员从 MCP 服务同步工具定义
-   * @tags admin-mcp
-   * @name McpServersSyncCreate
-   * @summary 同步 MCP 工具
-   * @request POST:/admin/mcp/servers/{id}/sync
-   * @secure
-   */
-  export namespace McpServersSyncCreate {
-    export type RequestParams = {
-      /** MCP 服务 ID */
-      id: number;
-    };
-    export type RequestQuery = {
-      /** 是否用远端元数据覆盖管理员自定义的工具名称和说明 */
-      overwrite_customized_metadata?: boolean;
-    };
-    export type RequestBody = never;
-    export type RequestHeaders = {};
-    export type ResponseBody = ToolListResponseDoc;
-  }
-
-  /**
-   * @description 管理员查看指定 MCP 服务已同步的工具
-   * @tags admin-mcp
-   * @name McpServersToolsList
-   * @summary 获取 MCP 服务工具
-   * @request GET:/admin/mcp/servers/{id}/tools
-   * @secure
-   */
-  export namespace McpServersToolsList {
-    export type RequestParams = {
-      /** MCP 服务 ID */
-      id: number;
-    };
-    export type RequestQuery = {};
-    export type RequestBody = never;
-    export type RequestHeaders = {};
-    export type ResponseBody = ToolListResponseDoc;
-  }
-
-  /**
-   * @description 管理员批量启用或停用指定 MCP 服务的工具
-   * @tags admin-mcp
-   * @name McpServersToolsStatusPartialUpdate
-   * @summary 批量更新 MCP 工具状态
-   * @request PATCH:/admin/mcp/servers/{id}/tools/status
-   * @secure
-   */
-  export namespace McpServersToolsStatusPartialUpdate {
-    export type RequestParams = {
-      /** MCP 服务 ID */
-      id: number;
-    };
-    export type RequestQuery = {};
-    export type RequestBody = UpdateServerToolsStatusRequest;
-    export type RequestHeaders = {};
-    export type ResponseBody = ToolListResponseDoc;
-  }
-
-  /**
-   * @description 管理员更新 MCP 工具的展示信息、附件处理配置或状态
-   * @tags admin-mcp
-   * @name McpToolsPartialUpdate
-   * @summary 更新 MCP 工具
-   * @request PATCH:/admin/mcp/tools/{id}
-   * @secure
-   */
-  export namespace McpToolsPartialUpdate {
-    export type RequestParams = {
-      /** MCP 工具 ID */
-      id: number;
-    };
-    export type RequestQuery = {};
-    export type RequestBody = UpdateToolRequest;
-    export type RequestHeaders = {};
-    export type ResponseBody = ToolResponseDoc;
-  }
-
-  /**
    * @description 返回平台模型的手动权限组与动态规则命中的有效权限组
    * @tags admin
    * @name ModelsPermissionGroupsList
@@ -9566,24 +9255,6 @@ export namespace Llm {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = Blob;
-  }
-}
-
-export namespace Mcp {
-  /**
-   * @description 获取当前聊天侧可选择的 MCP 工具
-   * @tags mcp
-   * @name ToolsList
-   * @summary 获取可用 MCP 工具
-   * @request GET:/mcp/tools
-   * @secure
-   */
-  export namespace ToolsList {
-    export type RequestParams = {};
-    export type RequestQuery = {};
-    export type RequestBody = never;
-    export type RequestHeaders = {};
-    export type ResponseBody = ToolListResponseDoc;
   }
 }
 
