@@ -45,6 +45,7 @@ type Service struct {
 	logger               *zap.Logger
 	storeProvider        appstorage.Provider
 	auditWriter          auditWriter
+	notificationNotifier authNotificationNotifier
 	avatarFileValidator  avatarFileValidator
 	providerAuthBridge   repository.ProviderAuthBridgeRepository
 }
@@ -60,7 +61,6 @@ type subscriptionResolver interface {
 type auditWriter interface {
 	Write(ctx context.Context, requestID string, actorUserID uint, action string, resource string, resourceID string, ip string, userAgent string, detail interface{})
 }
-
 
 type avatarFileValidator interface {
 	ValidateImageFile(ctx context.Context, userID uint, fileID string) error

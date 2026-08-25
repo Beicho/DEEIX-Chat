@@ -26,13 +26,13 @@ import (
 )
 
 type LoginOptions struct {
-	UsernameEnabled              bool
-	EmailEnabled                 bool
-	EmailRegistrationEnabled     bool
-	EmailVerificationEnabled     bool
-	PasswordResetEnabled         bool
-	EmailCodeLoginEnabled        bool
-	InviteRegistrationRequired   bool
+	UsernameEnabled            bool
+	EmailEnabled               bool
+	EmailRegistrationEnabled   bool
+	EmailVerificationEnabled   bool
+	PasswordResetEnabled       bool
+	EmailCodeLoginEnabled      bool
+	InviteRegistrationRequired bool
 	// InviteProviderRegistration 表示第三方登录首次注册也需要邀请码。
 	InviteProviderRegistration   bool
 	TurnstileRegistrationEnabled bool
@@ -393,7 +393,7 @@ func (s *Service) resolveProviderLoginCode(
 	displayName := firstNonEmpty(claimString(profile, provider.NameField), email, subject)
 	avatarURL := claimString(profile, provider.AvatarField)
 	emailVerified := resolveProviderEmailVerified(profile, provider)
-	userItem, err := s.resolveProviderUser(ctx, provider, subject, email, displayName, avatarURL, emailVerified, string(profileJSON), intent)
+	userItem, err := s.resolveProviderUser(ctx, provider, subject, email, displayName, avatarURL, emailVerified, string(profileJSON), intent, invitationCode)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1163,7 +1163,7 @@ func providerTrustedEndpoints(provider domainuser.IdentityProvider) []string {
 	}
 }
 
-func (s *Service) resolveProviderUser(ctx context.Context, provider domainuser.IdentityProvider, subject string, email string, displayName string, avatarURL string, emailVerified bool, profileJSON string, intent string) (*domainuser.User, error) {
+func (s *Service) resolveProviderUser(ctx context.Context, provider domainuser.IdentityProvider, subject string, email string, displayName string, avatarURL string, emailVerified bool, profileJSON string, intent string, invitationCode string) (*domainuser.User, error) {
 	identity, err := s.repo.GetUserIdentityByProviderSubject(ctx, provider.ID, subject)
 	if err == nil {
 		if !provider.LoginEnabled {

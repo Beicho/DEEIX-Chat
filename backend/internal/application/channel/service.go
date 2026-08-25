@@ -19,6 +19,19 @@ type billingModelPricingFilter interface {
 	ListPublicModelPricing(ctx context.Context) (map[string]appbilling.PublicModelPricing, error)
 }
 
+// CircuitAlert describes a channel circuit transition for alerting integrations.
+type CircuitAlert struct {
+	Open         bool
+	UpstreamID   uint
+	UpstreamName string
+	ModelNames   []string
+}
+
+// CircuitAlertSink consumes channel circuit transition events.
+type CircuitAlertSink interface {
+	EmitCircuitAlert(alert CircuitAlert)
+}
+
 // permissionGroupRepo 提供模型访问权限组的查询能力。
 type permissionGroupRepo interface {
 	ListModelsWithGroupAccess(ctx context.Context) (map[uint][]uint, error)
@@ -95,17 +108,19 @@ func (s *Service) isModelAccessible(ctx context.Context, platformModelID uint, u
 
 // Service 封装上游、平台模型与路由绑定业务能力。
 type Service struct {
-	cfg                 *config.Runtime
-	repo                repository.ChannelRepository
-	presentationRepo    repository.ModelPresentationRepository
-	iconAssetRepo       repository.ModelIconAssetRepository
-	cache               repository.ChannelCacheRepository
-	llmClient           *llm.Client
-	modelPricingFilter  billingModelPricingFilter
-	permGroupRepo       permissionGroupRepo
-	subGroupResolver    subscriptionGroupResolver
-	logger              *zap.Logger
-	objectStoreProvider appstorage.Provider
+	cfg                      *config.Runtime
+	repo                     repository.ChannelRepository
+	presentationRepo         repository.ModelPresentationRepository
+	iconAssetRepo            repository.ModelIconAssetRepository
+	cache                    repository.ChannelCacheRepository
+	llmClient                *llm.Client
+	modelPricingFilter       billingModelPricingFilter
+	modelAnnouncementService modelAnnouncementService
+	alertSink                CircuitAlertSink
+	permGroupRepo            permissionGroupRepo
+	subGroupResolver         subscriptionGroupResolver
+	logger                   *zap.Logger
+	objectStoreProvider      appstorage.Provider
 
 	modelCatalogMu         sync.RWMutex
 	modelCatalog           []ModelView
