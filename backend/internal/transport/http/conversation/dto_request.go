@@ -91,6 +91,15 @@ type UpsertConversationDraftRequest struct {
 // CreateConversationShareRequest 创建会话公开分享请求。
 type CreateConversationShareRequest struct {
 	DefaultMessagePublicIDs []string `json:"defaultMessagePublicIDs,omitempty" binding:"max=1000"`
+	Scope                   string   `json:"scope,omitempty" binding:"omitempty,oneof=current full"`
+	ExpiresInDays           int      `json:"expiresInDays,omitempty" binding:"omitempty,oneof=0 7 30"`
+	Password                string   `json:"password,omitempty" binding:"omitempty,max=80"`
+	IncludeThinking         bool     `json:"includeThinking,omitempty"`
+}
+
+// SharedConversationAccessRequest 公开分享访问请求。
+type SharedConversationAccessRequest struct {
+	Password string `json:"password,omitempty" binding:"omitempty,max=80"`
 }
 
 // RevokeConversationSharesRequest 批量关闭会话公开分享请求。

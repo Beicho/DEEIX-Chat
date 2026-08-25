@@ -993,6 +993,19 @@ export interface ConversationDeleteResponseDoc {
   errorMsg: string;
 }
 
+export interface ConversationDraftResponse {
+  attachments: number[];
+  conversationPublicID: string;
+  createdAt: string;
+  draft: string;
+  updatedAt: string;
+}
+
+export interface ConversationDraftResponseDoc {
+  data: ConversationDraftResponse;
+  errorMsg: string;
+}
+
 export interface ConversationErrorDoc {
   data: any;
   details?: any;
@@ -1304,6 +1317,11 @@ export interface CreateConversationRequest {
 export interface CreateConversationShareRequest {
   /** @maxItems 1000 */
   defaultMessagePublicIDs?: string[];
+  expiresInDays?: 0 | 7 | 30;
+  includeThinking?: boolean;
+  /** @maxLength 80 */
+  password?: string;
+  scope?: "current" | "full";
 }
 
 export interface CreateModelDisplayGroupRequest {
@@ -3996,6 +4014,12 @@ export interface UpdateUserStatusResponseDoc {
 export interface UploadFileResponseDoc {
   data: FileUploadResponse;
   errorMsg: string;
+}
+
+export interface UpsertConversationDraftRequest {
+  attachments: number[];
+  /** @maxLength 20000 */
+  draft: string;
 }
 
 export interface UpsertIdentityProviderRequest {
@@ -8519,6 +8543,65 @@ export namespace ContextArtifacts {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = ContextArtifactResponseDoc;
+  }
+}
+
+export namespace ConversationDrafts {
+  /**
+   * @description 查询当前用户指定会话或新会话的输入框草稿
+   * @tags chat
+   * @name ConversationDraftsDetail
+   * @summary 查询会话草稿
+   * @request GET:/conversation-drafts/{id}
+   * @secure
+   */
+  export namespace ConversationDraftsDetail {
+    export type RequestParams = {
+      /** 会话 public_id 或 __new__ */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = ConversationDraftResponseDoc;
+  }
+
+  /**
+   * @description 保存当前用户指定会话或新会话的输入框草稿，空草稿会清理记录
+   * @tags chat
+   * @name ConversationDraftsUpdate
+   * @summary 保存会话草稿
+   * @request PUT:/conversation-drafts/{id}
+   * @secure
+   */
+  export namespace ConversationDraftsUpdate {
+    export type RequestParams = {
+      /** 会话 public_id 或 __new__ */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = UpsertConversationDraftRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = ConversationDraftResponseDoc;
+  }
+
+  /**
+   * @description 删除当前用户指定会话或新会话的输入框草稿
+   * @tags chat
+   * @name ConversationDraftsDelete
+   * @summary 删除会话草稿
+   * @request DELETE:/conversation-drafts/{id}
+   * @secure
+   */
+  export namespace ConversationDraftsDelete {
+    export type RequestParams = {
+      /** 会话 public_id 或 __new__ */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = ConversationDraftResponseDoc;
   }
 }
 

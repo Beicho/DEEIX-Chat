@@ -26,6 +26,10 @@ const (
 	messageBookmarkNoteMaxRunes         = 512
 	messageBookmarkTagMaxRunes          = 40
 	messageBookmarkMaxTags              = 12
+	newConversationDraftKey             = "__new__"
+	conversationDraftMaxRunes           = 20000
+	conversationDraftMaxJSONLen         = 120000
+	conversationDraftMaxFiles           = 20
 )
 
 // DeleteConversationOptions 定义会话删除选项。
@@ -140,6 +144,122 @@ func (s *Service) SearchConversations(
 		})
 	}
 	return results, hasMore, nil
+}
+
+// GetConversationDraft 查询当前用户某个会话的输入框草稿。
+func (s *Service) GetConversationDraft(ctx context.Context, userID uint, conversationPublicID string) (*model.ConversationDraft, error) {
+	normalizedKey := normalizeConversationDraftKey(conversationPublicID)
+	if err := s.ensureConversationDraftAccess(ctx, userID, normalizedKey); err != nil {
+		return nil, err
+	}
+
+	item, err := s.repo.GetConversationDraft(ctx, userID, normalizedKey)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return emptyConversationDraft(userID, normalizedKey), nil
+		}
+		return nil, err
+	}
+	return item, nil
+}
+
+// UpsertConversationDraft 保存当前用户某个会话的输入框草稿；空草稿会清理服务端记录。
+func (s *Service) UpsertConversationDraft(ctx context.Context, userID uint, conversationPublicID string, draft string, attachmentsJSON string) (*model.ConversationDraft, error) {
+	normalizedKey := normalizeConversationDraftKey(conversationPublicID)
+	if err := s.ensureConversationDraftAccess(ctx, userID, normalizedKey); err != nil {
+		return nil, err
+	}
+	if len([]rune(draft)) > conversationDraftMaxRunes {
+		return nil, ErrInvalidConversationDraft
+	}
+
+	normalizedAttachmentsJSON, err := normalizeConversationDraftAttachmentsJSON(attachmentsJSON)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(draft) == "" && normalizedAttachmentsJSON == "[]" {
+		if err := s.repo.DeleteConversationDraft(ctx, userID, normalizedKey); err != nil {
+			return nil, err
+		}
+		return emptyConversationDraft(userID, normalizedKey), nil
+	}
+
+	return s.repo.UpsertConversationDraft(ctx, &model.ConversationDraft{
+		UserID:               userID,
+		ConversationPublicID: normalizedKey,
+		Draft:                draft,
+		AttachmentsJSON:      normalizedAttachmentsJSON,
+	})
+}
+
+// DeleteConversationDraft 删除当前用户某个会话的输入框草稿。
+func (s *Service) DeleteConversationDraft(ctx context.Context, userID uint, conversationPublicID string) (*model.ConversationDraft, error) {
+	normalizedKey := normalizeConversationDraftKey(conversationPublicID)
+	if err := s.ensureConversationDraftAccess(ctx, userID, normalizedKey); err != nil {
+		return nil, err
+	}
+	if err := s.repo.DeleteConversationDraft(ctx, userID, normalizedKey); err != nil {
+		return nil, err
+	}
+	return emptyConversationDraft(userID, normalizedKey), nil
+}
+
+func normalizeConversationDraftKey(value string) string {
+	normalized := strings.TrimSpace(value)
+	if normalized == "" {
+		return newConversationDraftKey
+	}
+	return normalized
+}
+
+func emptyConversationDraft(userID uint, conversationPublicID string) *model.ConversationDraft {
+	return &model.ConversationDraft{
+		UserID:               userID,
+		ConversationPublicID: conversationPublicID,
+		Draft:                "",
+		AttachmentsJSON:      "[]",
+	}
+}
+
+func (s *Service) ensureConversationDraftAccess(ctx context.Context, userID uint, conversationPublicID string) error {
+	if conversationPublicID == newConversationDraftKey {
+		return nil
+	}
+	if _, err := s.repo.GetConversationByPublicID(ctx, conversationPublicID, userID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrConversationNotFound
+		}
+		return err
+	}
+	return nil
+}
+
+func normalizeConversationDraftAttachmentsJSON(raw string) (string, error) {
+	normalized := strings.TrimSpace(raw)
+	if normalized == "" || normalized == "null" {
+		return "[]", nil
+	}
+	if len([]byte(normalized)) > conversationDraftMaxJSONLen {
+		return "", ErrInvalidConversationDraft
+	}
+
+	items := make([]json.RawMessage, 0)
+	if err := json.Unmarshal([]byte(normalized), &items); err != nil {
+		return "", ErrInvalidConversationDraft
+	}
+	if len(items) > conversationDraftMaxFiles {
+		return "", ErrInvalidConversationDraft
+	}
+	for _, item := range items {
+		if len(item) == 0 || strings.TrimSpace(string(item)) == "null" {
+			return "", ErrInvalidConversationDraft
+		}
+	}
+	compacted, err := json.Marshal(items)
+	if err != nil {
+		return "", ErrInvalidConversationDraft
+	}
+	return string(compacted), nil
 }
 
 // ListMessages 查询会话消息（分页）。

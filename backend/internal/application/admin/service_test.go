@@ -494,6 +494,10 @@ func (s *adminUserServiceFake) CountSuperAdmins(context.Context) (int64, error) 
 	return count, nil
 }
 
+func (s *adminUserServiceFake) ListMultiAccountCandidates(context.Context, int) ([]domainuser.MultiAccountCandidate, error) {
+	return s.multiAccountCandidates, nil
+}
+
 func (s *adminUserServiceFake) CreateUser(
 	context.Context,
 	string,

@@ -79,7 +79,7 @@ func TestRecordCircuitFailureRequiresBothThresholdsWithAND(t *testing.T) {
 		ActiveModelKeys:          []string{"model-a"},
 	}
 
-	if err := cache.RecordCircuitFailure(ctx, input); err != nil {
+	if _, err := cache.RecordCircuitFailure(ctx, input); err != nil {
 		t.Fatalf("RecordCircuitFailure() error = %v", err)
 	}
 	open, _ := cache.QueryUpstreamCircuitStatus(ctx, 1)
@@ -90,7 +90,7 @@ func TestRecordCircuitFailureRequiresBothThresholdsWithAND(t *testing.T) {
 	input.ModelKey = "model-b"
 	input.ModelFailureThreshold = 2
 	input.ActiveModelKeys = []string{"model-a", "model-b"}
-	if err := cache.RecordCircuitFailure(ctx, input); err != nil {
+	if _, err := cache.RecordCircuitFailure(ctx, input); err != nil {
 		t.Fatalf("RecordCircuitFailure() error = %v", err)
 	}
 	open, _ = cache.QueryUpstreamCircuitStatus(ctx, 1)
@@ -108,7 +108,7 @@ func TestRecordCircuitFailureReopensHalfOpenModelOnProbeFailure(t *testing.T) {
 	state.probeUntil = time.Now().Add(circuitProbeTTL)
 	cache.mu.Unlock()
 
-	if err := cache.RecordCircuitFailure(ctx, repository.CircuitFailureInput{
+	if _, err := cache.RecordCircuitFailure(ctx, repository.CircuitFailureInput{
 		UpstreamID:            1,
 		ModelKey:              "model-a",
 		ModelWindowSec:        60,
@@ -167,7 +167,7 @@ func TestCheckModelCircuitStateKeepsCircuitOpenDuringDuration(t *testing.T) {
 	cache := New()
 	ctx := context.Background()
 
-	if err := cache.RecordCircuitFailure(ctx, repository.CircuitFailureInput{
+	if _, err := cache.RecordCircuitFailure(ctx, repository.CircuitFailureInput{
 		UpstreamID:            1,
 		ModelKey:              "model-a",
 		ModelWindowSec:        60,

@@ -2401,6 +2401,37 @@ definitions:
     - data
     - errorMsg
     type: object
+  ConversationDraftResponse:
+    properties:
+      attachments:
+        items:
+          type: integer
+        type: array
+      conversationPublicID:
+        type: string
+      createdAt:
+        type: string
+      draft:
+        type: string
+      updatedAt:
+        type: string
+    required:
+    - attachments
+    - conversationPublicID
+    - createdAt
+    - draft
+    - updatedAt
+    type: object
+  ConversationDraftResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/ConversationDraftResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
   ConversationErrorDoc:
     properties:
       data: {}
@@ -3141,6 +3172,22 @@ definitions:
           type: string
         maxItems: 1000
         type: array
+      expiresInDays:
+        enum:
+        - 0
+        - 7
+        - 30
+        type: integer
+      includeThinking:
+        type: boolean
+      password:
+        maxLength: 80
+        type: string
+      scope:
+        enum:
+        - current
+        - full
+        type: string
     type: object
   CreateModelDisplayGroupRequest:
     properties:
@@ -8868,6 +8915,19 @@ definitions:
     required:
     - data
     - errorMsg
+    type: object
+  UpsertConversationDraftRequest:
+    properties:
+      attachments:
+        items:
+          type: integer
+        type: array
+      draft:
+        maxLength: 20000
+        type: string
+    required:
+    - attachments
+    - draft
     type: object
   UpsertIdentityProviderRequest:
     properties:
@@ -16622,6 +16682,115 @@ paths:
       security:
       - BearerAuth: []
       summary: 查询上下文证据详情
+      tags:
+      - chat
+  /conversation-drafts/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除当前用户指定会话或新会话的输入框草稿
+      parameters:
+      - description: 会话 public_id 或 __new__
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ConversationDraftResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 删除会话草稿
+      tags:
+      - chat
+    get:
+      consumes:
+      - application/json
+      description: 查询当前用户指定会话或新会话的输入框草稿
+      parameters:
+      - description: 会话 public_id 或 __new__
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ConversationDraftResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询会话草稿
+      tags:
+      - chat
+    put:
+      consumes:
+      - application/json
+      description: 保存当前用户指定会话或新会话的输入框草稿，空草稿会清理记录
+      parameters:
+      - description: 会话 public_id 或 __new__
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 草稿参数
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/UpsertConversationDraftRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ConversationDraftResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 保存会话草稿
       tags:
       - chat
   /conversation-projects:

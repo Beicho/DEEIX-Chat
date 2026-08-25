@@ -141,6 +141,115 @@ func (h *Handler) SearchConversations(c *gin.Context) {
 	})
 }
 
+// GetConversationDraft godoc
+// @Summary 查询会话草稿
+// @Description 查询当前用户指定会话或新会话的输入框草稿
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "会话 public_id 或 __new__"
+// @Success 200 {object} ConversationDraftResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /conversation-drafts/{id} [get]
+func (h *Handler) GetConversationDraft(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+
+	item, err := h.service.GetConversationDraft(c.Request.Context(), userID, publicID)
+	if err != nil {
+		if errors.Is(err, appconversation.ErrConversationNotFound) {
+			response.Error(c, http.StatusNotFound, "conversation not found")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "get conversation draft failed")
+		return
+	}
+	response.Success(c, toConversationDraftResponse(item))
+}
+
+// UpsertConversationDraft godoc
+// @Summary 保存会话草稿
+// @Description 保存当前用户指定会话或新会话的输入框草稿，空草稿会清理记录
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "会话 public_id 或 __new__"
+// @Param body body UpsertConversationDraftRequest true "草稿参数"
+// @Success 200 {object} ConversationDraftResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /conversation-drafts/{id} [put]
+func (h *Handler) UpsertConversationDraft(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+
+	var req UpsertConversationDraftRequest
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+
+	item, err := h.service.UpsertConversationDraft(c.Request.Context(), userID, publicID, req.Draft, string(req.Attachments))
+	if err != nil {
+		switch {
+		case errors.Is(err, appconversation.ErrInvalidConversationDraft):
+			response.Error(c, http.StatusBadRequest, "invalid conversation draft")
+		case errors.Is(err, appconversation.ErrConversationNotFound):
+			response.Error(c, http.StatusNotFound, "conversation not found")
+		default:
+			response.Error(c, http.StatusInternalServerError, "save conversation draft failed")
+		}
+		return
+	}
+	response.Success(c, toConversationDraftResponse(item))
+}
+
+// DeleteConversationDraft godoc
+// @Summary 删除会话草稿
+// @Description 删除当前用户指定会话或新会话的输入框草稿
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "会话 public_id 或 __new__"
+// @Success 200 {object} ConversationDraftResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /conversation-drafts/{id} [delete]
+func (h *Handler) DeleteConversationDraft(c *gin.Context) {
+	userID := middleware.MustUserID(c)
+	publicID, err := stringParam(c, "id")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid conversation id")
+		return
+	}
+
+	item, err := h.service.DeleteConversationDraft(c.Request.Context(), userID, publicID)
+	if err != nil {
+		if errors.Is(err, appconversation.ErrConversationNotFound) {
+			response.Error(c, http.StatusNotFound, "conversation not found")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "delete conversation draft failed")
+		return
+	}
+	response.Success(c, toConversationDraftResponse(item))
+}
+
 // GetConversationDefaultModelCandidate godoc
 // @Summary 查询新会话默认模型候选
 // @Description 返回后台配置的新会话系统推荐模型；未配置时返回空候选

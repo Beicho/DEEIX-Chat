@@ -213,6 +213,21 @@ func ToConversationExportResponse(item *appconversation.ConversationExportResult
 	}
 }
 
+func toConversationImportResponse(item *appconversation.ConversationImportResult) ConversationImportResponse {
+	if item == nil {
+		return ConversationImportResponse{}
+	}
+	conversations := make([]ConversationResponse, 0, len(item.Conversations))
+	for index := range item.Conversations {
+		conversations = append(conversations, toConversationResponse(&item.Conversations[index]))
+	}
+	return ConversationImportResponse{
+		ImportedConversationCount: item.ImportedConversationCount,
+		ImportedMessageCount:      item.ImportedMessageCount,
+		Conversations:             conversations,
+	}
+}
+
 // ToAdminConversationExportResponse redacts blocked originals for administrator bulk export.
 func ToAdminConversationExportResponse(item *appconversation.ConversationExportResult) ConversationExportResponse {
 	resp := ToConversationExportResponse(item)
@@ -1598,6 +1613,12 @@ type ConversationListResponseDoc struct {
 type ConversationSearchListResponseDoc struct {
 	ErrorMsg string                         `json:"errorMsg"`
 	Data     ConversationSearchPageResponse `json:"data"`
+}
+
+// ConversationDraftResponseDoc 会话草稿响应文档。
+type ConversationDraftResponseDoc struct {
+	ErrorMsg string                    `json:"errorMsg"`
+	Data     ConversationDraftResponse `json:"data"`
 }
 
 // ConversationPreviewMessageListResponseDoc 会话搜索预览消息响应文档。

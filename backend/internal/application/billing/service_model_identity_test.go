@@ -281,11 +281,8 @@ func (r *billingRepositoryStub) GetPriceByID(_ context.Context, id uint) (*domai
 	return nil, repository.ErrNotFound
 }
 func (r *billingRepositoryStub) GetPlanByID(_ context.Context, id uint) (*domainbilling.Plan, error) {
-	if r.plan != nil && (r.plan.ID == id || id == 0) {
-		return r.plan, nil
-	}
 	for _, item := range r.plans {
-		if item.ID == id {
+		if item.ID == id || id == 0 {
 			return &item, nil
 		}
 	}
@@ -300,11 +297,6 @@ func (r *billingRepositoryStub) ListPlansByIDs(_ context.Context, planIDs []uint
 		allowed[id] = struct{}{}
 	}
 	results := make([]domainbilling.Plan, 0, len(planIDs))
-	if r.plan != nil {
-		if _, ok := allowed[r.plan.ID]; ok {
-			results = append(results, *r.plan)
-		}
-	}
 	for _, item := range r.plans {
 		if _, ok := allowed[item.ID]; ok {
 			results = append(results, item)
@@ -313,8 +305,10 @@ func (r *billingRepositoryStub) ListPlansByIDs(_ context.Context, planIDs []uint
 	return results, nil
 }
 func (r *billingRepositoryStub) GetActivePlanByCode(_ context.Context, code string) (*domainbilling.Plan, error) {
-	if r.plan != nil && r.plan.Code == code {
-		return r.plan, nil
+	for _, item := range r.plans {
+		if item.Code == code && item.IsActive {
+			return &item, nil
+		}
 	}
 	if code == "free" {
 		return &domainbilling.Plan{ID: 1, Code: "free", Name: "Free", IsActive: true}, nil
@@ -332,35 +326,19 @@ func (r *billingRepositoryStub) UpdatePlanWithDefaultPrice(_ context.Context, pl
 func (r *billingRepositoryStub) DeletePlan(context.Context, uint) error {
 	panic("not used")
 }
-func (r *billingRepositoryStub) ListCurrentSubscriptionsByUserIDs(context.Context, []uint, time.Time) ([]domainbilling.Subscription, error) {
-	if r.plan == nil {
-		return nil, nil
-	}
-	return []domainbilling.Subscription{{
-		UserID:               1,
-		PlanID:               r.plan.ID,
-		Status:               "active",
-		CurrentPeriodStartAt: time.Now().Add(-time.Hour),
-		CurrentPeriodEndAt:   ptrTime(time.Now().Add(time.Hour)),
-	}}, nil
+func (r *billingRepositoryStub) ListCurrentSubscriptionsByUserIDs(_ context.Context, userIDs []uint, now time.Time) ([]domainbilling.Subscription, error) {
+	return r.filterSubscriptions(userIDs, now), nil
 }
 func (r *billingRepositoryStub) ListSubscriptionEntitlementsByUserIDs(_ context.Context, userIDs []uint, now time.Time) ([]domainbilling.Subscription, error) {
+	return r.filterSubscriptions(userIDs, now), nil
+}
+func (r *billingRepositoryStub) filterSubscriptions(userIDs []uint, now time.Time) []domainbilling.Subscription {
 	allowed := make(map[uint]struct{}, len(userIDs))
 	for _, id := range userIDs {
 		allowed[id] = struct{}{}
 	}
-	source := r.subscriptions
-	if len(source) == 0 && r.plan != nil {
-		source = []domainbilling.Subscription{{
-			UserID:               1,
-			PlanID:               r.plan.ID,
-			Status:               "active",
-			CurrentPeriodStartAt: now.Add(-time.Hour),
-			CurrentPeriodEndAt:   ptrTime(now.Add(time.Hour)),
-		}}
-	}
-	results := make([]domainbilling.Subscription, 0, len(source))
-	for _, item := range source {
+	results := make([]domainbilling.Subscription, 0, len(r.subscriptions))
+	for _, item := range r.subscriptions {
 		if _, ok := allowed[item.UserID]; !ok {
 			continue
 		}
@@ -369,7 +347,7 @@ func (r *billingRepositoryStub) ListSubscriptionEntitlementsByUserIDs(_ context.
 		}
 		results = append(results, item)
 	}
-	return results, nil
+	return results
 }
 func (r *billingRepositoryStub) ReplaceSubscription(_ context.Context, item *domainbilling.Subscription) error {
 	r.replacedSubscription = item
