@@ -358,7 +358,7 @@ func (s *Service) CompleteProviderLogin(
 		return nil, err
 	}
 
-	userItem, subject, err := s.resolveProviderLoginCode(ctx, *provider, trimmedCode, redirectURI, strings.TrimSpace(codeVerifier), verifiedState.Intent)
+	userItem, subject, err := s.resolveProviderLoginCode(ctx, *provider, trimmedCode, redirectURI, strings.TrimSpace(codeVerifier), verifiedState.Intent, invitationCode)
 	if err != nil {
 		return nil, err
 	}
@@ -372,6 +372,7 @@ func (s *Service) resolveProviderLoginCode(
 	redirectURI string,
 	codeVerifier string,
 	intent string,
+	invitationCode string,
 ) (*domainuser.User, string, error) {
 	tokenResponse, err := s.exchangeProviderCode(ctx, provider, code, redirectURI, codeVerifier)
 	if err != nil {

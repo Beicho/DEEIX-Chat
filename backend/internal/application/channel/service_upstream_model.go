@@ -80,10 +80,14 @@ func (s *Service) UpsertUpstreamModel(ctx context.Context, upstreamID uint, inpu
 		return nil, err
 	}
 	var view *UpstreamModelView
+	createdPlatformModelName := ""
 	err = s.repo.WithinTransaction(ctx, func(txRepo repository.ChannelRepository) error {
 		upstream, txErr := txRepo.GetUpstreamByID(ctx, upstreamID)
 		if txErr != nil {
 			return txErr
+		}
+		if platformModelCreated {
+			createdPlatformModelName = platformModel.PlatformModelName
 		}
 		protocols, txErr := resolveRouteProtocols(input.Protocols, upstream.Compatible, upstream.ProtocolDefaultsJSON, kindsJSON)
 		if txErr != nil {
@@ -173,6 +177,9 @@ func (s *Service) UpsertUpstreamModel(ctx context.Context, upstreamID uint, inpu
 	}
 
 	s.InvalidateModelCatalog()
+	if createdPlatformModelName != "" {
+		s.notifyPlatformModelCreated(ctx, createdPlatformModelName)
+	}
 	return view, nil
 }
 
@@ -294,7 +301,6 @@ func ensurePlatformModel(ctx context.Context, repo repository.ChannelRepository,
 		}
 		return item, false, nil
 	}
-	s.notifyPlatformModelCreated(ctx, item.PlatformModelName)
 	return item, true, nil
 }
 
