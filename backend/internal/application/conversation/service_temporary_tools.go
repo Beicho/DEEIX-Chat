@@ -138,6 +138,7 @@ func (s *Service) runTemporaryGeneration(
 			TraceRecorder:     traceRecorder,
 			ToolNameMap:       toolRuntime.nameMap,
 			MCPConfigs:        toolRuntime.mcpConfigs,
+			BuiltInTools:      toolRuntime.builtIn,
 			ToolSchemas:       toolRuntime.schemas,
 			Ledger:            ledger,
 			ResultTokenBudget: resultBudget,

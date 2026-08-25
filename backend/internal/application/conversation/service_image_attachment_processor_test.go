@@ -165,7 +165,7 @@ func TestResolveSelectedToolRuntimePropagatesRepositoryFailure(t *testing.T) {
 			},
 		},
 	}
-	_, err := service.resolveSelectedToolRuntime(t.Context(), []uint{1})
+	_, err := service.resolveSelectedToolRuntime(t.Context(), 0, []uint{1}, nil, false, false)
 	if !errors.Is(err, expected) {
 		t.Fatalf("expected repository error to be propagated, got %v", err)
 	}
@@ -188,7 +188,7 @@ func TestResolveSelectedToolRuntimeFailsClosedForUnavailableAttachmentProcessor(
 			},
 		},
 	}
-	_, err := service.resolveSelectedToolRuntime(t.Context(), []uint{1})
+	_, err := service.resolveSelectedToolRuntime(t.Context(), 0, []uint{1}, nil, false, false)
 	if !errors.Is(err, ErrImageAttachmentProcessingFailed) {
 		t.Fatalf("expected unavailable processor to fail closed, got %v", err)
 	}

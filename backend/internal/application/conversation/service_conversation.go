@@ -22,6 +22,10 @@ const (
 	conversationPreviewAncestorMaxDepth = 100
 	conversationExportVersion           = 1
 	conversationExportScopeFull         = "full"
+	maxConversationSearchQuery          = 120
+	messageBookmarkNoteMaxRunes         = 512
+	messageBookmarkTagMaxRunes          = 40
+	messageBookmarkMaxTags              = 12
 )
 
 // DeleteConversationOptions 定义会话删除选项。

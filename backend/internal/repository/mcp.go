@@ -52,6 +52,8 @@ type UpdateMCPToolInput struct {
 	AttachmentEncoding       *string
 	AttachmentPromptArgument *string
 	Status                   *string
+	DefaultEnabled           *bool
+	RequiresConfirm          *bool
 }
 
 // UpsertMCPToolPreferenceInput defines a user's persisted tool selection.

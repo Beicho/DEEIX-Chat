@@ -555,7 +555,14 @@ func (s *Service) sendMessageInternal(
 	currentAttachments := filterCurrentAttachments(conversationAttachments)
 	userMessage.Attachments = marshalAttachmentSnapshots(currentAttachments)
 
-	toolRuntime, err := s.resolveSelectedToolRuntime(ctx, input.SelectedToolIDs)
+	toolRuntime, err := s.resolveSelectedToolRuntime(
+		ctx,
+		input.UserID,
+		input.SelectedToolIDs,
+		input.ConfirmedToolIDs,
+		input.WebSearchEnabled,
+		input.CodeSandboxEnabled,
+	)
 	if err != nil {
 		retErr = err
 		return nil, err
@@ -1469,6 +1476,7 @@ func (s *Service) sendMessageInternal(
 			TraceRecorder:     traceRecorder,
 			ToolNameMap:       toolRuntime.nameMap,
 			MCPConfigs:        toolRuntime.mcpConfigs,
+			BuiltInTools:      toolRuntime.builtIn,
 			ToolSchemas:       toolRuntime.schemas,
 			Ledger:            toolLedger,
 			ResultTokenBudget: toolResultTokenBudget,

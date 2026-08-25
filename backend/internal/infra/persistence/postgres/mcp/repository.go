@@ -272,6 +272,9 @@ func (r *Repo) ReplaceServerTools(ctx context.Context, serverID uint, tools []do
 				AttachmentPromptArgument: strings.TrimSpace(tool.AttachmentPromptArgument),
 				Status:                   tool.Status,
 				SortOrder:                maxSortOrder + (index+1)*100,
+				DefaultEnabled:           tool.DefaultEnabled,
+				RequiresConfirm:          tool.RequiresConfirm,
+				ToolKind:                 defaultToolKind(tool.ToolKind),
 			})
 		}
 		if len(rows) > 0 {
@@ -438,6 +441,12 @@ func (r *Repo) UpdateTool(ctx context.Context, toolID uint, input repository.Upd
 		}
 		if input.Status != nil && *input.Status != row.Status {
 			updates["status"] = *input.Status
+		}
+		if input.DefaultEnabled != nil && *input.DefaultEnabled != row.DefaultEnabled {
+			updates["default_enabled"] = *input.DefaultEnabled
+		}
+		if input.RequiresConfirm != nil && *input.RequiresConfirm != row.RequiresConfirm {
+			updates["requires_confirm"] = *input.RequiresConfirm
 		}
 		if len(updates) > 0 {
 			if err := tx.Model(&model.MCPTool{}).Where("id = ?", toolID).Updates(updates).Error; err != nil {
@@ -645,6 +654,9 @@ func toDomainTool(row model.MCPTool) domainmcp.Tool {
 		AttachmentPromptArgument: row.AttachmentPromptArgument,
 		Status:                   row.Status,
 		SortOrder:                row.SortOrder,
+		DefaultEnabled:           row.DefaultEnabled,
+		RequiresConfirm:          row.RequiresConfirm,
+		ToolKind:                 defaultToolKind(row.ToolKind),
 		CreatedAt:                row.CreatedAt,
 		UpdatedAt:                row.UpdatedAt,
 	}

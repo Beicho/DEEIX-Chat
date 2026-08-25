@@ -572,6 +572,9 @@ export function useChatMessageSubmit({
       startStream(exchangeKey);
       setPendingExchange({
         key: exchangeKey,
+        conversationScopeKey: targetConversationID?.trim() || "new-conversation",
+        branchScopePath: visibleMessages.map((item) => item.publicID.trim()).filter(Boolean),
+        branchScopeRunID: clientRunID,
         conversationPublicID: targetConversationID?.trim() || null,
         userPublicID: assistantOnlyBranch ? pendingUserPublicID : undefined,
         tempUserPublicID,
@@ -581,6 +584,7 @@ export function useChatMessageSubmit({
         parentPublicID: resolvedParentPublicID,
         sourcePublicID: resolvedSourcePublicID,
         branchReason: resolvedBranchReason,
+        reuseUserMessage: assistantOnlyBranch,
         userContent: payloadContent,
         userAttachments: effectiveAttachments.length > 0 ? effectiveAttachments : undefined,
         userCreatedAt: createdAt,

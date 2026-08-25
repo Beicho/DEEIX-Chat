@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Archive, Check, PencilLine, Share2, Star, Trash } from "lucide-react";
+import { Archive, Check, PencilLine, Share2, Star, Tags, Trash } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { Ellipsis } from "@/components/animate-ui/icons/ellipsis";
@@ -98,6 +98,7 @@ function RecentConversationRow({
   onToggleSelected,
   onToggleStar,
   onRename,
+  onManageLabels,
   onArchive,
   onShare,
   onRevokeShare,
@@ -276,6 +277,15 @@ function RecentConversationRow({
               <DropdownMenuItemIcon icon={PencilLine} />
               {t("row.rename")}
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onManageLabels(item);
+              }}
+            >
+              <DropdownMenuItemIcon icon={Tags} />
+              {t("row.manageLabels")}
+            </DropdownMenuItem>
             <ConversationProjectSubmenu
               label={t("row.moveToProject")}
               unassignedLabel={t("projects.unassigned")}
@@ -342,6 +352,7 @@ type RecentListProps = {
   onToggleSelected: (publicID: string) => void;
   onToggleStar: (publicID: string, nextStarred: boolean) => void;
   onRename: (item: ConversationDTO) => void;
+  onManageLabels: (item: ConversationDTO) => void;
   onArchive: (publicID: string, archived: boolean) => void;
   onShare: (item: ConversationDTO) => void;
   onRevokeShare: (publicID: string) => void | Promise<void>;
@@ -433,6 +444,7 @@ export function RecentList({
   onToggleSelected,
   onToggleStar,
   onRename,
+  onManageLabels,
   onArchive,
   onShare,
   onRevokeShare,
@@ -514,6 +526,7 @@ export function RecentList({
                     onToggleSelected={onToggleSelected}
                     onToggleStar={onToggleStar}
                     onRename={onRename}
+                    onManageLabels={onManageLabels}
                     onArchive={onArchive}
                     onShare={onShare}
                     onRevokeShare={onRevokeShare}

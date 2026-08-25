@@ -70,6 +70,7 @@
     "defaultsNoResults": "No matching items",
     "defaultsLoadFailed": "Failed to load project defaults",
     "rename": "Rename",
+    "manageLabels": "Manage labels",
     "edit": "Edit",
     "delete": "Delete",
     "deleteTitle": "Delete project",

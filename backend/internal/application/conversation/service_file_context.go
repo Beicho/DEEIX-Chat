@@ -374,8 +374,8 @@ func truncateAttachmentForFullContextFallback(item AttachmentInput, cfg config.C
 		return AttachmentInput{}, false
 	}
 	tokenLimit := fallbackFileContextMaxTokens
-	if cfg.ContextMaxInputTokens > 0 {
-		quarterBudget := cfg.ContextMaxInputTokens / 4
+	if cfg.ContextWindowFallbackTokens > 0 {
+		quarterBudget := cfg.ContextWindowFallbackTokens / 4
 		if quarterBudget > 0 && quarterBudget < tokenLimit {
 			tokenLimit = quarterBudget
 		}

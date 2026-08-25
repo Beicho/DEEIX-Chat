@@ -101,7 +101,7 @@ func (s *Service) StreamTemporaryChat(
 	if err := s.ValidateSelectedToolIDs(input.SelectedToolIDs); err != nil {
 		return nil, err
 	}
-	toolRuntime, err := s.resolveSelectedToolRuntime(ctx, input.SelectedToolIDs)
+	toolRuntime, err := s.resolveSelectedToolRuntime(ctx, input.UserID, input.SelectedToolIDs, nil, false, false)
 	if err != nil {
 		return nil, err
 	}

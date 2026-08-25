@@ -23,6 +23,7 @@ export type ProcessTraceLabels = {
   rag: {
     sourceFallback: (fileID: string) => string;
     chunksShort: (count: number, scorePercent: number) => string;
+    chunksTotal: (count: number) => string;
     retrievalSources: string;
     matchedContents: (count: number) => string;
     matchSummary: (count: number, sharePercent: number, scorePercent: number) => string;
@@ -59,9 +60,15 @@ export type ProcessTraceLabels = {
       thinking: string;
     };
     detail: {
+      nameLabel: string;
       request: string;
       response: string;
       error: string;
+      argumentsTitle: string;
+      resultTitle: string;
+      copy: string;
+      copied: string;
+      copyFailed: string;
       expand: string;
       collapse: string;
       sourceFallback: (index: number) => string;
@@ -75,6 +82,9 @@ export type ProcessTraceLabels = {
       prompt: string;
       command: string;
       latencySeparator: string;
+      sourceCount: (count: number) => string;
+      groundingSupportCount: (count: number) => string;
+      exitCode: (code: number) => string;
     };
     nativeStatus: {
       webSearchActive: string;
@@ -105,6 +115,17 @@ export type ProcessTraceLabels = {
     titleDone: string;
     subtitleActive: string;
     subtitleDone: string;
+    rowActive: string;
+    rowDone: string;
+    duration: (seconds: string) => string;
+  };
+  run: {
+    titleActive: string;
+    titleDone: string;
+    toolCalls: (count: number) => string;
+    thinkRounds: (count: number) => string;
+    duration: (duration: string) => string;
+    labelSeparator: string;
   };
   promptTrace: {
     modes: {
@@ -147,6 +168,8 @@ export type ProcessTraceLabels = {
     detail: string;
     range: (fromTurn: number, toTurn: number) => string;
     tokens: (sourceTokens: number, summaryTokens: number) => string;
+    pending: string;
+    failed: string;
   };
 };
 
@@ -174,6 +197,7 @@ export function useProcessTraceLabels(): ProcessTraceLabels {
       rag: {
         sourceFallback: (fileID: string) => t("rag.sourceFallback", { fileID }),
         chunksShort: (count: number, scorePercent: number) => t("rag.chunksShort", { count, scorePercent }),
+        chunksTotal: (count: number) => t("rag.chunksTotal", { count }),
         retrievalSources: t("rag.retrievalSources"),
         matchedContents: (count: number) => t("rag.matchedContents", { count }),
         matchSummary: (count: number, sharePercent: number, scorePercent: number) =>
@@ -211,9 +235,15 @@ export function useProcessTraceLabels(): ProcessTraceLabels {
           thinking: t("tool.names.thinking"),
         },
         detail: {
+          nameLabel: t("tool.detail.nameLabel"),
           request: t("tool.detail.request"),
           response: t("tool.detail.response"),
           error: t("tool.detail.error"),
+          argumentsTitle: t("tool.detail.argumentsTitle"),
+          resultTitle: t("tool.detail.resultTitle"),
+          copy: t("tool.detail.copy"),
+          copied: t("tool.detail.copied"),
+          copyFailed: t("tool.detail.copyFailed"),
           expand: t("tool.detail.expand"),
           collapse: t("tool.detail.collapse"),
           sourceFallback: (index: number) => t("tool.detail.sourceFallback", { index }),
@@ -227,6 +257,9 @@ export function useProcessTraceLabels(): ProcessTraceLabels {
           prompt: t("tool.detail.prompt"),
           command: t("tool.detail.command"),
           latencySeparator: t("tool.detail.latencySeparator"),
+          sourceCount: (count: number) => t("tool.detail.sourceCount", { count }),
+          groundingSupportCount: (count: number) => t("tool.detail.groundingSupportCount", { count }),
+          exitCode: (code: number) => t("tool.detail.exitCode", { code }),
         },
         nativeStatus: {
           webSearchActive: t("tool.nativeStatus.webSearchActive"),
@@ -257,6 +290,17 @@ export function useProcessTraceLabels(): ProcessTraceLabels {
         titleDone: t("think.titleDone"),
         subtitleActive: t("think.subtitleActive"),
         subtitleDone: t("think.subtitleDone"),
+        rowActive: t("think.rowActive"),
+        rowDone: t("think.rowDone"),
+        duration: (seconds: string) => t("think.duration", { seconds }),
+      },
+      run: {
+        titleActive: t("run.titleActive"),
+        titleDone: t("run.titleDone"),
+        toolCalls: (count: number) => t("run.toolCalls", { count }),
+        thinkRounds: (count: number) => t("run.thinkRounds", { count }),
+        duration: (duration: string) => t("run.duration", { duration }),
+        labelSeparator: t("run.labelSeparator"),
       },
       promptTrace: {
         modes: {
@@ -300,6 +344,8 @@ export function useProcessTraceLabels(): ProcessTraceLabels {
         detail: t("compaction.detail"),
         range: (fromTurn: number, toTurn: number) => t("compaction.range", { fromTurn, toTurn }),
         tokens: (sourceTokens: number, summaryTokens: number) => t("compaction.tokens", { sourceTokens, summaryTokens }),
+        pending: t("compaction.pending"),
+        failed: t("compaction.failed"),
       },
     }),
     [t],

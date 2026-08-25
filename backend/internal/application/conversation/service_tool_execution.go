@@ -25,6 +25,7 @@ type executeAssistantToolCallsInput struct {
 	TraceRecorder     *messageTraceRecorder
 	ToolNameMap       map[string]string
 	MCPConfigs        map[string]mcp.CallConfig
+	BuiltInTools      map[string]string
 	ToolSchemas       map[string]json.RawMessage
 	Ledger            *toolExecutionLedger
 	ResultTokenBudget int64

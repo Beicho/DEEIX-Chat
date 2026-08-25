@@ -81,6 +81,8 @@ type ToolInput struct {
 	AttachmentEncoding       *string
 	AttachmentPromptArgument *string
 	Status                   *string
+	DefaultEnabled           *bool
+	RequiresConfirm          *bool
 }
 
 // SyncServerToolsInput 描述一次 MCP 工具同步请求。
@@ -368,6 +370,14 @@ func preserveCompatibleToolAttachmentConfig(discovered *domainmcp.Tool, existing
 	discovered.AttachmentArgument = config.Argument
 	discovered.AttachmentEncoding = config.Encoding
 	discovered.AttachmentPromptArgument = config.PromptArgument
+}
+
+// SyncUserServerTools synchronizes a server only after confirming user ownership.
+func (s *Service) SyncUserServerTools(ctx context.Context, userID uint, input SyncServerToolsInput) ([]domainmcp.Tool, error) {
+	if _, err := s.repo.GetServerForUser(ctx, input.ServerID, userID, false); err != nil {
+		return nil, ErrServerNotFound
+	}
+	return s.SyncServerTools(ctx, input)
 }
 
 func (s *Service) writeToolSyncEvent(ctx context.Context, requestID string, level string, event string, serverID uint, message string, detail interface{}) {
@@ -757,6 +767,12 @@ func normalizeToolInput(input ToolInput) (repository.UpdateMCPToolInput, error) 
 			return update, err
 		}
 		update.Status = &status
+	}
+	if input.DefaultEnabled != nil {
+		update.DefaultEnabled = input.DefaultEnabled
+	}
+	if input.RequiresConfirm != nil {
+		update.RequiresConfirm = input.RequiresConfirm
 	}
 	if input.AttachmentInputMode != nil {
 		mode := strings.ToLower(strings.TrimSpace(*input.AttachmentInputMode))

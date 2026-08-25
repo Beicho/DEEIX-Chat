@@ -19,6 +19,7 @@ type selectedToolRuntime struct {
 	definitions         []llm.ToolDefinition
 	nameMap             map[string]string
 	mcpConfigs          map[string]mcp.CallConfig
+	builtIn             map[string]string
 	schemas             map[string]json.RawMessage
 	attachmentProcessor *selectedAttachmentProcessor
 }
@@ -136,21 +137,14 @@ func schemaFieldType(prop map[string]interface{}) string {
 	return ""
 }
 
-func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint) (selectedToolRuntime, error) {
-	if len(toolIDs) == 0 || !s.cfg.Snapshot().MCPEnable {
-		return selectedToolRuntime{}, nil
-	}
-	if s.mcpRepo == nil {
-		return selectedToolRuntime{}, fmt.Errorf("resolve selected MCP tools: repository unavailable")
-	}
-	tools, err := s.mcpRepo.ListToolsByIDs(ctx, uniqueToolIDs(toolIDs))
-	if err != nil {
-		return selectedToolRuntime{}, fmt.Errorf("resolve selected MCP tools: %w", err)
-	}
-	if len(tools) == 0 {
-		return selectedToolRuntime{}, nil
-	}
-
+func (s *Service) resolveSelectedToolRuntime(
+	ctx context.Context,
+	userID uint,
+	toolIDs []uint,
+	confirmedToolIDs []uint,
+	webSearchEnabled bool,
+	codeSandboxEnabled bool,
+) (selectedToolRuntime, error) {
 	cfg := s.cfg.Snapshot()
 	result := selectedToolRuntime{
 		definitions: make([]llm.ToolDefinition, 0, len(toolIDs)+2),
@@ -168,16 +162,22 @@ func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint
 	}
 	if s.mcpRepo == nil || len(toolIDs) == 0 || !cfg.MCPEnable {
 		if len(result.definitions) > 0 {
-			return result
+			return result, nil
 		}
-		return selectedToolRuntime{}
+		if len(toolIDs) > 0 && s.mcpRepo == nil {
+			return selectedToolRuntime{}, fmt.Errorf("resolve selected MCP tools: repository unavailable")
+		}
+		return selectedToolRuntime{}, nil
 	}
 	tools, err := s.mcpRepo.ListToolsByIDsForUser(ctx, uniqueToolIDs(toolIDs), userID)
-	if err != nil || len(tools) == 0 {
+	if err != nil {
+		return selectedToolRuntime{}, fmt.Errorf("resolve selected MCP tools: %w", err)
+	}
+	if len(tools) == 0 {
 		if len(result.definitions) > 0 {
-			return result
+			return result, nil
 		}
-		return selectedToolRuntime{}
+		return selectedToolRuntime{}, nil
 	}
 
 	confirmedSet := uintSet(confirmedToolIDs)
@@ -185,6 +185,11 @@ func (s *Service) resolveSelectedToolRuntime(ctx context.Context, toolIDs []uint
 	for _, tool := range tools {
 		if tool.Status != "active" {
 			continue
+		}
+		if tool.RequiresConfirm {
+			if _, ok := confirmedSet[tool.ID]; !ok {
+				continue
+			}
 		}
 		isAttachmentProcessor := strings.EqualFold(strings.TrimSpace(tool.AttachmentInputMode), domainmcp.AttachmentInputModeImage)
 		server, ok := serverCache[tool.ServerID]
@@ -284,6 +289,7 @@ func (r selectedToolRuntime) withoutDefinitions() selectedToolRuntime {
 	r.definitions = nil
 	r.nameMap = nil
 	r.mcpConfigs = nil
+	r.builtIn = nil
 	r.schemas = nil
 	r.attachmentProcessor = nil
 	return r

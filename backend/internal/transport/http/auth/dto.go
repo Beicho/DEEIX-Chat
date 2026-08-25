@@ -77,6 +77,17 @@ type EmailRegistrationCompleteRequest struct {
 	Password       string `json:"password" binding:"required,min=8,max=128"`
 	Code           string `json:"code,omitempty" binding:"omitempty,len=6"`
 	TurnstileToken string `json:"turnstileToken,omitempty" binding:"omitempty,max=2048"`
+	InvitationCode string `json:"invitationCode,omitempty" binding:"omitempty,max=64"`
+	// InviteCode keeps compatibility with the legacy frontend field name.
+	InviteCode string `json:"inviteCode,omitempty" binding:"omitempty,max=64"`
+}
+
+// ResolvedInvitationCode returns the submitted invitation code across both field names.
+func (r EmailRegistrationCompleteRequest) ResolvedInvitationCode() string {
+	if strings.TrimSpace(r.InvitationCode) != "" {
+		return r.InvitationCode
+	}
+	return r.InviteCode
 }
 
 type PasswordResetStartRequest struct {
@@ -88,7 +99,6 @@ type PasswordResetCompleteRequest struct {
 	Code        string `json:"code" binding:"required,len=6"`
 	NewPassword string `json:"newPassword" binding:"required,min=8,max=128"`
 }
-
 
 type EmailCodeLoginStartRequest struct {
 	Email string `json:"email" binding:"required,max=128,email"`
@@ -270,11 +280,18 @@ type ReorderIdentityProvidersRequest struct {
 }
 
 type CompleteProviderLoginRequest struct {
-	Code         string `json:"code" binding:"required"`
-	State        string `json:"state" binding:"required,max=4096"`
-	RedirectURI  string `json:"redirectURI" binding:"required,max=2048"`
-	CodeVerifier string `json:"codeVerifier" binding:"required,min=43,max=128"`
-	Intent       string `json:"intent,omitempty" binding:"omitempty,oneof=login register bind"`
+	Code           string `json:"code" binding:"required"`
+	State          string `json:"state" binding:"required,max=4096"`
+	RedirectURI    string `json:"redirectURI" binding:"required,max=2048"`
+	CodeVerifier   string `json:"codeVerifier" binding:"required,min=43,max=128"`
+	Intent         string `json:"intent,omitempty" binding:"omitempty,oneof=login register bind"`
+	InvitationCode string `json:"invitationCode,omitempty" binding:"omitempty,max=64"`
+}
+
+// CompleteProviderRegistrationRequest completes a deferred provider registration.
+type CompleteProviderRegistrationRequest struct {
+	RegistrationToken string `json:"registrationToken" binding:"required,max=4096"`
+	InvitationCode    string `json:"invitationCode" binding:"required,max=64"`
 }
 
 type ProviderAuthBridgeStartRequest struct {

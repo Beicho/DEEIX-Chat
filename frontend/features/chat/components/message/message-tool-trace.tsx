@@ -124,7 +124,9 @@ function firstStringListFromRecord(record: Record<string, unknown>, keys: string
 
 function collectToolStrings(value: unknown, keys: string[], result: string[] = []): string[] {
   if (Array.isArray(value)) {
-    value.forEach((item) => collectToolStrings(item, keys, result));
+    value.forEach((item) => {
+      collectToolStrings(item, keys, result);
+    });
     return result;
   }
   if (!isRecord(value)) return result;
@@ -132,7 +134,9 @@ function collectToolStrings(value: unknown, keys: string[], result: string[] = [
     const text = readString(value[key]);
     if (text) result.push(text);
   }
-  Object.values(value).forEach((item) => collectToolStrings(item, keys, result));
+  Object.values(value).forEach((item) => {
+    collectToolStrings(item, keys, result);
+  });
   return Array.from(new Set(result));
 }
 
@@ -153,7 +157,9 @@ function collectToolImageSources(value: unknown, result: string[] = []): string[
     return Array.from(new Set(result));
   }
   if (Array.isArray(value)) {
-    value.forEach((item) => collectToolImageSources(item, result));
+    value.forEach((item) => {
+      collectToolImageSources(item, result);
+    });
     return Array.from(new Set(result));
   }
   if (!isRecord(value)) return Array.from(new Set(result));
@@ -161,7 +167,9 @@ function collectToolImageSources(value: unknown, result: string[] = []): string[
     const source = normalizeImageSource(readString(value[key]));
     if (source) result.push(source);
   }
-  Object.values(value).forEach((item) => collectToolImageSources(item, result));
+  Object.values(value).forEach((item) => {
+    collectToolImageSources(item, result);
+  });
   return Array.from(new Set(result));
 }
 
@@ -949,4 +957,3 @@ export function MessageToolChainTrace({
     </div>
   );
 }
-
