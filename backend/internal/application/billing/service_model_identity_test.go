@@ -534,6 +534,10 @@ func (r *billingRepositoryStub) SumBillableNanousd(context.Context, uint, time.T
 	return 0, nil
 }
 
+func (r *billingRepositoryStub) GetAdminDashboardStats(context.Context, time.Time, time.Time, int) (*domainbilling.AdminDashboardStats, error) {
+	panic("not used")
+}
+
 func TestRecordUsageWithAuthorizationUsesBillingAtForPeriod(t *testing.T) {
 	billingAt := time.Date(2026, 6, 30, 23, 59, 58, 0, time.UTC)
 	usageDate := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)

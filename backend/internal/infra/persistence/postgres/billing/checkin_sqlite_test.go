@@ -24,7 +24,7 @@ func TestClaimDailyCheckInIsIdempotentAndWritesOneBalanceTransaction(t *testing.
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
 
-	if err := db.AutoMigrate(&model.BillingAccount{}, &model.BalanceTransaction{}, &model.CheckInRecord{}, &model.TaskProgress{}); err != nil {
+	if err := db.AutoMigrate(&model.BillingAccount{}, &model.BalanceTransaction{}, &model.CheckInRecord{}); err != nil {
 		t.Fatalf("migrate checkin tables: %v", err)
 	}
 

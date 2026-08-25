@@ -36,7 +36,6 @@ func TestTableNamesUseRestructuredDomains(t *testing.T) {
 		BillingAccount{},
 		BalanceTransaction{},
 		CheckInRecord{},
-		TaskProgress{},
 		RedemptionCode{},
 		Redemption{},
 		ModelPricing{},

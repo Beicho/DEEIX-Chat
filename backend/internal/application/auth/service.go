@@ -66,6 +66,13 @@ type avatarFileValidator interface {
 	ValidateImageFile(ctx context.Context, userID uint, fileID string) error
 }
 
+// NewService preserves the configuration-value constructor used by focused
+// callers while routing all behavior through the runtime-aware implementation.
+func NewService(cfg config.Config, repo repository.AuthRepository, geoResolver *geoip.Client) *Service {
+	runtimeCfg := config.NewRuntime(cfg)
+	return NewServiceWithRuntime(runtimeCfg, repo, geoResolver, identityprovider.New(cfg.StrictOutboundPolicy()))
+}
+
 // NewServiceWithRuntime 创建使用运行时配置容器的服务。
 func NewServiceWithRuntime(
 	cfg *config.Runtime,

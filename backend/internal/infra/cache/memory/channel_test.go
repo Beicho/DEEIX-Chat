@@ -25,7 +25,7 @@ func TestRecordCircuitFailureTripsUpstreamByModelThresholdWithOR(t *testing.T) {
 		ActiveModelKeys:          []string{"model-a"},
 	}
 
-	if err := cache.RecordCircuitFailure(ctx, input); err != nil {
+	if _, err := cache.RecordCircuitFailure(ctx, input); err != nil {
 		t.Fatalf("RecordCircuitFailure() error = %v", err)
 	}
 	open, _ := cache.QueryUpstreamCircuitStatus(ctx, 1)

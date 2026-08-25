@@ -271,7 +271,8 @@ func (s *Service) checkModeration(ctx context.Context, direction string, content
 
 func (s *Service) checkOpenAIModeration(ctx context.Context, cfg moderationRuntimeConfig, direction string, content string) (*moderationCheckResult, error) {
 	snap := s.cfg.Snapshot()
-	if err := security.ValidateOutboundHTTPURL(cfg.BaseURL, snap.Env, snap.SSRFProtectionEnabled); err != nil {
+	policy := snap.TrustedOutboundPolicy()
+	if err := security.ValidateOutboundHTTPURL(cfg.BaseURL, policy); err != nil {
 		return nil, fmt.Errorf("moderation endpoint is not allowed")
 	}
 	body, err := json.Marshal(moderationRequest{Model: cfg.Model, Input: content})
@@ -290,7 +291,7 @@ func (s *Service) checkOpenAIModeration(ctx context.Context, cfg moderationRunti
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	resp, err := security.NewOutboundHTTPClient(snap.Env, snap.SSRFProtectionEnabled, timeout).Do(req)
+	resp, err := security.NewOutboundHTTPClient(policy, timeout).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +325,8 @@ func (s *Service) checkOpenAIModeration(ctx context.Context, cfg moderationRunti
 
 func (s *Service) checkChatClassifierModeration(ctx context.Context, cfg moderationRuntimeConfig, direction string, content string) (*moderationCheckResult, error) {
 	snap := s.cfg.Snapshot()
-	if err := security.ValidateOutboundHTTPURL(cfg.BaseURL, snap.Env, snap.SSRFProtectionEnabled); err != nil {
+	policy := snap.TrustedOutboundPolicy()
+	if err := security.ValidateOutboundHTTPURL(cfg.BaseURL, policy); err != nil {
 		return nil, fmt.Errorf("moderation endpoint is not allowed")
 	}
 	body, err := buildChatClassifierRequest(cfg.Model, cfg.ClassifierTemplate, direction, content)
@@ -343,7 +345,7 @@ func (s *Service) checkChatClassifierModeration(ctx context.Context, cfg moderat
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	resp, err := security.NewOutboundHTTPClient(snap.Env, snap.SSRFProtectionEnabled, timeout).Do(req)
+	resp, err := security.NewOutboundHTTPClient(policy, timeout).Do(req)
 	if err != nil {
 		return nil, err
 	}
