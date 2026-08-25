@@ -1288,7 +1288,7 @@ func (r *Repo) GetAdminCheckInStats(ctx context.Context, activeSince time.Time) 
 		SELECT
 			COALESCE(count(*), 0) AS total_claims,
 			COALESCE(sum(reward_nanousd), 0) AS total_reward_nanousd,
-			COALESCE(avg(consecutive_days), 0) AS average_consecutive_days
+			COALESCE(avg(CASE WHEN check_in_date >= ? THEN consecutive_days END), 0) AS average_consecutive_days
 		FROM billing_checkin_records
 		WHERE deleted_at IS NULL`
 	var totals struct {
@@ -1296,7 +1296,7 @@ func (r *Repo) GetAdminCheckInStats(ctx context.Context, activeSince time.Time) 
 		TotalRewardNanousd     int64
 		AverageConsecutiveDays float64
 	}
-	if err := r.db.WithContext(ctx).Raw(totalSQL).Scan(&totals).Error; err != nil {
+	if err := r.db.WithContext(ctx).Raw(totalSQL, activeStart).Scan(&totals).Error; err != nil {
 		return nil, translateError(err)
 	}
 	stats.TotalClaims = totals.TotalClaims
