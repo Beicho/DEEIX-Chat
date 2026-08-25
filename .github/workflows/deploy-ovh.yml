@@ -97,6 +97,26 @@ jobs:
           old_postgres_id=$(docker inspect -f '{{.Id}}' deeix-chat-postgres)
           old_redis_id=$(docker inspect -f '{{.Id}}' deeix-chat-redis)
           rollback_image="deeix-chat:rollback-$stamp"
+          switched=0
+          smoke_dir=$(mktemp -d)
+
+          rollback_app() {
+            echo "Deployment verification failed; restoring previous app image" >&2
+            docker logs --tail 200 deeix-chat-app >&2 || true
+            DEEIX_CHAT_IMAGE="$rollback_image" docker compose -f "$compose_file" up -d --no-deps --force-recreate app
+          }
+
+          cleanup() {
+            status=$?
+            rm -rf -- "$smoke_dir"
+            if [ "$status" -ne 0 ] && [ "$switched" -eq 1 ]; then
+              set +e
+              rollback_app
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+
           printf '%s\n' "$old_app_image" > "$backup_dir/previous-app-image.txt"
           docker exec deeix-chat-postgres sh -lc \
             'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
@@ -104,8 +124,28 @@ jobs:
           sha256sum "$backup_dir/postgres.dump" > "$backup_dir/postgres.dump.sha256"
 
           docker pull "$image"
+
+          # Reject an incomplete or untranslated frontend before it can replace
+          # the production app. This inspection runs inside the immutable image.
+          docker run --rm --entrypoint sh "$image" -lc '
+            set -eu
+            out=/app/frontend/out
+            test -s "$out/index.html"
+            test -s "$out/chat.html"
+            if grep -Eqi "(landing|common|chat|recent|status)\.[[:alnum:]_.-]+" "$out/index.html" "$out/chat.html"; then
+              echo "Raw translation key found in rendered frontend" >&2
+              exit 1
+            fi
+            assets=$(grep -Eho "/_next/static/[^\"[:space:]]+\.(css|js)" "$out/index.html" "$out/chat.html" | sort -u)
+            test -n "$assets"
+            printf "%s\n" "$assets" | while IFS= read -r asset; do
+              test -s "$out$asset"
+            done
+          '
+
           docker tag "$old_app_image" "$rollback_image"
           DEEIX_CHAT_IMAGE="$image" docker compose -f "$compose_file" up -d --no-deps --force-recreate app
+          switched=1
 
           healthy=0
           # A first deploy after an upstream sync may build large vector indexes.
@@ -118,14 +158,27 @@ jobs:
             sleep 2
           done
           if [ "$healthy" -ne 1 ]; then
-            echo "New app failed readiness; restoring previous image" >&2
-            docker logs --tail 200 deeix-chat-app >&2 || true
-            DEEIX_CHAT_IMAGE="$rollback_image" docker compose -f "$compose_file" up -d --no-deps --force-recreate app
+            echo "New app failed readiness" >&2
             exit 1
           fi
+
+          curl -fsS --max-time 15 http://127.0.0.1:8080/ -o "$smoke_dir/home.html"
+          curl -fsS --max-time 15 http://127.0.0.1:8080/chat -o "$smoke_dir/chat.html"
+          if grep -Eqi '(landing|common|chat|recent|status)\.[[:alnum:]_.-]+' "$smoke_dir/home.html" "$smoke_dir/chat.html"; then
+            echo "Raw translation key found in live frontend" >&2
+            exit 1
+          fi
+
+          css_asset=$(grep -Eho '/_next/static/[^"[:space:]]+\.css' "$smoke_dir/home.html" "$smoke_dir/chat.html" | head -n 1 || true)
+          js_asset=$(grep -Eho '/_next/static/[^"[:space:]]+\.js' "$smoke_dir/home.html" "$smoke_dir/chat.html" | head -n 1 || true)
+          test -n "$css_asset"
+          test -n "$js_asset"
+          curl -fsS --max-time 15 "http://127.0.0.1:8080$css_asset" >/dev/null
+          curl -fsS --max-time 15 "http://127.0.0.1:8080$js_asset" >/dev/null
 
           test "$(docker inspect -f '{{.Id}}' deeix-chat-postgres)" = "$old_postgres_id"
           test "$(docker inspect -f '{{.Id}}' deeix-chat-redis)" = "$old_redis_id"
           test "$(docker inspect -f '{{.RestartCount}}' deeix-chat-app)" = "0"
           curl -fsS --max-time 10 http://127.0.0.1:8080/api/v1/version
+          switched=0
           REMOTE

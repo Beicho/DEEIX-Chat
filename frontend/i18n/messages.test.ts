@@ -1,11 +1,18 @@
 import * as assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
 const messagesSource = readFileSync(join(root, "i18n/messages.ts"), "utf8");
 
-const requiredNamespaces = ["arena", "checkin", "admin"] as const;
+const requiredNamespaces = readdirSync(join(root, "i18n/messages/en-US"))
+  .filter((name) => name.endsWith(".json"))
+  .map((name) => name.slice(0, -".json".length))
+  .sort();
+
+function namespaceProperty(namespace: string): string {
+  return namespace.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
 const requiredNavigationKeys = ["newChat", "search", "recent", "checkin", "arena", "announcements", "bookmarks", "files"] as const;
 const requiredAdminSectionKeys = [
   "dashboard",
@@ -51,7 +58,8 @@ for (const namespace of requiredNamespaces) {
 }
 
 for (const namespace of requiredNamespaces) {
-  assert.match(messagesSource, new RegExp(`\\b${namespace}:`), `${namespace} is in DEFAULT_MESSAGES`);
+  const property = namespaceProperty(namespace);
+  assert.match(messagesSource, new RegExp(`\\b${property}:`), `${namespace} is in DEFAULT_MESSAGES`);
 }
 
 for (const locale of ["en-US", "zh-CN"]) {
