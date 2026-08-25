@@ -1291,9 +1291,17 @@ func (r *Repo) GetAdminCheckInStats(ctx context.Context, activeSince time.Time) 
 			COALESCE(avg(consecutive_days), 0) AS average_consecutive_days
 		FROM billing_checkin_records
 		WHERE deleted_at IS NULL`
-	if err := r.db.WithContext(ctx).Raw(totalSQL).Scan(stats).Error; err != nil {
+	var totals struct {
+		TotalClaims            int64
+		TotalRewardNanousd     int64
+		AverageConsecutiveDays float64
+	}
+	if err := r.db.WithContext(ctx).Raw(totalSQL).Scan(&totals).Error; err != nil {
 		return nil, translateError(err)
 	}
+	stats.TotalClaims = totals.TotalClaims
+	stats.TotalRewardNanousd = totals.TotalRewardNanousd
+	stats.AverageConsecutiveDays = totals.AverageConsecutiveDays
 	return stats, nil
 }
 
