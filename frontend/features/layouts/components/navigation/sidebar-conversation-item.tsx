@@ -165,6 +165,7 @@ export function SidebarConversationItem({
           <DropdownMenu modal={false} open={isMenuOpen} onOpenChange={setIsMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
+                type="button"
                 id={menuTriggerID}
                 className={cn(
                   "absolute right-0 flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground opacity-0 transition-[background-color,color,opacity] duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-hover/menu-item:opacity-100 group-focus-within/menu-item:opacity-100",

@@ -376,7 +376,6 @@ export function ChatMCP({
         className="px-0.5 py-1"
         onPointerDown={(event) => event.stopPropagation()}
         onMouseDown={(event) => event.stopPropagation()}
-        onClick={(event) => event.stopPropagation()}
       >
         <Input
           value={search}

@@ -2499,13 +2499,10 @@ func (r *Repo) GetUsageStatistics(ctx context.Context, filter repository.UsageSt
 	return result, nil
 }
 
-// ListPaymentOrders 分页查询管理员支付订单记录。
-func (r *Repo) ListPaymentOrders(ctx context.Context, filter repository.PaymentOrderListFilter, offset int, limit int) ([]domainbilling.PaymentOrder, int64, error) {
-	items := make([]model.PaymentOrder, 0)
-	var total int64
-	query := r.db.WithContext(ctx).Model(&model.PaymentOrder{})
-	if filter.UserID > 0 {
-		query = query.Where("user_id = ?", filter.UserID)
+// GetAdminDashboardStats returns usage and payment aggregates for the admin dashboard.
+func (r *Repo) GetAdminDashboardStats(ctx context.Context, startAt time.Time, endAt time.Time, limit int) (*domainbilling.AdminDashboardStats, error) {
+	if limit <= 0 {
+		limit = 8
 	}
 	stats := &domainbilling.AdminDashboardStats{}
 	usageSQL := `

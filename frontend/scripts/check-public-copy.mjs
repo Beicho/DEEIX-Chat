@@ -44,7 +44,9 @@ function collectStrings(value, path, out) {
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((item, index) => collectStrings(item, `${path}[${index}]`, out));
+    value.forEach((item, index) => {
+      collectStrings(item, `${path}[${index}]`, out);
+    });
     return;
   }
   if (value && typeof value === "object") {

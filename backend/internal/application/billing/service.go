@@ -2621,8 +2621,8 @@ func fillUsageStatisticsTrend(
 	return results
 }
 
-// ListPaymentOrders 分页查询管理员支付订单记录。
-func (s *Service) ListPaymentOrders(ctx context.Context, page int, pageSize int, filter PaymentOrderListFilter) ([]domainbilling.PaymentOrder, int64, error) {
+// ListPaymentOrderLogs 分页查询管理员支付订单记录。
+func (s *Service) ListPaymentOrderLogs(ctx context.Context, page int, pageSize int, filter PaymentOrderListFilter) ([]domainbilling.PaymentOrder, int64, error) {
 	offset, limit := normalizePage(page, pageSize)
 	return s.repo.ListPaymentOrders(ctx, repository.PaymentOrderListFilter{
 		Query:       strings.TrimSpace(filter.Query),

@@ -546,9 +546,15 @@ export function AccountsUsers({
       seen.add(normalized);
       options.push({ label: label?.trim() || normalized, value: normalized });
     };
-    billingPlans.forEach((item) => pushOption(item.code, item.name || item.code));
-    items.forEach((item) => pushOption(item.subscriptionTier, item.subscriptionPlanName || item.subscriptionTier));
-    USER_TIER_OPTIONS.forEach((item) => pushOption(item));
+    billingPlans.forEach((item) => {
+      pushOption(item.code, item.name || item.code);
+    });
+    items.forEach((item) => {
+      pushOption(item.subscriptionTier, item.subscriptionPlanName || item.subscriptionTier);
+    });
+    USER_TIER_OPTIONS.forEach((item) => {
+      pushOption(item);
+    });
     return options;
   }, [billingPlans, items, t]);
 
