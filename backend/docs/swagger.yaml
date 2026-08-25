@@ -3549,6 +3549,14 @@ definitions:
       email:
         maxLength: 128
         type: string
+      invitationCode:
+        maxLength: 64
+        type: string
+      inviteCode:
+        description: InviteCode keeps compatibility with the legacy frontend field
+          name.
+        maxLength: 64
+        type: string
       password:
         maxLength: 128
         minLength: 8

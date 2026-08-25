@@ -20079,6 +20079,15 @@ const docTemplate = `{
                     "type": "string",
                     "maxLength": 128
                 },
+                "invitationCode": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "inviteCode": {
+                    "description": "InviteCode keeps compatibility with the legacy frontend field name.",
+                    "type": "string",
+                    "maxLength": 64
+                },
                 "password": {
                     "type": "string",
                     "maxLength": 128,

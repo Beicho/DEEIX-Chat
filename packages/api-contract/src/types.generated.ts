@@ -1553,6 +1553,13 @@ export interface EmailRegistrationCompleteRequest {
   code?: string;
   /** @maxLength 128 */
   email: string;
+  /** @maxLength 64 */
+  invitationCode?: string;
+  /**
+   * InviteCode keeps compatibility with the legacy frontend field name.
+   * @maxLength 64
+   */
+  inviteCode?: string;
   /**
    * @minLength 8
    * @maxLength 128
