@@ -126,6 +126,9 @@ type Service struct {
 	billingSvc            *appbilling.Service
 	auditWriter           auditWriter
 	assistantResolver     assistantResolver
+	userEnforcer          moderationUserEnforcer
+	rateLimiter           moderationRateLimiter
+	moderationNotifier    moderationNotifier
 	storeProvider         appstorage.Provider
 	logger                *zap.Logger
 	moderationSvc         *appcm.Service
@@ -139,6 +142,25 @@ type Service struct {
 // SetAssistantResolver enables assistant preset prompt injection.
 func (s *Service) SetAssistantResolver(resolver assistantResolver) {
 	s.assistantResolver = resolver
+}
+
+// SetModerationUserEnforcer enables automatic account disposition for repeated content-policy hits.
+func (s *Service) SetModerationUserEnforcer(enforcer moderationUserEnforcer) {
+	s.userEnforcer = enforcer
+}
+
+// SetModerationRateLimiter enables moderation-owned temporary RPM overrides.
+func (s *Service) SetModerationRateLimiter(limiter moderationRateLimiter) {
+	s.rateLimiter = limiter
+}
+
+// SetModerationNotifier enables moderation automation to publish user-facing notifications.
+func (s *Service) SetModerationNotifier(notifier moderationNotifier) {
+	s.moderationNotifier = notifier
+}
+
+type moderationNotifier interface {
+	CreateSystemNotification(ctx context.Context, userID uint, input appnotification.SystemNotificationInput) (*appnotification.NotificationView, error)
 }
 
 func (s *Service) llmAttribution() (string, string) {

@@ -8,6 +8,7 @@ type ConversationRepository interface {
 	MessageFeedbackRepository
 	ArenaRepository
 	ConversationTraceRepository
+	ConversationLegacyModerationRepository
 	ContextArtifactRepository
 	CompactRepository
 	MessageEmbeddingRepository

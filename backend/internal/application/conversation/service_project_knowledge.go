@@ -77,7 +77,28 @@ func (s *Service) ReindexProjectDocument(ctx context.Context, userID uint, proje
 		return nil, err
 	}
 	if s.embeddingSvc != nil {
-		_ = s.repo.UpdateFileObjectEmbedStatus(ctx, userID, normalizedFileID, "stale", "")
+		fileObj, loadErr := s.repo.GetActiveFileObjectByID(ctx, userID, normalizedFileID)
+		if errors.Is(loadErr, repository.ErrNotFound) || fileObj == nil {
+			return nil, ErrFileNotFound
+		}
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		current, updateErr := s.repo.UpdateFileObjectEmbedStatus(
+			ctx,
+			userID,
+			normalizedFileID,
+			fileObj.EmbedSignature,
+			"stale",
+			"",
+		)
+		if updateErr != nil {
+			return nil, updateErr
+		}
+		if current {
+			fileObj.EmbedStatus = "stale"
+			s.embeddingSvc.Trigger(*fileObj)
+		}
 	}
 	item, err := s.repo.MarkProjectDocumentIndexStatus(ctx, userID, strings.TrimSpace(projectPublicID), normalizedFileID, "pending")
 	if errors.Is(err, repository.ErrNotFound) {

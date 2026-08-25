@@ -342,6 +342,7 @@ func NewApp() (*App, error) {
 	conversationService.SetAuditWriter(auditService)
 	conversationService.SetObjectStoreProvider(objectStoreProvider)
 	conversationService.SetMCPRepository(mcpRepo)
+	conversationService.SetModerationUserEnforcer(userService)
 	contentModerationRepo := contentmoderationrepo.NewRepo(db)
 	contentModerationService := appcontentmoderation.NewService(settingsRepo, contentModerationRepo, cfg.DataEncryptionKey, log)
 	moderationClient := moderationclient.New(trustedOutboundPolicy)
