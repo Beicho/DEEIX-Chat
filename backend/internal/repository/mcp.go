@@ -54,6 +54,18 @@ type UpdateMCPToolInput struct {
 	Status                   *string
 }
 
+// UpsertMCPToolPreferenceInput defines a user's persisted tool selection.
+type UpsertMCPToolPreferenceInput struct {
+	UserID               uint
+	ConversationPublicID string
+	SelectedToolIDs      []uint
+	ConfirmedToolIDs     []uint
+	WebSearchEnabled     bool
+	CodeSandboxEnabled   bool
+	ResearchMaxLLMCalls  int
+	ResearchMaxToolCalls int
+}
+
 type ReorderMCPServerInput struct {
 	ServerID uint
 	ToolIDs  []uint

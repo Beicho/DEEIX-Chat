@@ -187,7 +187,6 @@ export function ConversationShareExportIconDropdown({
   onShare,
   onExport,
   screenshotLatestLabel,
-  screenshotSelectLabel,
   onScreenshotLatest,
   onScreenshotSelect,
 }: ConversationShareExportIconDropdownProps) {

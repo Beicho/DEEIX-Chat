@@ -318,7 +318,6 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
   billingDisplayCurrency,
   billingDisplayUsdToCnyRate,
   contentWidthClassName,
-  readOnly,
   screenshotMetaAlign,
   screenshotMetaModelName,
   screenshotMetaTimestamp,

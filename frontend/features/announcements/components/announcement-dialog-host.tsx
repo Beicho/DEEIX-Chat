@@ -16,15 +16,6 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
-import {
-  announcementTime,
-  announcementTypeAccentClassName,
-  announcementTypeRank,
-  compareAnnouncementReadState,
-  formatAnnouncementDate,
-  formatAnnouncementTime,
-  isAnnouncementRead,
-} from "@/features/announcements/model/announcement-display";
 import { closeAnnouncement, dismissAnnouncementToday, listAnnouncements } from "@/shared/api/announcements";
 import type { AnnouncementDTO } from "@/shared/api/announcements.types";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
