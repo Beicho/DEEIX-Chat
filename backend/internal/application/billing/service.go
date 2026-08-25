@@ -2636,6 +2636,36 @@ func (s *Service) ListPaymentOrderLogs(ctx context.Context, page int, pageSize i
 	}, offset, limit)
 }
 
+// DeletePlan deactivates a non-free billing plan.
+func (s *Service) DeletePlan(ctx context.Context, planID uint) error {
+	if planID == 0 {
+		return repository.ErrInvalidInput
+	}
+	current, err := s.repo.GetPlanByID(ctx, planID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(current.Code) == "free" {
+		return repository.ErrInvalidInput
+	}
+	return s.repo.DeletePlan(ctx, planID)
+}
+
+// GetBillingRiskSummary returns the billing-facing risk snapshot.
+func (s *Service) GetBillingRiskSummary(ctx context.Context) (*RiskSummaryView, error) {
+	stats, err := s.repo.GetBillingRiskSummary(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if stats == nil {
+		stats = &domainbilling.RiskSummary{GeneratedAt: time.Now()}
+	}
+	if stats.GeneratedAt.IsZero() {
+		stats.GeneratedAt = time.Now()
+	}
+	return &RiskSummaryView{RiskSummary: *stats}, nil
+}
+
 func normalizePage(page int, pageSize int) (int, int) {
 	if page <= 0 {
 		page = 1

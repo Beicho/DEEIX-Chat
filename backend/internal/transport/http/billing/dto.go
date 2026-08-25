@@ -1168,7 +1168,7 @@ func toBalanceTransactionResponse(item domainbilling.BalanceTransaction) Balance
 		UserID:              item.UserID,
 		Type:                item.Type,
 		AmountNanousd:       item.AmountNanousd,
-		AmountUSD:           nanousdToUSDSigned(item.AmountNanousd),
+		AmountUSD:           signedNanousdToUSD(item.AmountNanousd),
 		BalanceAfterNanousd: item.BalanceAfterNanousd,
 		BalanceAfterUSD:     nanousdToUSD(item.BalanceAfterNanousd),
 		RefType:             item.RefType,

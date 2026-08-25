@@ -102,9 +102,13 @@ const (
 	BalanceTransactionTypeRedemption = "redemption"
 	// BalanceTransactionTypeCheckIn 表示每日签到奖励入账。
 	BalanceTransactionTypeCheckIn = "checkin"
+	// BalanceTransactionTypeNewAPITransferIn 表示从 NewAPI 单向转入余额。
+	BalanceTransactionTypeNewAPITransferIn = "newapi_transfer_in"
 
 	// BalanceTransactionRefTypeCheckIn 表示余额流水关联签到记录。
 	BalanceTransactionRefTypeCheckIn = "checkin"
+	// BalanceTransactionRefTypeExternalTransfer 表示余额流水关联外部划转记录。
+	BalanceTransactionRefTypeExternalTransfer = "external_transfer"
 
 	// UsageReservationStatusActive 表示用量预算仍被当前请求占用。
 	UsageReservationStatusActive = "active"
