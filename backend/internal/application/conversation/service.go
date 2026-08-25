@@ -67,8 +67,13 @@ type knowledgeBaseResolver interface {
 
 type mcpToolResolver interface {
 	ListToolsByIDs(ctx context.Context, toolIDs []uint) ([]domainmcp.Tool, error)
+	ListToolsByIDsForUser(ctx context.Context, toolIDs []uint, userID uint) ([]domainmcp.Tool, error)
 	ListServers(ctx context.Context) ([]domainmcp.Server, error)
 	GetServer(ctx context.Context, serverID uint) (*domainmcp.Server, error)
+}
+
+type assistantResolver interface {
+	ResolveAssistantPrompt(ctx context.Context, userID uint, publicID string) (*domaincollab.Assistant, error)
 }
 
 type auditWriter interface {
@@ -120,6 +125,7 @@ type Service struct {
 	knowledgeBaseResolver knowledgeBaseResolver
 	billingSvc            *appbilling.Service
 	auditWriter           auditWriter
+	assistantResolver     assistantResolver
 	storeProvider         appstorage.Provider
 	logger                *zap.Logger
 	moderationSvc         *appcm.Service
@@ -128,6 +134,11 @@ type Service struct {
 	snapshotCache         sync.Map // conversationID (uint) → *cachedSnapshot
 	userMemCache          sync.Map // userID (uint) → *cachedUserMemories
 	imageContextCache     *preparedConversationImageCache
+}
+
+// SetAssistantResolver enables assistant preset prompt injection.
+func (s *Service) SetAssistantResolver(resolver assistantResolver) {
+	s.assistantResolver = resolver
 }
 
 func (s *Service) llmAttribution() (string, string) {
@@ -188,6 +199,8 @@ type SendMessageInput struct {
 	SkillIDs                []uint
 	KnowledgeBaseIDs        []string
 	HTMLVisualPromptEnabled bool
+	HTMLVisualColorMode     string
+	AssistantPublicID       string
 	ParentMessagePublicID   string
 	SourceMessagePublicID   string
 	BranchReason            string

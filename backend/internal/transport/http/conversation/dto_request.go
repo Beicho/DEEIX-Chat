@@ -118,12 +118,20 @@ type SendMessageRequest struct {
 	ClientRunID             string                 `json:"clientRunID,omitempty" binding:"omitempty,max=64"`
 	FileIDs                 []string               `json:"fileIDs,omitempty" binding:"max=20"`
 	SelectedToolIDs         []uint                 `json:"selectedToolIDs,omitempty" binding:"max=128"`
+	ConfirmedToolIDs        []uint                 `json:"confirmedToolIDs,omitempty" binding:"max=128"`
+	WebSearchEnabled        bool                   `json:"webSearchEnabled,omitempty"`
+	CodeSandboxEnabled      bool                   `json:"codeSandboxEnabled,omitempty"`
+	ResearchMaxLLMCalls     int                    `json:"researchMaxLLMCalls,omitempty" binding:"omitempty,min=0,max=32"`
+	ResearchMaxToolCalls    int                    `json:"researchMaxToolCalls,omitempty" binding:"omitempty,min=0,max=64"`
 	SkillIDs                []uint                 `json:"skillIDs,omitempty" binding:"max=128"`
 	KnowledgeBaseIDs        []string               `json:"knowledgeBaseIDs,omitempty" binding:"max=8,dive,required,max=32"`
 	HTMLVisualPromptEnabled bool                   `json:"htmlVisualPrompt,omitempty"`
+	HTMLVisualColorMode     string                 `json:"htmlVisualColorMode,omitempty" binding:"omitempty,oneof=light dark"`
+	AssistantID             string                 `json:"assistantID,omitempty" binding:"omitempty,max=32"`
 	ParentMessagePublicID   string                 `json:"parentMessagePublicID,omitempty" binding:"omitempty,max=32"`
 	SourceMessagePublicID   string                 `json:"sourceMessagePublicID,omitempty" binding:"omitempty,max=32"`
-	BranchReason            string                 `json:"branchReason,omitempty" binding:"omitempty,oneof=default retry edit"`
+	BranchReason            string                 `json:"branchReason,omitempty" binding:"omitempty,oneof=default retry edit arena"`
+	MessageGroupID          string                 `json:"messageGroupID,omitempty" binding:"omitempty,max=64"`
 }
 
 // TemporaryChatMessageRequest 是仅在当前页面内维护的临时对话请求。

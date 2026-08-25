@@ -201,18 +201,6 @@ func (s *Service) sendMessageInternal(
 	if err != nil {
 		return nil, ErrConversationNotFound
 	}
-	inputModeration, moderationErr := s.checkModeration(ctx, "input", input.Content)
-	if moderationErr != nil {
-		failed := s.moderationFailureResult(moderationErr)
-		s.recordModerationEvent(ctx, input, 0, runID, "input", failed, "check_failed", input.Content)
-		if failed.Flagged {
-			return nil, ErrModerationBlocked
-		}
-	} else if inputModeration != nil && inputModeration.Flagged {
-		s.recordModerationEvent(ctx, input, 0, runID, "input", inputModeration, "blocked", input.Content)
-		return nil, ErrModerationBlocked
-	}
-
 	branchPreparation, err := s.prepareMessageSendBranch(ctx, &input)
 	if err != nil {
 		retErr = err
@@ -814,7 +802,9 @@ func (s *Service) sendMessageInternal(
 	routePromptInput := messageRoutePromptInput{
 		UserContent:             input.Content,
 		ProjectSystemPrompt:     conversation.ProjectSystemPrompt,
+		AssistantSystemPrompt:   assistantSystemPrompt,
 		HTMLVisualPromptEnabled: input.HTMLVisualPromptEnabled,
+		HTMLVisualColorMode:     input.HTMLVisualColorMode,
 		DomainMessages:          promptScope.activeMessages(),
 		StableAttachments:       stableFullContextAttachments,
 		DynamicContext:          userCtx,
@@ -961,33 +951,6 @@ func (s *Service) sendMessageInternal(
 	emitVisibleDelta := func(delta string) error {
 		if delta == "" {
 			return nil
-		}
-		moderationWindow.WriteString(delta)
-		if moderationWindow.Len() >= moderationOutputWindowChars {
-			moderationSnapshot := moderationWindow.String()
-			if checked, checkErr := s.checkModeration(ctx, "output", moderationSnapshot); checkErr != nil {
-				failed := s.moderationFailureResult(checkErr)
-				s.recordModerationEvent(ctx, input, assistantMessage.ID, runID, "output", failed, "check_failed", moderationSnapshot)
-				moderationWindow.Reset()
-				if failed.Flagged {
-					emitEvent(input.OnEvent, "moderation_retract", map[string]interface{}{
-						"action": "retract",
-						"reason": "check_failed",
-					})
-					streamedText.Reset()
-					return ErrModerationBlocked
-				}
-			} else if checked != nil && checked.Flagged {
-				s.recordModerationEvent(ctx, input, assistantMessage.ID, runID, "output", checked, "blocked", moderationSnapshot)
-				emitEvent(input.OnEvent, "moderation_retract", map[string]interface{}{
-					"action": "retract",
-					"reason": "blocked",
-				})
-				streamedText.Reset()
-				return ErrModerationBlocked
-			} else {
-				moderationWindow.Reset()
-			}
 		}
 		visibleDeltaCount++
 		if firstVisibleDeltaLatencyMS == 0 {
@@ -1610,31 +1573,6 @@ func (s *Service) sendMessageInternal(
 	}
 	if strings.TrimSpace(assistantText) == "" && len(upstreamOutput.GeneratedImages) == 0 {
 		retErr = ErrUpstreamEmptyResponse
-		return nil, retErr
-	}
-	outputModeration, moderationErr := s.checkModeration(ctx, "output", assistantText)
-	if moderationErr != nil {
-		failed := s.moderationFailureResult(moderationErr)
-		s.recordModerationEvent(ctx, input, assistantMessage.ID, runID, "output", failed, "check_failed", assistantText)
-		if failed.Flagged {
-			emitEvent(input.OnEvent, "moderation_retract", map[string]interface{}{
-				"action": "retract",
-				"reason": "check_failed",
-			})
-			assistantText = ""
-			streamedText.Reset()
-			retErr = ErrModerationBlocked
-			return nil, retErr
-		}
-	} else if outputModeration != nil && outputModeration.Flagged {
-		s.recordModerationEvent(ctx, input, assistantMessage.ID, runID, "output", outputModeration, "blocked", assistantText)
-		emitEvent(input.OnEvent, "moderation_retract", map[string]interface{}{
-			"action": "retract",
-			"reason": "blocked",
-		})
-		assistantText = ""
-		streamedText.Reset()
-		retErr = ErrModerationBlocked
 		return nil, retErr
 	}
 	finalUsageEvent := totalUsage

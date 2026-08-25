@@ -322,8 +322,6 @@ func (s *Service) persistInterruptedMessageGeneration(ctx context.Context, input
 	}
 
 	metrics := resolveInterruptedMessageGenerationMetrics(input)
-	assistantContent := interruptedAssistantContent(input)
-	assistantStatus := interruptedAssistantStatus(input)
 
 	if input.ReuseUserMessage {
 		input.AssistantMessage.InputTokens = metrics.InputTokens
@@ -366,7 +364,7 @@ func (s *Service) persistInterruptedMessageGeneration(ctx context.Context, input
 			CacheWriteTokens: interruptedCompletionCacheWriteTokens(input, metrics),
 			ReasoningTokens:  metrics.ReasoningTokens,
 			LatencyMS:        metrics.LatencyMS,
-			Status:           assistantStatus,
+			Status:           retainedGenerationStatus(input.Error),
 			ErrorCode:        metrics.ErrorCode,
 			ErrorMessage:     metrics.ErrorMessage,
 		},
@@ -405,9 +403,6 @@ func (s *Service) persistInterruptedMessageGeneration(ctx context.Context, input
 func shouldPersistInterruptedMessageGeneration(input persistInterruptedMessageGenerationInput) bool {
 	if input.Error == nil || input.UserMessage == nil || input.AssistantMessage == nil {
 		return false
-	}
-	if errors.Is(input.Error, ErrModerationBlocked) {
-		return true
 	}
 	hasRetainedToolTrace := len(input.ToolCallRows) > 0 || len(input.ServerSideToolUsage) > 0
 	hasObservedUsage := input.Usage.InputTokens > 0 ||
@@ -492,20 +487,6 @@ func interruptedUsageSource(input persistInterruptedMessageGenerationInput, metr
 	}
 }
 
-func interruptedAssistantContent(input persistInterruptedMessageGenerationInput) string {
-	if errors.Is(input.Error, ErrModerationBlocked) {
-		return moderationBlockedAssistantContent
-	}
-	return input.AssistantText
-}
-
-func interruptedAssistantStatus(input persistInterruptedMessageGenerationInput) string {
-	if errors.Is(input.Error, ErrModerationBlocked) {
-		return "moderation_blocked"
-	}
-	return retainedGenerationStatus(input.Error)
-}
-
 func interruptedCompletionInputTokens(input persistInterruptedMessageGenerationInput, metrics interruptedMessageGenerationMetrics) int64 {
 	if input.ReuseUserMessage {
 		return metrics.InputTokens
@@ -553,7 +534,7 @@ func applyInterruptedMessageGenerationState(input persistInterruptedMessageGener
 	input.AssistantMessage.OutputTokens = metrics.OutputTokens
 	input.AssistantMessage.ReasoningTokens = metrics.ReasoningTokens
 	input.AssistantMessage.LatencyMS = metrics.LatencyMS
-	input.AssistantMessage.Status = interruptedAssistantStatus(input)
+	input.AssistantMessage.Status = retainedGenerationStatus(input.Error)
 	input.AssistantMessage.ErrorCode = metrics.ErrorCode
 	input.AssistantMessage.ErrorMessage = metrics.ErrorMessage
 }

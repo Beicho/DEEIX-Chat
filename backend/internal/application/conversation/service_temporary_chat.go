@@ -90,7 +90,7 @@ func (s *Service) StreamTemporaryChat(
 	for _, item := range input.Messages {
 		messages = append(messages, llm.Message{Role: item.Role, Content: item.Content})
 	}
-	systemPrompt := resolveMessageSystemPromptInjection(cfg, route, "", input.HTMLVisualPromptEnabled)
+	systemPrompt := resolveMessageSystemPromptInjection(cfg, route, "", "", input.HTMLVisualPromptEnabled, "")
 	if systemPrompt.Content != "" {
 		if systemPrompt.InlineToUser {
 			messages = inlineSystemPromptIntoLatestUserMessage(messages, systemPrompt.Content)

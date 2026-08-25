@@ -151,6 +151,10 @@ func (s selectedToolRuntimeMCPRepositoryStub) ListToolsByIDs(ctx context.Context
 	return s.listToolsByIDs(ctx, toolIDs)
 }
 
+func (s selectedToolRuntimeMCPRepositoryStub) ListToolsByIDsForUser(ctx context.Context, toolIDs []uint, _ uint) ([]domainmcp.Tool, error) {
+	return s.listToolsByIDs(ctx, toolIDs)
+}
+
 func (s selectedToolRuntimeMCPRepositoryStub) GetServer(ctx context.Context, serverID uint) (*domainmcp.Server, error) {
 	return s.getServer(ctx, serverID)
 }
