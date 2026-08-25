@@ -13,8 +13,32 @@ permissions:
   contents: read
 
 jobs:
+  credentials:
+    name: Check Docker Hub credentials
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+
+    steps:
+      - name: Detect optional publisher credentials
+        id: check
+        shell: bash
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [[ -n "${DOCKERHUB_USERNAME:-}" && -n "${DOCKERHUB_TOKEN:-}" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docker Hub credentials are not configured; GHCR remains the automatic image publisher."
+          fi
+
   build_dockerhub_image:
     name: Build image (${{ matrix.arch }})
+    needs:
+      - credentials
+    if: needs.credentials.outputs.enabled == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -80,8 +104,9 @@ jobs:
     name: Merge image
     runs-on: ubuntu-latest
     needs:
+      - credentials
       - build_dockerhub_image
-    if: github.event_name != 'pull_request'
+    if: needs.credentials.outputs.enabled == 'true' && github.event_name != 'pull_request'
 
     steps:
       - name: Set up Buildx
