@@ -55,6 +55,21 @@ type PromptPlan struct {
 	Trace    PromptTrace
 }
 
+// applyMessages 让规划结果与最终发送消息保持一致。预算裁剪只会删除历史轮次，
+// 因此需要同步更新对话块与总量，避免诊断信息继续展示裁剪前的 Prompt。
+func (p *PromptPlan) applyMessages(messages []llm.Message) {
+	p.Messages = cloneLLMMessages(messages)
+	p.Trace.TotalTokenEstimate = estimatePromptTokens(messages)
+	for index := range p.Trace.Blocks {
+		if p.Trace.Blocks[index].Kind != PromptBlockTranscript {
+			continue
+		}
+		p.Trace.Blocks[index].TokenEstimate = estimateTranscriptTokens(messages)
+		p.Trace.Blocks[index].SourceCount = countMessagesByRole(messages, "user") + countMessagesByRole(messages, "assistant")
+		break
+	}
+}
+
 type promptPlanInput struct {
 	BaseMessages      []llm.Message
 	StableAttachments []AttachmentInput
@@ -229,10 +244,7 @@ func estimateTranscriptTokens(messages []llm.Message) int64 {
 func countStableTextAttachments(attachments []AttachmentInput) int {
 	count := 0
 	for _, att := range attachments {
-		if normalizeAttachmentKind(att.Kind, att.MimeType) == "image" {
-			continue
-		}
-		if strings.TrimSpace(att.ExtractedText) == "" {
+		if !isStableTextAttachment(att) {
 			continue
 		}
 		count++
@@ -245,10 +257,7 @@ func stableAttachmentSourceRefs(attachments []AttachmentInput, currentArtifacts 
 	refs := make([]PromptSourceRef, 0, countStableTextAttachments(attachments))
 	fallbackArtifacts := contextArtifactsByKindAndSourceID(currentArtifacts, domainconversation.ContextArtifactFileRAGFallback)
 	for _, att := range attachments {
-		if normalizeAttachmentKind(att.Kind, att.MimeType) == "image" {
-			continue
-		}
-		if strings.TrimSpace(att.ExtractedText) == "" {
+		if !isStableTextAttachment(att) {
 			continue
 		}
 		sourceID := stableAttachmentSourceID(att)

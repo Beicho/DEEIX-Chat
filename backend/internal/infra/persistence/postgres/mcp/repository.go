@@ -2,7 +2,7 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
+	"strings"
 	"time"
 
 	domainmcp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/mcp"
@@ -142,6 +142,7 @@ func (r *Repo) ListServersForUser(ctx context.Context, userID uint, includePlatf
 
 func (r *Repo) hydrateServerActiveCounts(ctx context.Context, db *gorm.DB, rows []model.MCPServer) ([]domainmcp.Server, error) {
 	activeCounts := map[uint]int{}
+	metadataConfirmationServers := map[uint]bool{}
 	if len(rows) > 0 {
 		serverIDs := make([]uint, 0, len(rows))
 		for _, row := range rows {
@@ -162,11 +163,23 @@ func (r *Repo) hydrateServerActiveCounts(ctx context.Context, db *gorm.DB, rows 
 		for _, item := range counts {
 			activeCounts[item.ServerID] = item.Count
 		}
+		var confirmationServerIDs []uint
+		if err := db.WithContext(ctx).
+			Model(&model.MCPTool{}).
+			Distinct("server_id").
+			Where("server_id IN ? AND (metadata_customized = ? OR metadata_customized IS NULL)", serverIDs, true).
+			Pluck("server_id", &confirmationServerIDs).Error; err != nil {
+			return nil, err
+		}
+		for _, serverID := range confirmationServerIDs {
+			metadataConfirmationServers[serverID] = true
+		}
 	}
 	items := make([]domainmcp.Server, 0, len(rows))
 	for _, row := range rows {
 		item := toDomainServer(row)
 		item.ActiveToolCount = activeCounts[row.ID]
+		item.RequiresToolMetadataSyncConfirmation = metadataConfirmationServers[row.ID]
 		items = append(items, item)
 	}
 	return items, nil
@@ -178,6 +191,22 @@ func (r *Repo) GetServer(ctx context.Context, serverID uint) (*domainmcp.Server,
 		return nil, err
 	}
 	item := toDomainServer(row)
+	var activeToolCount int64
+	if err := r.db.WithContext(ctx).
+		Model(&model.MCPTool{}).
+		Where("server_id = ? AND status = ?", serverID, "active").
+		Count(&activeToolCount).Error; err != nil {
+		return nil, err
+	}
+	var metadataConfirmationCount int64
+	if err := r.db.WithContext(ctx).
+		Model(&model.MCPTool{}).
+		Where("server_id = ? AND (metadata_customized = ? OR metadata_customized IS NULL)", serverID, true).
+		Count(&metadataConfirmationCount).Error; err != nil {
+		return nil, err
+	}
+	item.ActiveToolCount = int(activeToolCount)
+	item.RequiresToolMetadataSyncConfirmation = metadataConfirmationCount > 0
 	return &item, nil
 }
 
@@ -198,6 +227,13 @@ func (r *Repo) GetServerForUser(ctx context.Context, serverID uint, userID uint,
 
 func (r *Repo) DeleteServer(ctx context.Context, serverID uint) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		toolIDs := make([]uint, 0)
+		if err := tx.Model(&model.MCPTool{}).Where("server_id = ?", serverID).Pluck("id", &toolIDs).Error; err != nil {
+			return err
+		}
+		if err := deleteConversationProjectMCPToolAssociations(tx, toolIDs); err != nil {
+			return err
+		}
 		if err := tx.Where("server_id = ?", serverID).Delete(&model.MCPTool{}).Error; err != nil {
 			return err
 		}
@@ -205,7 +241,7 @@ func (r *Repo) DeleteServer(ctx context.Context, serverID uint) error {
 	})
 }
 
-func (r *Repo) ReplaceServerTools(ctx context.Context, serverID uint, tools []domainmcp.Tool) error {
+func (r *Repo) ReplaceServerTools(ctx context.Context, serverID uint, tools []domainmcp.Tool, overwriteCustomizedMetadata bool) error {
 	now := time.Now()
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var maxSortOrder int
@@ -218,30 +254,73 @@ func (r *Repo) ReplaceServerTools(ctx context.Context, serverID uint, tools []do
 		rows := make([]model.MCPTool, 0, len(tools))
 		names := make([]string, 0, len(tools))
 		for index, tool := range tools {
+			metadataCustomized := false
+			attachmentInputMode := strings.TrimSpace(tool.AttachmentInputMode)
+			if attachmentInputMode == "" {
+				attachmentInputMode = domainmcp.AttachmentInputModeNone
+			}
 			names = append(names, tool.Name)
 			rows = append(rows, model.MCPTool{
-				ServerID:        serverID,
-				Name:            tool.Name,
-				DisplayName:     tool.DisplayName,
-				Description:     tool.Description,
-				InputSchemaJSON: tool.InputSchemaJSON,
-				Status:          tool.Status,
-				SortOrder:       maxSortOrder + (index+1)*100,
-				DefaultEnabled:  tool.DefaultEnabled,
-				RequiresConfirm: tool.RequiresConfirm,
-				ToolKind:        defaultToolKind(tool.ToolKind),
+				ServerID:                 serverID,
+				Name:                     tool.Name,
+				DisplayName:              tool.DisplayName,
+				Description:              tool.Description,
+				MetadataCustomized:       &metadataCustomized,
+				InputSchemaJSON:          tool.InputSchemaJSON,
+				AttachmentInputMode:      attachmentInputMode,
+				AttachmentArgument:       strings.TrimSpace(tool.AttachmentArgument),
+				AttachmentEncoding:       strings.TrimSpace(tool.AttachmentEncoding),
+				AttachmentPromptArgument: strings.TrimSpace(tool.AttachmentPromptArgument),
+				Status:                   tool.Status,
+				SortOrder:                maxSortOrder + (index+1)*100,
 			})
 		}
 		if len(rows) > 0 {
+			targetColumn := func(name string) string {
+				if tx.Dialector.Name() == "postgres" {
+					return `"mcp_tools"."` + name + `"`
+				}
+				return `"` + name + `"`
+			}
+			metadataCustomizedColumn := targetColumn("metadata_customized")
+			displayNameColumn := targetColumn("display_name")
+			descriptionColumn := targetColumn("description")
+			legacyMetadataDiffers := "(" + displayNameColumn + ` <> excluded."display_name" OR ` + descriptionColumn + ` <> excluded."description")`
+			metadataAssignments := map[string]interface{}{
+				"display_name":        gorm.Expr("CASE WHEN COALESCE(" + metadataCustomizedColumn + ", TRUE) THEN " + displayNameColumn + ` ELSE excluded."display_name" END`),
+				"description":         gorm.Expr("CASE WHEN COALESCE(" + metadataCustomizedColumn + ", TRUE) THEN " + descriptionColumn + ` ELSE excluded."description" END`),
+				"metadata_customized": gorm.Expr("CASE WHEN " + metadataCustomizedColumn + " IS NULL THEN " + legacyMetadataDiffers + " ELSE " + metadataCustomizedColumn + " END"),
+			}
+			if overwriteCustomizedMetadata {
+				metadataAssignments = map[string]interface{}{
+					"display_name":        gorm.Expr(`excluded."display_name"`),
+					"description":         gorm.Expr(`excluded."description"`),
+					"metadata_customized": false,
+				}
+			}
+			metadataAssignments["input_schema_json"] = gorm.Expr(`excluded."input_schema_json"`)
+			metadataAssignments["attachment_input_mode"] = gorm.Expr(`excluded."attachment_input_mode"`)
+			metadataAssignments["attachment_argument"] = gorm.Expr(`excluded."attachment_argument"`)
+			metadataAssignments["attachment_encoding"] = gorm.Expr(`excluded."attachment_encoding"`)
+			metadataAssignments["attachment_prompt_argument"] = gorm.Expr(`excluded."attachment_prompt_argument"`)
+			metadataAssignments["updated_at"] = gorm.Expr(`excluded."updated_at"`)
 			if err := tx.Clauses(clause.OnConflict{
-				Columns: []clause.Column{{Name: "server_id"}, {Name: "name"}},
-				DoUpdates: clause.AssignmentColumns([]string{
-					"input_schema_json",
-					"updated_at",
-				}),
+				Columns:   []clause.Column{{Name: "server_id"}, {Name: "name"}},
+				DoUpdates: clause.Assignments(metadataAssignments),
 			}).Create(&rows).Error; err != nil {
 				return err
 			}
+		}
+		staleToolIDs := make([]uint, 0)
+		staleToolQuery := tx.Model(&model.MCPTool{}).Where("server_id = ?", serverID)
+		if len(names) > 0 {
+			staleToolQuery = staleToolQuery.Where("name NOT IN ?", names)
+		}
+		if err := staleToolQuery.Pluck("id", &staleToolIDs).Error; err != nil {
+			return err
+		}
+		if err := deleteConversationProjectMCPToolAssociations(tx, staleToolIDs); err != nil {
+			return err
 		}
 		deleteQuery := tx.Where("server_id = ?", serverID)
 		if len(names) > 0 {
@@ -256,6 +335,14 @@ func (r *Repo) ReplaceServerTools(ctx context.Context, serverID uint, tools []do
 			"last_error":     "",
 		}).Error
 	})
+}
+
+// deleteConversationProjectMCPToolAssociations 清理已删除工具的项目默认关联。
+func deleteConversationProjectMCPToolAssociations(tx *gorm.DB, toolIDs []uint) error {
+	if len(toolIDs) == 0 {
+		return nil
+	}
+	return tx.Where("tool_id IN ?", toolIDs).Delete(&model.ConversationProjectMCPTool{}).Error
 }
 
 func (r *Repo) ListTools(ctx context.Context, serverID uint, onlyActive bool) ([]domainmcp.Tool, error) {
@@ -319,33 +406,55 @@ func (r *Repo) ListToolsByIDsForUser(ctx context.Context, toolIDs []uint, userID
 }
 
 func (r *Repo) UpdateTool(ctx context.Context, toolID uint, input repository.UpdateMCPToolInput) (*domainmcp.Tool, error) {
-	updates := map[string]interface{}{}
-	if input.DisplayName != nil {
-		updates["display_name"] = *input.DisplayName
-	}
-	if input.Description != nil {
-		updates["description"] = *input.Description
-	}
-	if input.Status != nil {
-		updates["status"] = *input.Status
-	}
-	if input.DefaultEnabled != nil {
-		updates["default_enabled"] = *input.DefaultEnabled
-	}
-	if input.RequiresConfirm != nil {
-		updates["requires_confirm"] = *input.RequiresConfirm
-	}
-	if len(updates) > 0 {
-		if err := r.db.WithContext(ctx).Model(&model.MCPTool{}).Where("id = ?", toolID).Updates(updates).Error; err != nil {
-			return nil, err
+	var result domainmcp.Tool
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row model.MCPTool
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&row, "id = ?", toolID).Error; err != nil {
+			return err
 		}
-	}
-	var row model.MCPTool
-	if err := r.db.WithContext(ctx).First(&row, "id = ?", toolID).Error; err != nil {
+		updates := map[string]interface{}{}
+		metadataChanged := false
+		if input.DisplayName != nil && *input.DisplayName != row.DisplayName {
+			updates["display_name"] = *input.DisplayName
+			metadataChanged = true
+		}
+		if input.Description != nil && *input.Description != row.Description {
+			updates["description"] = *input.Description
+			metadataChanged = true
+		}
+		if input.AttachmentInputMode != nil && *input.AttachmentInputMode != row.AttachmentInputMode {
+			updates["attachment_input_mode"] = *input.AttachmentInputMode
+		}
+		if input.AttachmentArgument != nil && *input.AttachmentArgument != row.AttachmentArgument {
+			updates["attachment_argument"] = *input.AttachmentArgument
+		}
+		if input.AttachmentEncoding != nil && *input.AttachmentEncoding != row.AttachmentEncoding {
+			updates["attachment_encoding"] = *input.AttachmentEncoding
+		}
+		if input.AttachmentPromptArgument != nil && *input.AttachmentPromptArgument != row.AttachmentPromptArgument {
+			updates["attachment_prompt_argument"] = *input.AttachmentPromptArgument
+		}
+		if metadataChanged {
+			updates["metadata_customized"] = true
+		}
+		if input.Status != nil && *input.Status != row.Status {
+			updates["status"] = *input.Status
+		}
+		if len(updates) > 0 {
+			if err := tx.Model(&model.MCPTool{}).Where("id = ?", toolID).Updates(updates).Error; err != nil {
+				return err
+			}
+			if err := tx.First(&row, "id = ?", toolID).Error; err != nil {
+				return err
+			}
+		}
+		result = toDomainTool(row)
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
-	item := toDomainTool(row)
-	return &item, nil
+	return &result, nil
 }
 
 func (r *Repo) UpdateServerToolsStatus(ctx context.Context, serverID uint, toolIDs []uint, status string) ([]domainmcp.Tool, error) {
@@ -526,19 +635,20 @@ func toDomainServer(row model.MCPServer) domainmcp.Server {
 
 func toDomainTool(row model.MCPTool) domainmcp.Tool {
 	return domainmcp.Tool{
-		ID:              row.ID,
-		ServerID:        row.ServerID,
-		Name:            row.Name,
-		DisplayName:     row.DisplayName,
-		Description:     row.Description,
-		InputSchemaJSON: row.InputSchemaJSON,
-		Status:          row.Status,
-		SortOrder:       row.SortOrder,
-		DefaultEnabled:  row.DefaultEnabled,
-		RequiresConfirm: row.RequiresConfirm,
-		ToolKind:        defaultToolKind(row.ToolKind),
-		CreatedAt:       row.CreatedAt,
-		UpdatedAt:       row.UpdatedAt,
+		ID:                       row.ID,
+		ServerID:                 row.ServerID,
+		Name:                     row.Name,
+		DisplayName:              row.DisplayName,
+		Description:              row.Description,
+		InputSchemaJSON:          row.InputSchemaJSON,
+		AttachmentInputMode:      row.AttachmentInputMode,
+		AttachmentArgument:       row.AttachmentArgument,
+		AttachmentEncoding:       row.AttachmentEncoding,
+		AttachmentPromptArgument: row.AttachmentPromptArgument,
+		Status:                   row.Status,
+		SortOrder:                row.SortOrder,
+		CreatedAt:                row.CreatedAt,
+		UpdatedAt:                row.UpdatedAt,
 	}
 }
 

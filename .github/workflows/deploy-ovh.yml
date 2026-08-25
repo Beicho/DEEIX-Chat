@@ -1,0 +1,128 @@
+name: Deploy OVH
+
+on:
+  workflow_run:
+    workflows:
+      - GHCR Image
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: GHCR image tag to deploy (defaults to the selected commit SHA tag)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: deeix-chat-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: App-only production deploy
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'dev')
+    runs-on: ubuntu-24.04
+    environment: production
+
+    steps:
+      - name: Resolve immutable image
+        id: image
+        shell: bash
+        env:
+          DISPATCH_TAG: ${{ inputs.image_tag }}
+          WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tag=${DISPATCH_TAG:-}
+          if [ -z "$tag" ]; then
+            sha=${WORKFLOW_SHA:-$DISPATCH_SHA}
+            tag="sha-$sha"
+          fi
+          repository=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/$repository:$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.OVH_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.OVH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Authenticate production host to GHCR
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | ssh "$OVH_USER@$OVH_HOST" \
+            "docker login ghcr.io -u '$GITHUB_ACTOR' --password-stdin"
+
+      - name: Backup, switch app image, and verify
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          OVH_HOST: ${{ vars.OVH_HOST }}
+          OVH_USER: ${{ vars.OVH_USER }}
+        run: |
+          set -euo pipefail
+          ssh "$OVH_USER@$OVH_HOST" bash -s -- "$IMAGE" <<'REMOTE'
+          set -euo pipefail
+          image=$1
+          deploy_dir=/home/debian/deeix-chat
+          compose_file=$deploy_dir/docker-compose.full.yml
+          stamp=$(date -u +%Y%m%dT%H%M%SZ)
+          backup_dir=$deploy_dir/backups/deploy-$stamp
+
+          cd "$deploy_dir"
+          mkdir -p "$backup_dir"
+          cp -a .env config.yaml docker-compose.full.yml "$backup_dir/"
+          old_app_image=$(docker inspect -f '{{.Image}}' deeix-chat-app)
+          old_postgres_id=$(docker inspect -f '{{.Id}}' deeix-chat-postgres)
+          old_redis_id=$(docker inspect -f '{{.Id}}' deeix-chat-redis)
+          rollback_image="deeix-chat:rollback-$stamp"
+          printf '%s\n' "$old_app_image" > "$backup_dir/previous-app-image.txt"
+          docker exec deeix-chat-postgres sh -lc \
+            'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
+            > "$backup_dir/postgres.dump"
+          sha256sum "$backup_dir/postgres.dump" > "$backup_dir/postgres.dump.sha256"
+
+          docker pull "$image"
+          docker tag "$old_app_image" "$rollback_image"
+          DEEIX_CHAT_IMAGE="$image" docker compose -f "$compose_file" up -d --no-deps --force-recreate app
+
+          healthy=0
+          for _ in $(seq 1 60); do
+            if curl -fsS --max-time 5 http://127.0.0.1:8080/readyz >/dev/null; then
+              healthy=1
+              break
+            fi
+            sleep 2
+          done
+          if [ "$healthy" -ne 1 ]; then
+            echo "New app failed readiness; restoring previous image" >&2
+            DEEIX_CHAT_IMAGE="$rollback_image" docker compose -f "$compose_file" up -d --no-deps --force-recreate app
+            exit 1
+          fi
+
+          test "$(docker inspect -f '{{.Id}}' deeix-chat-postgres)" = "$old_postgres_id"
+          test "$(docker inspect -f '{{.Id}}' deeix-chat-redis)" = "$old_redis_id"
+          test "$(docker inspect -f '{{.RestartCount}}' deeix-chat-app)" = "0"
+          curl -fsS --max-time 10 http://127.0.0.1:8080/api/v1/public/version
+          REMOTE

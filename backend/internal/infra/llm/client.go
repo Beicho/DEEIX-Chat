@@ -8,14 +8,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"strconv"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
 	platformtracing "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/observability/tracing"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/outboundhttp"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
+	"github.com/google/uuid"
 )
 
 const (
@@ -27,8 +30,12 @@ const (
 	EndpointImageGenerations = "image_generations"
 	// EndpointImageEdits 表示 OpenAI Images API 编辑端点。
 	EndpointImageEdits = "image_edits"
-	// EndpointVideoGenerations 表示视频生成端点。
+	// EndpointVideoGenerations 表示异步视频生成端点。
 	EndpointVideoGenerations = "video_generations"
+	// EndpointVideoExtensions 表示 xAI 异步视频扩展端点。
+	EndpointVideoExtensions = "video_extensions"
+	// EndpointInteractions 表示 Gemini Interactions API 端点。
+	EndpointInteractions = "interactions"
 )
 
 // 超时默认值。
@@ -40,13 +47,12 @@ const (
 	defaultUpstreamMaxAttempts = 4 // 1 次原始请求 + 3 次后端重试
 )
 
+const upstreamRequestIDHeaderTemplate = "${DEEIX_UPSTREAM_REQUEST_ID}"
+
 // Client 负责跨厂商共享的 HTTP client、adapter 路由和上游调试能力。
 type Client struct {
-	baseTransport         *http.Transport
-	httpClients           sync.Map
-	adapters              map[string]transportAdapter
-	env                   string
-	ssrfProtectionEnabled bool
+	httpClients *outboundhttp.Pool
+	adapters    map[string]transportAdapter
 }
 
 // RouteConfig 定义渠道路由调用参数。
@@ -93,12 +99,13 @@ func resolveStreamIdleTimeout(ms int) time.Duration {
 const (
 	ContentPartText  = "text"  // 纯文本
 	ContentPartImage = "image" // 图片（原始字节，序列化时 base64 编码）
+	ContentPartVideo = "video" // 视频（原始字节，仅供支持视频输入的 adapter 使用）
 	ContentPartFile  = "file"  // 文件提取文本（前端解析后注入）
 )
 
 // ContentPart 表示多模态消息中的一个内容片段。
 type ContentPart struct {
-	Kind         string        // text | image | file
+	Kind         string        // text | image | video | file
 	Text         string        // Kind=text 或 Kind=file 时的文本内容
 	MimeType     string        // Kind=image 时的 MIME 类型（如 "image/jpeg"）
 	Data         []byte        // Kind=image 时的原始字节（发送时 base64 编码）
@@ -126,8 +133,12 @@ type Message struct {
 
 // GenerateInput 定义上游推理请求入参。
 type GenerateInput struct {
-	RequestID      string
-	ConversationID uint
+	RequestID              string
+	ConversationID         uint
+	ConversationPublicID   string
+	ConversationSessionKey string
+	// PromptCacheKey 是 OpenAI prompt_cache_key 的服务端受控值，用户 Options 不得覆盖。
+	PromptCacheKey string
 	Messages       []Message
 	// Instructions 承载可映射到上游原生指令字段的系统/开发者指令。
 	// 不支持原生指令字段的 adapter 应继续通过 messages 承载系统提示。
@@ -142,8 +153,17 @@ type GenerateInput struct {
 	// 非空时：仅在 input 中发送本轮新消息，服务端从存储状态续接历史。
 	// 空串时：退回全量发送模式，适用于所有 adapter。
 	PreviousResponseID string
+	// ResponsesBackground 表示官方 OpenAI Responses 请求使用 background mode。
+	// 这是服务端能力开关，不从用户 Options 透传，避免改变未显式启用模型的数据保留语义。
+	ResponsesBackground bool
+	// Ephemeral 表示调用方要求无状态推理。支持该语义的 adapter 必须显式关闭
+	// provider 侧响应存储，并忽略 background、previous response 与提示缓存状态。
+	// 该字段只约束上游请求，不替代调用方自身的持久化边界。
+	Ephemeral bool
 	// ImageEditMask 仅供图片编辑 adapter 使用，表示透明区域掩码。
 	ImageEditMask *ContentPart
+	// VideoExtensionSource 仅供视频扩展 adapter 使用，表示待扩展的源视频。
+	VideoExtensionSource *ContentPart
 }
 
 // ToolDefinition 是模型可调用工具的统一声明。
@@ -638,6 +658,7 @@ type GenerateOutput struct {
 	ServerSideToolUsage map[string]int64
 	Citations           []string
 	GeneratedImages     []GeneratedImage
+	GeneratedVideos     []GeneratedVideo
 	RawJSON             string
 	Debug               *UpstreamDebugSnapshot `json:"-"`
 
@@ -650,6 +671,53 @@ type GeneratedImage struct {
 	B64JSON       string
 	MIMEType      string
 	RevisedPrompt string
+}
+
+// GeneratedVideo 表示视频生成接口返回的一个视频结果。
+type GeneratedVideo struct {
+	URL             string
+	B64JSON         string
+	MIMEType        string
+	FileName        string
+	DurationSeconds int64
+}
+
+// generatedMediaDurationSeconds 将上游媒体时长统一向上取整为可计费秒数。
+func generatedMediaDurationSeconds(values ...interface{}) int64 {
+	for _, value := range values {
+		var seconds float64
+		switch typed := value.(type) {
+		case int:
+			seconds = float64(typed)
+		case int64:
+			seconds = float64(typed)
+		case float64:
+			seconds = typed
+		case float32:
+			seconds = float64(typed)
+		case string:
+			text := strings.TrimSpace(strings.ToLower(typed))
+			for _, suffix := range []string{"seconds", "second", "secs", "sec", "s"} {
+				text = strings.TrimSuffix(text, suffix)
+			}
+			parsed, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
+			if err != nil {
+				continue
+			}
+			seconds = parsed
+		default:
+			continue
+		}
+		if seconds <= 0 {
+			continue
+		}
+		whole := int64(seconds)
+		if float64(whole) < seconds {
+			whole++
+		}
+		return whole
+	}
+	return 0
 }
 
 // ReasoningDelta 定义流式 reasoning 增量。
@@ -671,7 +739,7 @@ type GenerateStreamEvent struct {
 	ServerToolCall        *ToolCall
 	ResponseID            string
 	GeneratedImage        *GeneratedImage
-	GeneratedImageIndex   int
+	GeneratedImageIndex   int64
 	GeneratedImagePartial bool
 }
 
@@ -689,6 +757,60 @@ type UpstreamError struct {
 	Debug      *UpstreamDebugSnapshot
 }
 
+// AcceptedRequestError 表示上游已接受请求，或请求已写出但结果未知。
+// 生成请求不具备跨 Provider 幂等性，此类错误不得自动切换路由重试。
+type AcceptedRequestError struct {
+	cause error
+}
+
+func (e *AcceptedRequestError) Error() string {
+	if e == nil || e.cause == nil {
+		return "upstream request failed after acceptance"
+	}
+	return e.cause.Error()
+}
+
+func (e *AcceptedRequestError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+// MarkRequestAccepted 标记错误发生时请求已被上游接受，或可能已被接受。
+func MarkRequestAccepted(err error) error {
+	if err == nil || RequestWasAccepted(err) {
+		return err
+	}
+	return &AcceptedRequestError{cause: err}
+}
+
+// RequestWasAccepted 判断错误是否发生在请求已被或可能被上游接受之后。
+func RequestWasAccepted(err error) bool {
+	var acceptedErr *AcceptedRequestError
+	return errors.As(err, &acceptedErr)
+}
+
+// doGenerationRequest 记录 POST 请求是否已经写入连接。请求写出后若在响应头
+// 返回前断线，无法判断上游是否已开始生成，因此按已接受处理，避免跨路由重复生成。
+func doGenerationRequest(do func(*http.Request) (*http.Response, error), req *http.Request) (*http.Response, error) {
+	if do == nil || req == nil {
+		return nil, errors.New("generation request is nil")
+	}
+	var wroteRequest atomic.Bool
+	trace := &httptrace.ClientTrace{
+		WroteRequest: func(httptrace.WroteRequestInfo) {
+			wroteRequest.Store(true)
+		},
+	}
+	tracedRequest := req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	resp, err := do(tracedRequest)
+	if err != nil && wroteRequest.Load() {
+		return resp, MarkRequestAccepted(err)
+	}
+	return resp, err
+}
+
 var errStreamDone = errors.New("llm stream done")
 
 // UpstreamDebugSnapshot 记录上游请求与响应的调试快照。
@@ -700,17 +822,23 @@ type UpstreamDebugSnapshot struct {
 
 // UpstreamDebugRequest 表示上游请求侧的调试信息。
 type UpstreamDebugRequest struct {
-	Method  string            `json:"method"`
-	Path    string            `json:"path"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    string            `json:"body"`
+	Method        string            `json:"method"`
+	Path          string            `json:"path"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	Body          string            `json:"body"`
+	BodyBytes     int               `json:"bodyBytes,omitempty"`
+	BodyTruncated bool              `json:"bodyTruncated,omitempty"`
+	RedactedParts int               `json:"redactedParts,omitempty"`
 }
 
 // UpstreamDebugResponse 表示上游响应侧的调试信息。
 type UpstreamDebugResponse struct {
-	StatusCode int               `json:"statusCode"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Body       string            `json:"body"`
+	StatusCode    int               `json:"statusCode"`
+	Headers       map[string]string `json:"headers,omitempty"`
+	Body          string            `json:"body"`
+	BodyBytes     int               `json:"bodyBytes,omitempty"`
+	BodyTruncated bool              `json:"bodyTruncated,omitempty"`
+	RedactedParts int               `json:"redactedParts,omitempty"`
 }
 
 func (e *UpstreamError) Error() string {
@@ -720,24 +848,12 @@ func (e *UpstreamError) Error() string {
 	return fmt.Sprintf("upstream request failed: status=%d message=%s", e.StatusCode, e.Message)
 }
 
-// NewClient 创建上游调用客户端。
-func NewClient() *Client {
-	return NewClientWithEnv("", false)
-}
-
-// NewClientWithEnv 创建带运行环境的上游调用客户端。
-func NewClientWithEnv(env string, ssrfProtectionEnabled bool) *Client {
-	transport := &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 20,
-		IdleConnTimeout:     90 * time.Second,
-		ForceAttemptHTTP2:   true,
-	}
-	client := &Client{
-		baseTransport:         transport,
-		env:                   strings.TrimSpace(env),
-		ssrfProtectionEnabled: ssrfProtectionEnabled,
-	}
+// NewClient 创建带出站安全策略的上游调用客户端。
+func NewClient(outboundPolicy security.OutboundPolicy) *Client {
+	client := &Client{}
+	client.httpClients = outboundhttp.NewPool(outboundPolicy, outboundhttp.DefaultCacheLimit, func(policy security.OutboundPolicy, trustedOrigin string, variant string) (outboundhttp.ManagedClient, error) {
+		return newRouteHTTPClient(policy, outboundPolicy, trustedOrigin, variant)
+	})
 	client.adapters = map[string]transportAdapter{
 		AdapterOpenAIResponses:        &openAIResponsesAdapter{client: client},
 		AdapterOpenRouterChat:         &openRouterChatCompletionsAdapter{client: client},
@@ -748,9 +864,12 @@ func NewClientWithEnv(env string, ssrfProtectionEnabled bool) *Client {
 		AdapterXAIResponses:           &xAIResponsesAdapter{client: client},
 		AdapterXAIImage:               &xAIImageAdapter{client: client},
 		AdapterXAIImageEdits:          &xAIImageEditsAdapter{client: client},
+		AdapterXAIVideo:               &xAIVideoAdapter{client: client},
+		AdapterXAIVideoExtensions:     &xAIVideoExtensionsAdapter{client: client},
 		AdapterAnthropicMessages:      &anthropicMessagesAdapter{client: client},
 		AdapterGoogleGenerateContent:  &geminiGenerateContentAdapter{client: client},
 		AdapterGoogleImageGeneration:  &geminiImageGenerationAdapter{client: client},
+		AdapterGeminiInteractions:     &geminiInteractionsAdapter{client: client},
 	}
 	return client
 }
@@ -767,29 +886,49 @@ func (c *Client) adapterFor(route RouteConfig) (transportAdapter, error) {
 	return adapter, nil
 }
 
-func (c *Client) httpClientForRoute(route RouteConfig) *http.Client {
-	connectTimeoutMS := normalizeConnectTimeoutMS(route.ConnectTimeoutMS)
-	if value, ok := c.httpClients.Load(connectTimeoutMS); ok {
-		if client, castOK := value.(*http.Client); castOK {
-			return client
-		}
+func newRouteHTTPClient(policy security.OutboundPolicy, redirectPolicy security.OutboundPolicy, trustedOrigin string, variant string) (outboundhttp.ManagedClient, error) {
+	connectTimeoutMS, err := strconv.Atoi(variant)
+	if err != nil || connectTimeoutMS <= 0 {
+		return outboundhttp.ManagedClient{}, fmt.Errorf("invalid LLM connect timeout %q", variant)
 	}
+	transport := security.NewOutboundHTTPTransport(policy, time.Duration(connectTimeoutMS)*time.Millisecond)
+	transport.MaxIdleConns = 100
+	transport.MaxIdleConnsPerHost = 20
+	transport.IdleConnTimeout = 90 * time.Second
+	transport.ForceAttemptHTTP2 = true
 
-	created := c.newHTTPClient(connectTimeoutMS)
-	actual, _ := c.httpClients.LoadOrStore(connectTimeoutMS, created)
-	if client, ok := actual.(*http.Client); ok {
-		return client
-	}
-	return created
-}
-
-func (c *Client) newHTTPClient(connectTimeoutMS int) *http.Client {
-	transport := c.baseTransport.Clone()
-	transport.DialContext = security.NewOutboundDialContext(c.env, c.ssrfProtectionEnabled, time.Duration(connectTimeoutMS)*time.Millisecond, 30*time.Second)
-
-	return &http.Client{
+	client := &http.Client{
 		Timeout:   0,
 		Transport: platformtracing.NewHTTPTransport(transport),
+	}
+	if trustedOrigin != "" {
+		client.CheckRedirect = outboundhttp.NewRedirectPolicy(redirectPolicy, trustedOrigin, "model provider")
+	}
+	return outboundhttp.ManagedClient{Client: client, CloseIdleConnections: transport.CloseIdleConnections}, nil
+}
+
+func (c *Client) doRouteRequest(route RouteConfig, request *http.Request) (*http.Response, error) {
+	if request == nil || request.URL == nil {
+		return nil, fmt.Errorf("model provider request is nil")
+	}
+	connectTimeoutMS := normalizeConnectTimeoutMS(route.ConnectTimeoutMS)
+	return c.httpClients.Do(request, route.BaseURL, strconv.Itoa(connectTimeoutMS))
+}
+
+func (c *Client) doRouteGenerationRequest(route RouteConfig, request *http.Request) (*http.Response, error) {
+	if request == nil || request.URL == nil {
+		return nil, fmt.Errorf("model provider request is nil")
+	}
+	connectTimeoutMS := normalizeConnectTimeoutMS(route.ConnectTimeoutMS)
+	return doGenerationRequest(func(tracedRequest *http.Request) (*http.Response, error) {
+		return c.httpClients.Do(tracedRequest, route.BaseURL, strconv.Itoa(connectTimeoutMS))
+	}, request)
+}
+
+// CloseIdleConnections 释放所有模型 origin 客户端的空闲连接。
+func (c *Client) CloseIdleConnections() {
+	if c != nil && c.httpClients != nil {
+		c.httpClients.CloseIdleConnections()
 	}
 }
 
@@ -1054,6 +1193,13 @@ func normalizeMessages(messages []Message) []Message {
 }
 
 func setAdditionalHeaders(req *http.Request, headersJSON string) {
+	setAdditionalHeadersForInput(req, headersJSON, nil)
+}
+
+func setAdditionalHeadersForInput(req *http.Request, headersJSON string, input *GenerateInput) {
+	if req == nil {
+		return
+	}
 	value := strings.TrimSpace(headersJSON)
 	if value == "" {
 		return
@@ -1062,13 +1208,55 @@ func setAdditionalHeaders(req *http.Request, headersJSON string) {
 	if err := json.Unmarshal([]byte(value), &parsed); err != nil {
 		return
 	}
+	dynamicHeaderInput := input
+	if input == nil || (strings.TrimSpace(input.ConversationPublicID) == "" && strings.TrimSpace(input.ConversationSessionKey) == "") {
+		dynamicHeaderInput = nil
+	}
+	upstreamRequestID := ""
+	if dynamicHeaderInput != nil && strings.Contains(value, upstreamRequestIDHeaderTemplate) {
+		upstreamRequestID = uuid.NewString()
+	}
 	for key, rawValue := range parsed {
 		headerKey := strings.TrimSpace(key)
 		if headerKey == "" {
 			continue
 		}
-		req.Header.Set(headerKey, stringify(rawValue))
+		headerValue, ok := expandAdditionalHeaderValue(stringify(rawValue), dynamicHeaderInput, upstreamRequestID)
+		if !ok || strings.TrimSpace(headerValue) == "" {
+			continue
+		}
+		req.Header.Set(headerKey, headerValue)
 	}
+}
+
+func expandAdditionalHeaderValue(value string, input *GenerateInput, upstreamRequestID string) (string, bool) {
+	replacements := []struct {
+		template string
+		value    string
+	}{
+		{template: "${DEEIX_CONVERSATION_ID}"},
+		{template: "${DEEIX_SESSION_ID}"},
+		{template: "${DEEIX_REQUEST_ID}"},
+		{template: upstreamRequestIDHeaderTemplate},
+	}
+	if input != nil {
+		replacements[0].value = strings.TrimSpace(input.ConversationPublicID)
+		replacements[1].value = strings.TrimSpace(input.ConversationSessionKey)
+		replacements[2].value = strings.TrimSpace(input.RequestID)
+		replacements[3].value = strings.TrimSpace(upstreamRequestID)
+	}
+
+	expanded := value
+	for _, replacement := range replacements {
+		if !strings.Contains(expanded, replacement.template) {
+			continue
+		}
+		if replacement.value == "" {
+			return "", false
+		}
+		expanded = strings.ReplaceAll(expanded, replacement.template, replacement.value)
+	}
+	return expanded, true
 }
 
 func readUpstreamBody(reader io.Reader) ([]byte, error) {
@@ -1139,17 +1327,25 @@ func upstreamDebugSnapshot(req *http.Request, requestBody []byte, resp *http.Res
 			path += "?" + req.URL.RawQuery
 		}
 	}
+	requestDebugBody := sanitizeUpstreamDebugBody(requestBody)
+	responseDebugBody := sanitizeUpstreamDebugBody(responseBody)
 	return &UpstreamDebugSnapshot{
 		Request: UpstreamDebugRequest{
-			Method:  req.Method,
-			Path:    path,
-			Headers: redactHeaders(req.Header),
-			Body:    string(requestBody),
+			Method:        req.Method,
+			Path:          path,
+			Headers:       redactHeaders(req.Header),
+			Body:          requestDebugBody.Body,
+			BodyBytes:     requestDebugBody.OriginalBytes,
+			BodyTruncated: requestDebugBody.Truncated,
+			RedactedParts: requestDebugBody.RedactedParts,
 		},
 		Response: UpstreamDebugResponse{
-			StatusCode: responseStatusCode(resp),
-			Headers:    responseHeaders(resp),
-			Body:       string(responseBody),
+			StatusCode:    responseStatusCode(resp),
+			Headers:       responseHeaders(resp),
+			Body:          responseDebugBody.Body,
+			BodyBytes:     responseDebugBody.OriginalBytes,
+			BodyTruncated: responseDebugBody.Truncated,
+			RedactedParts: responseDebugBody.RedactedParts,
 		},
 	}
 }
@@ -1564,6 +1760,12 @@ func normalizeEndpoint(raw string) string {
 		return EndpointImageGenerations
 	case EndpointImageEdits:
 		return EndpointImageEdits
+	case EndpointVideoGenerations:
+		return EndpointVideoGenerations
+	case EndpointVideoExtensions:
+		return EndpointVideoExtensions
+	case EndpointInteractions:
+		return EndpointInteractions
 	default:
 		return EndpointResponses
 	}

@@ -10,6 +10,7 @@ import (
 
 	appauth "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/auth"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/user"
+	domainknowledgebase "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/knowledgebase"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
 	"github.com/gin-gonic/gin"
@@ -111,22 +112,6 @@ func (h *Handler) LoginOptions(c *gin.Context) {
 		return
 	}
 	response.Success(c, toLoginOptionsResponse(result))
-}
-
-func (h *Handler) IdentityProviderLogo(c *gin.Context) {
-	asset, err := h.service.GetIdentityProviderLogo(c.Request.Context(), c.Param("slug"))
-	if err != nil {
-		status := http.StatusBadGateway
-		if errors.Is(err, appauth.ErrIdentityProviderLogoUnavailable) {
-			status = http.StatusNotFound
-		}
-		response.ErrorFrom(c, status, err)
-		return
-	}
-	c.Header("Cache-Control", "public, max-age=3600")
-	c.Header("Content-Security-Policy", "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'none'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data: blob:; style-src 'unsafe-inline'")
-	c.Header("X-Content-Type-Options", "nosniff")
-	c.Data(http.StatusOK, asset.ContentType, asset.Content)
 }
 
 // StartEmailRegistration godoc
@@ -583,8 +568,107 @@ func (h *Handler) StartProviderLogin(c *gin.Context) {
 	c.Redirect(http.StatusFound, target)
 }
 
+// StartProviderAuthBridge godoc
+// @Summary 创建第三方登录授权桥事务
+// @Description 为 Web、App 或桌面公共客户端创建 PKCE 保护的 OAuth 授权事务；外部身份源仅回调当前 DEEIX 实例
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param slug path string true "身份源 slug"
+// @Param body body ProviderAuthBridgeStartRequest true "授权桥参数"
+// @Success 200 {object} ProviderAuthBridgeStartResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Router /auth/providers/{slug}/authorize [post]
+func (h *Handler) StartProviderAuthBridge(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	var req ProviderAuthBridgeStartRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	result, err := h.service.StartProviderAuthBridge(c.Request.Context(), c.Param("slug"), appauth.ProviderAuthBridgeStartInput{
+		ClientID:      req.ClientID,
+		RedirectURI:   req.RedirectURI,
+		CodeChallenge: req.CodeChallenge,
+		ClientState:   req.ClientState,
+		Intent:        req.Intent,
+		Next:          req.Next,
+	})
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	response.Success(c, ProviderAuthBridgeStartResponse{
+		AuthorizationURL: result.AuthorizationURL,
+		ExpiresAt:        result.ExpiresAt,
+	})
+}
+
 func (h *Handler) ProviderCallback(c *gin.Context) {
-	response.Error(c, http.StatusBadRequest, "configure the provider callback URL to the frontend callback endpoint")
+	c.Header("Cache-Control", "no-store")
+	result, err := h.service.CompleteProviderAuthBridgeCallback(c.Request.Context(), c.Param("slug"), appauth.ProviderAuthBridgeCallbackInput{
+		Code:          c.Query("code"),
+		State:         c.Query("state"),
+		ProviderError: c.Query("error"),
+	})
+	if err != nil {
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	c.Redirect(http.StatusFound, result.RedirectURI)
+}
+
+// ExchangeProviderAuthBridgeGrant godoc
+// @Summary 兑换第三方登录一次性授权码
+// @Description 使用客户端 PKCE verifier 原子兑换服务端回调签发的一次性授权码，并进入统一 2FA/会话流程
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param slug path string true "身份源 slug"
+// @Param body body ProviderAuthBridgeExchangeRequest true "授权码兑换参数"
+// @Success 200 {object} LoginResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 409 {object} ErrorDoc
+// @Router /auth/providers/{slug}/exchange [post]
+func (h *Handler) ExchangeProviderAuthBridgeGrant(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	var req ProviderAuthBridgeExchangeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	result, err := h.service.ExchangeProviderAuthBridgeGrant(
+		c.Request.Context(),
+		c.Param("slug"),
+		appauth.ProviderAuthBridgeExchangeInput{
+			ClientID:     req.ClientID,
+			Grant:        req.Grant,
+			CodeVerifier: req.CodeVerifier,
+		},
+		middleware.MustRequestID(c),
+		middleware.ResolveSessionAuditContext(c),
+	)
+	if err != nil {
+		var emailConflictErr *appauth.ProviderEmailConflictError
+		if errors.As(err, &emailConflictErr) {
+			response.ErrorWithDetails(
+				c,
+				http.StatusConflict,
+				"auth.provider_email_conflict",
+				err.Error(),
+				gin.H{
+					"providerSlug": emailConflictErr.ProviderSlug,
+					"email":        emailConflictErr.Email,
+					"action":       emailConflictErr.Action,
+				},
+			)
+			return
+		}
+		response.ErrorFrom(c, http.StatusBadRequest, err)
+		return
+	}
+	h.writeRefreshTokenCookie(c, result)
+	response.Success(c, toLoginResponse(result))
 }
 
 func (h *Handler) CompleteProviderLogin(c *gin.Context) {
@@ -863,6 +947,15 @@ func (h *Handler) RegenerateCurrentTwoFactorRecoveryCodes(c *gin.Context) {
 	})
 }
 
+// ListIdentityProviders godoc
+// @Summary 获取第三方身份源列表
+// @Description 管理员查看已配置的 OIDC 和 OAuth2 身份源
+// @Tags admin-auth
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} IdentityProviderListResponseDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /admin/auth/providers [get]
 func (h *Handler) ListIdentityProviders(c *gin.Context) {
 	items, err := h.service.ListIdentityProviders(c.Request.Context())
 	if err != nil {
@@ -872,6 +965,18 @@ func (h *Handler) ListIdentityProviders(c *gin.Context) {
 	response.Success(c, IdentityProviderListResponse{Results: toIdentityProviderResponses(items), Total: len(items)})
 }
 
+// CreateIdentityProvider godoc
+// @Summary 创建第三方身份源
+// @Description 管理员创建一个 OIDC 或 OAuth2 身份源
+// @Tags admin-auth
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body UpsertIdentityProviderRequest true "身份源配置"
+// @Success 200 {object} IdentityProviderResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 403 {object} ErrorDoc
+// @Router /admin/auth/providers [post]
 func (h *Handler) CreateIdentityProvider(c *gin.Context) {
 	var req UpsertIdentityProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -890,6 +995,19 @@ func (h *Handler) CreateIdentityProvider(c *gin.Context) {
 	response.Success(c, toIdentityProviderResponse(*item))
 }
 
+// UpdateIdentityProvider godoc
+// @Summary 更新第三方身份源
+// @Description 管理员更新一个 OIDC 或 OAuth2 身份源
+// @Tags admin-auth
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param provider_id path string true "身份源 ID"
+// @Param body body UpsertIdentityProviderRequest true "身份源配置"
+// @Success 200 {object} IdentityProviderResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 403 {object} ErrorDoc
+// @Router /admin/auth/providers/{provider_id} [patch]
 func (h *Handler) UpdateIdentityProvider(c *gin.Context) {
 	var req UpsertIdentityProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -908,6 +1026,17 @@ func (h *Handler) UpdateIdentityProvider(c *gin.Context) {
 	response.Success(c, toIdentityProviderResponse(*item))
 }
 
+// ReorderIdentityProviders godoc
+// @Summary 调整第三方身份源顺序
+// @Description 管理员保存第三方身份源的展示顺序
+// @Tags admin-auth
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body ReorderIdentityProvidersRequest true "身份源顺序"
+// @Success 200 {object} IdentityProviderReorderResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Router /admin/auth/provider-order [patch]
 func (h *Handler) ReorderIdentityProviders(c *gin.Context) {
 	var req ReorderIdentityProvidersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -921,6 +1050,18 @@ func (h *Handler) ReorderIdentityProviders(c *gin.Context) {
 	response.Success(c, IdentityProviderReorderResponse{Updated: true})
 }
 
+// DeleteIdentityProvider godoc
+// @Summary 删除第三方身份源
+// @Description 管理员删除第三方身份源；force=true 时允许删除仍有关联用户的身份源
+// @Tags admin-auth
+// @Produce json
+// @Security BearerAuth
+// @Param provider_id path string true "身份源 ID"
+// @Param force query bool false "是否强制删除"
+// @Success 200 {object} IdentityProviderDeleteResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 409 {object} ErrorDoc
+// @Router /admin/auth/providers/{provider_id} [delete]
 func (h *Handler) DeleteIdentityProvider(c *gin.Context) {
 	force := c.Query("force") == "true"
 	if err := h.service.DeleteIdentityProvider(c.Request.Context(), c.Param("provider_id"), force); err != nil {
@@ -1354,6 +1495,7 @@ func (h *Handler) StartAccountDeleteVerification(c *gin.Context) {
 // @Success 200 {object} DeleteAccountResponseDoc
 // @Failure 401 {object} ErrorDoc
 // @Failure 403 {object} ErrorDoc
+// @Failure 409 {object} ErrorDoc
 // @Failure 500 {object} ErrorDoc
 // @Router /me [delete]
 func (h *Handler) DeleteMe(c *gin.Context) {
@@ -1382,6 +1524,10 @@ func (h *Handler) DeleteMe(c *gin.Context) {
 		}
 		if errors.Is(err, appauth.ErrAccountDeleteVerificationRequired) {
 			response.ErrorFrom(c, http.StatusBadRequest, err)
+			return
+		}
+		if errors.Is(err, domainknowledgebase.ErrBuiltinFileOwnerDeleteBlocked) {
+			response.ErrorWithCode(c, http.StatusConflict, "knowledge_base.owner_file_reference", "account owns files referenced by builtin knowledge bases")
 			return
 		}
 		if strings.Contains(err.Error(), "verification") || strings.Contains(err.Error(), "email") {

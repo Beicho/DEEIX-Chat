@@ -3,573 +3,574 @@ package conversation
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"net/http"
+	"errors"
+	"io"
 	"strings"
 	"time"
 
-	appnotification "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/notification"
+	appcm "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/contentmoderation"
+	appstorage "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/objectstorage"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
-	domainnotification "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/notification"
-	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/objectstore"
+	"go.uber.org/zap"
 )
 
-const (
-	moderationModeModerations    = "moderations"
-	moderationModeChatClassifier = "chat_classifier"
-	moderationFailOpen           = "fail_open"
-	moderationFailClose          = "fail_close"
-	moderationDispositionLimit   = "rate_limited"
-	moderationDispositionSuspend = "suspended"
-	moderationEventPolicyHit     = "policy_hit"
-	moderationEventEngineError   = "engine_error"
-)
-
-const defaultModerationClassifierTemplate = `You are a content policy classifier. Review the {{DIRECTION}} content and return only JSON with this shape: {"flagged": boolean, "score": number, "categories": object, "reason": string}. Use score from 0 to 1.`
-
-const (
-	moderationSnapshotMaxRunes         = 2000
-	defaultModerationOutputWindowChars = 800
-	moderationVisibleSuspensionReason  = "多次发送不适宜内容"
-	moderationAutoLimitDetail          = "系统已临时限制账号使用。"
-	moderationAutoSuspendDetail        = "系统已暂停账号使用。"
-	moderationAutoLimitRevokeReason    = "content_policy_auto_limit"
-	moderationAutoSuspendRevokeReason  = "content_policy_auto_suspension"
-	moderationNotificationSource       = "moderation"
-	moderationNotificationLink         = "/notifications"
-	moderationLimitNotificationTitle   = "账号已临时限速"
-	moderationLimitNotificationBody    = "由于近期多次触发内容检查，账号请求频率已临时降低。"
-	moderationSuspendNotificationTitle = "账号已暂停"
-	moderationSuspendNotificationBody  = "由于近期多次触发内容检查，账号已暂停使用。"
-	moderationReleaseNotificationTitle = "账号限制已解除"
-	moderationReleaseNotificationBody  = "内容安全处置已解除，你可以继续正常使用账号。"
-)
-
-type moderationCheckResult struct {
-	Flagged        bool
-	Score          float64
-	Threshold      float64
-	Model          string
-	CategoriesJSON string
-	Reason         string
+// MessageModerationOutcome is the soft-moderation end state for a turn.
+// Nil means moderation was not required (policy off / no coordinator).
+type MessageModerationOutcome struct {
+	Blocked    bool
+	EventID    string
+	Direction  string
+	Categories []string
+	// State is the moderation target: passed | failed_open | blocked. Known blocks may
+	// converge durably through the moderation compensation loop.
+	State string
+	// TerminalEmitted is true when moderation_blocked was already pushed to the stream.
+	TerminalEmitted bool
 }
 
-type moderationRuntimeConfig struct {
-	Enabled                  bool
-	BaseURL                  string
-	APIKey                   string
-	Model                    string
-	Threshold                float64
-	Action                   string
-	TimeoutSeconds           int
-	Mode                     string
-	FailStrategy             string
-	ClassifierTemplate       string
-	AutoWindowHours          int
-	AutoLimitThreshold       int
-	AutoSuspendThreshold     int
-	AutoLimitRPM             int
-	AutoLimitDurationMinutes int
-	OutputWindowChars        int
+// IsModerationBlocked reports whether the turn was blocked after a safety check.
+func (r *SendMessageResult) IsModerationBlocked() bool {
+	return r != nil && r.Moderation != nil && r.Moderation.Blocked
 }
 
-type moderationRequest struct {
-	Model string `json:"model"`
-	Input string `json:"input"`
+// ModerationTerminalEmitted reports whether moderation_blocked already went out on the stream.
+func (r *SendMessageResult) ModerationTerminalEmitted() bool {
+	return r != nil && r.Moderation != nil && r.Moderation.TerminalEmitted
 }
 
-type moderationResponse struct {
-	Results []struct {
-		Flagged        bool               `json:"flagged"`
-		Categories     map[string]bool    `json:"categories"`
-		CategoryScores map[string]float64 `json:"category_scores"`
-	} `json:"results"`
-}
-
-type chatClassifierRequest struct {
-	Model          string                  `json:"model"`
-	Messages       []chatClassifierMessage `json:"messages"`
-	Temperature    float64                 `json:"temperature"`
-	ResponseFormat map[string]string       `json:"response_format,omitempty"`
-}
-
-type chatClassifierMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type chatClassifierResponse struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-}
-
-type chatClassifierDecoded struct {
-	Flagged    bool                   `json:"flagged"`
-	Score      float64                `json:"score"`
-	Categories map[string]interface{} `json:"categories"`
-	Reason     string                 `json:"reason"`
-}
-
-type moderationUserEnforcer interface {
-	GetByID(ctx context.Context, userID uint) (*domainuser.User, error)
-	UpdateUserStatus(ctx context.Context, userID uint, status string) error
-	SetUserSuspension(ctx context.Context, userID uint, reason string, detail string, suspendedAt *time.Time, suspendedBy *uint) error
-	RevokeAllSessions(ctx context.Context, userID uint, reason string) error
-}
-
-type moderationRateLimiter interface {
-	SetUserRateLimitOverride(ctx context.Context, userID uint, rpm int, ttl time.Duration) error
-	GetUserRateLimitOverride(ctx context.Context, userID uint) (int, bool, error)
-	ClearUserRateLimitOverride(ctx context.Context, userID uint) error
-}
-
-func normalizeModerationRuntimeConfig(cfg config.Config) moderationRuntimeConfig {
-	result := moderationRuntimeConfig{
-		Enabled:                  cfg.ModerationEnabled,
-		BaseURL:                  strings.TrimRight(strings.TrimSpace(cfg.ModerationBaseURL), "/"),
-		APIKey:                   strings.TrimSpace(cfg.ModerationAPIKey),
-		Model:                    strings.TrimSpace(cfg.ModerationModel),
-		Threshold:                cfg.ModerationThreshold,
-		Action:                   strings.TrimSpace(cfg.ModerationAction),
-		TimeoutSeconds:           cfg.ModerationTimeoutSeconds,
-		Mode:                     strings.TrimSpace(cfg.ModerationMode),
-		FailStrategy:             strings.TrimSpace(cfg.ModerationFailStrategy),
-		ClassifierTemplate:       strings.TrimSpace(cfg.ModerationClassifierTemplate),
-		AutoWindowHours:          cfg.ModerationAutoWindowHours,
-		AutoLimitThreshold:       cfg.ModerationAutoLimitThreshold,
-		AutoSuspendThreshold:     cfg.ModerationAutoSuspendThreshold,
-		AutoLimitRPM:             cfg.ModerationAutoLimitRPM,
-		AutoLimitDurationMinutes: cfg.ModerationAutoLimitDurationMinutes,
-		OutputWindowChars:        cfg.ModerationOutputWindowChars,
+// SetModerationService injects the optional content moderation orchestrator.
+func (s *Service) SetModerationService(svc *appcm.Service) {
+	s.moderationSvc = svc
+	if svc == nil {
+		return
 	}
-	if result.Model == "" {
-		result.Model = "omni-moderation-latest"
-	}
-	if result.Threshold <= 0 || result.Threshold > 1 {
-		result.Threshold = 0.5
-	}
-	if result.Action == "" {
-		result.Action = "block"
-	}
-	if result.TimeoutSeconds <= 0 {
-		result.TimeoutSeconds = 10
-	}
-	switch result.Mode {
-	case moderationModeModerations, moderationModeChatClassifier:
-	default:
-		result.Mode = moderationModeModerations
-	}
-	switch result.FailStrategy {
-	case moderationFailOpen, moderationFailClose:
-	default:
-		result.FailStrategy = moderationFailOpen
-	}
-	if result.ClassifierTemplate == "" {
-		result.ClassifierTemplate = defaultModerationClassifierTemplate
-	}
-	if result.AutoWindowHours <= 0 {
-		result.AutoWindowHours = 24
-	}
-	if result.AutoLimitThreshold < 0 {
-		result.AutoLimitThreshold = 0
-	}
-	if result.AutoSuspendThreshold < 0 {
-		result.AutoSuspendThreshold = 0
-	}
-	if result.AutoLimitRPM <= 0 {
-		result.AutoLimitRPM = 5
-	}
-	if result.AutoLimitDurationMinutes <= 0 {
-		result.AutoLimitDurationMinutes = 60
-	}
-	if result.OutputWindowChars <= 0 {
-		result.OutputWindowChars = defaultModerationOutputWindowChars
-	}
-	return result
-}
-
-func shouldBlockOnModerationError(strategy string) bool {
-	return strings.TrimSpace(strategy) == moderationFailClose
-}
-
-func buildChatClassifierRequest(modelName string, template string, direction string, content string) ([]byte, error) {
-	systemPrompt := strings.TrimSpace(template)
-	if systemPrompt == "" {
-		systemPrompt = defaultModerationClassifierTemplate
-	}
-	systemPrompt = strings.ReplaceAll(systemPrompt, "{{DIRECTION}}", strings.TrimSpace(direction))
-	systemPrompt = strings.ReplaceAll(systemPrompt, "{{CONTENT}}", strings.TrimSpace(content))
-	return json.Marshal(chatClassifierRequest{
-		Model: strings.TrimSpace(modelName),
-		Messages: []chatClassifierMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: strings.TrimSpace(content)},
-		},
-		Temperature:    0,
-		ResponseFormat: map[string]string{"type": "json_object"},
+	svc.SetEventEmitter(func(runID string, eventType string, payload map[string]interface{}) {
+		if payload == nil {
+			payload = map[string]interface{}{"type": eventType}
+		} else if _, ok := payload["type"]; !ok {
+			payload["type"] = eventType
+		}
+		s.PublishMessageGenerationEvent(runID, payload)
 	})
+	svc.SetCancelRun(func(runID string) {
+		if s.generationStreams != nil {
+			s.generationStreams.cancelForced(context.Background(), normalizeRunID(runID))
+		}
+	})
+	svc.SetOnBlocked(func(runID string, _ appcm.BlockInfo) {
+		// Drop retained deltas/media so reconnect cannot replay withdrawn content.
+		// The following emit of moderation_blocked re-seeds a safe terminal event.
+		s.resetGenerationStreamEvents(runID)
+	})
+	svc.SetImageLoader(s.loadImageForModeration)
+	svc.SetObjectStore(&moderationObjectStoreAdapter{service: s})
+	svc.SetFileAccessController(&moderationFileAccessAdapter{service: s})
 }
 
-func parseChatClassifierContent(content string, threshold float64, modelName string) (*moderationCheckResult, error) {
-	var decoded chatClassifierDecoded
-	if err := json.Unmarshal([]byte(strings.TrimSpace(content)), &decoded); err != nil {
-		return nil, err
+// startModerationRun begins per-turn moderation when policy is enabled.
+// Live events use the existing OnEvent path (set by HTTP handlers) — no side channel.
+// seedRun, when non-nil, is ensured in DB so mid-flight moderation_state updates have a row.
+func (s *Service) startModerationRun(
+	ctx context.Context,
+	input SendMessageInput,
+	runID string,
+	userMessage *model.Message,
+	assistantMessage *model.Message,
+	seedRun *model.Run,
+) *appcm.RunCoordinator {
+	if s == nil || s.moderationSvc == nil || userMessage == nil {
+		return nil
 	}
-	result := &moderationCheckResult{
-		Flagged:        decoded.Flagged || decoded.Score >= threshold,
-		Score:          decoded.Score,
-		Threshold:      threshold,
-		Model:          strings.TrimSpace(modelName),
-		CategoriesJSON: "{}",
-		Reason:         strings.TrimSpace(decoded.Reason),
+	meta := appcm.RunMeta{
+		UserID:             input.UserID,
+		ConversationID:     input.ConversationID,
+		RunID:              runID,
+		MessageID:          userMessage.ID,
+		MessagePublicID:    userMessage.PublicID,
+		UserMessageID:      userMessage.ID,
+		AssistantMessageID: 0,
 	}
-	if result.Score < 0 {
-		result.Score = 0
+	if assistantMessage != nil {
+		meta.AssistantMessageID = assistantMessage.ID
 	}
-	if result.Score > 1 {
-		result.Score = 1
+	coord := s.moderationSvc.BeginRun(ctx, meta)
+	if coord == nil {
+		return nil
 	}
-	if raw, err := json.Marshal(map[string]interface{}{
-		"categories": decoded.Categories,
-	}); err == nil {
-		result.CategoriesJSON = string(raw)
+	// Durable run row must exist before UpdateRunModeration / ApplyRunBlock.
+	s.ensureConversationRunForModeration(ctx, seedRun, input, runID)
+	// BeginRun may have updated before the row existed; re-apply pending now.
+	s.moderationSvc.SyncRunPending(ctx, runID)
+	if input.OnEvent != nil {
+		coord.SetLiveEmitter(func(eventType string, payload map[string]interface{}) {
+			_ = input.OnEvent(eventType, payload)
+		})
 	}
-	return result, nil
+	coord.EnqueueInputText(input.Content)
+	if len(input.FileIDs) > 0 {
+		coord.EnqueueInputImages(ctx, input.FileIDs)
+	}
+	return coord
 }
 
-func (s *Service) checkModeration(ctx context.Context, direction string, content string) (*moderationCheckResult, error) {
-	cfg := normalizeModerationRuntimeConfig(s.cfg.Snapshot())
-	if !cfg.Enabled {
-		return nil, nil
+// ensureConversationRunForModeration inserts a mid-flight run so barrier state updates are not no-ops.
+func (s *Service) ensureConversationRunForModeration(
+	ctx context.Context,
+	seedRun *model.Run,
+	input SendMessageInput,
+	runID string,
+) {
+	if s == nil || s.repo == nil {
+		return
 	}
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return nil, nil
-	}
-	if cfg.BaseURL == "" {
-		return nil, nil
-	}
-	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	if cfg.Mode == moderationModeChatClassifier {
-		return s.checkChatClassifierModeration(callCtx, cfg, direction, content)
-	}
-	return s.checkOpenAIModeration(callCtx, cfg, direction, content)
-}
-
-func (s *Service) checkOpenAIModeration(ctx context.Context, cfg moderationRuntimeConfig, direction string, content string) (*moderationCheckResult, error) {
-	snap := s.cfg.Snapshot()
-	if err := security.ValidateOutboundHTTPURL(cfg.BaseURL, snap.Env, snap.SSRFProtectionEnabled); err != nil {
-		return nil, fmt.Errorf("moderation endpoint is not allowed")
-	}
-	body, err := json.Marshal(moderationRequest{Model: cfg.Model, Input: content})
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.BaseURL+"/moderations", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if cfg.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	}
-	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	resp, err := security.NewOutboundHTTPClient(snap.Env, snap.SSRFProtectionEnabled, timeout).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("moderation request failed: %d", resp.StatusCode)
-	}
-	var decoded moderationResponse
-	if err = json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return nil, err
-	}
-	result := moderationCheckResult{Threshold: cfg.Threshold, Model: cfg.Model, CategoriesJSON: "{}", Reason: direction}
-	if len(decoded.Results) == 0 {
-		return &result, nil
-	}
-	first := decoded.Results[0]
-	for _, score := range first.CategoryScores {
-		if score > result.Score {
-			result.Score = score
+	var run model.Run
+	if seedRun != nil {
+		run = *seedRun
+	} else {
+		run = model.Run{
+			RunID:          runID,
+			RequestID:      strings.TrimSpace(input.RequestID),
+			UserID:         input.UserID,
+			ConversationID: input.ConversationID,
+			TaskType:       "chat",
+			Status:         "running",
+			StartedAt:      time.Now(),
 		}
 	}
-	result.Flagged = first.Flagged || result.Score >= cfg.Threshold
-	if raw, err := json.Marshal(map[string]interface{}{
-		"categories":      first.Categories,
-		"category_scores": first.CategoryScores,
-	}); err == nil {
-		result.CategoriesJSON = string(raw)
+	if strings.TrimSpace(run.RunID) == "" {
+		run.RunID = runID
 	}
-	return &result, nil
+	if strings.TrimSpace(run.Status) == "" || run.Status == "error" {
+		run.Status = "running"
+	}
+	run.ModerationState = "pending"
+	run.EndedAt = nil
+	if err := s.repo.EnsureConversationRun(ctx, &run); err != nil && s.logger != nil {
+		s.logger.Warn("ensure_conversation_run_for_moderation_failed",
+			zap.String("run_id", run.RunID),
+			zap.Error(err),
+		)
+	}
 }
 
-func (s *Service) checkChatClassifierModeration(ctx context.Context, cfg moderationRuntimeConfig, direction string, content string) (*moderationCheckResult, error) {
-	snap := s.cfg.Snapshot()
-	if err := security.ValidateOutboundHTTPURL(cfg.BaseURL, snap.Env, snap.SSRFProtectionEnabled); err != nil {
-		return nil, fmt.Errorf("moderation endpoint is not allowed")
+// completeModerationAfterSuccess runs the post-generation barrier.
+// On block it mutates result into a blocked snapshot and sets result.Moderation.
+// Callers branch on result.IsModerationBlocked(); embed only runs on pass/fail-open.
+func (s *Service) completeModerationAfterSuccess(
+	ctx context.Context,
+	coord *appcm.RunCoordinator,
+	result *SendMessageResult,
+	outputText string,
+	outputImages []appcm.OutputImageSource,
+	embedInput SendMessageInput,
+	reuseUserMessage bool,
+) {
+	if coord == nil || result == nil {
+		return
 	}
-	body, err := buildChatClassifierRequest(cfg.Model, cfg.ClassifierTemplate, direction, content)
-	if err != nil {
-		return nil, err
+	barrier := coord.AfterGeneration(ctx, outputText, outputImages)
+	applyBarrierOutcome(result, barrier)
+	if result.IsModerationBlocked() {
+		return
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.BaseURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
+	// Pass / fail-open: embed now (persist path skipped embed while barrier was active).
+	if reuseUserMessage {
+		s.embedMessagePairAsync(embedInput, nil, &result.AssistantMessage)
+	} else {
+		s.embedMessagePairAsync(embedInput, &result.UserMessage, &result.AssistantMessage)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if cfg.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	}
-	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	resp, err := security.NewOutboundHTTPClient(snap.Env, snap.SSRFProtectionEnabled, timeout).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("moderation classifier request failed: %d", resp.StatusCode)
-	}
-	var decoded chatClassifierResponse
-	if err = json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return nil, err
-	}
-	if len(decoded.Choices) == 0 {
-		return &moderationCheckResult{Threshold: cfg.Threshold, Model: cfg.Model, CategoriesJSON: "{}", Reason: direction}, nil
-	}
-	result, err := parseChatClassifierContent(decoded.Choices[0].Message.Content, cfg.Threshold, cfg.Model)
-	if err != nil {
-		return nil, fmt.Errorf("parse moderation classifier content failed: %w", err)
-	}
-	if result.Reason == "" {
-		result.Reason = direction
-	}
-	return result, nil
 }
 
-func buildModerationContentSnapshot(content string) (string, string, bool) {
-	value := strings.TrimSpace(content)
-	if value == "" {
-		return "", "", false
+// completeModerationAfterInterruption moderates content that was already visible
+// and retained after a cancel or upstream failure, without embedding a partial reply.
+func (s *Service) completeModerationAfterInterruption(
+	ctx context.Context,
+	coord *appcm.RunCoordinator,
+	result *SendMessageResult,
+	outputText string,
+) {
+	if coord == nil || result == nil {
+		return
 	}
-	sum := sha256.Sum256([]byte(value))
-	runes := []rune(value)
-	truncated := false
-	if len(runes) > moderationSnapshotMaxRunes {
-		value = string(runes[:moderationSnapshotMaxRunes])
-		truncated = true
-	}
-	return value, hex.EncodeToString(sum[:]), truncated
+	barrier := coord.AfterGeneration(ctx, outputText, nil)
+	applyBarrierOutcome(result, barrier)
 }
 
-func moderationEventType(reason string) string {
-	if strings.TrimSpace(reason) == "check_failed" {
-		return moderationEventEngineError
+// completeModerationAfterFailure continues input-only checks (no output moderation).
+func (s *Service) completeModerationAfterFailure(
+	ctx context.Context,
+	coord *appcm.RunCoordinator,
+	result *SendMessageResult,
+) {
+	if coord == nil {
+		return
 	}
-	return moderationEventPolicyHit
-}
-
-func (s *Service) recordModerationEvent(ctx context.Context, input SendMessageInput, messageID uint, runID string, direction string, result *moderationCheckResult, reason string, content string) {
+	barrier := coord.WaitInputOnly(ctx)
 	if result == nil {
 		return
 	}
-	snapshot, contentHash, snapshotTruncated := buildModerationContentSnapshot(content)
-	event := &model.ModerationEvent{
-		UserID:            input.UserID,
-		ConversationID:    input.ConversationID,
-		MessageID:         messageID,
-		RunID:             strings.TrimSpace(runID),
-		Direction:         direction,
-		Action:            strings.TrimSpace(s.cfg.Snapshot().ModerationAction),
-		Model:             result.Model,
-		Score:             result.Score,
-		Threshold:         result.Threshold,
-		Flagged:           result.Flagged,
-		CategoriesJSON:    result.CategoriesJSON,
-		Reason:            strings.TrimSpace(reason),
-		EventType:         moderationEventType(reason),
-		ContentSnapshot:   snapshot,
-		ContentHash:       contentHash,
-		SnapshotTruncated: snapshotTruncated,
+	applyBarrierOutcome(result, barrier)
+}
+
+func applyBarrierOutcome(result *SendMessageResult, barrier appcm.BarrierResult) {
+	if result == nil {
+		return
 	}
-	if event.Action == "" {
-		event.Action = "block"
-	}
-	if event.Reason == "" {
-		event.Reason = result.Reason
-	}
-	if err := s.repo.CreateModerationEvent(ctx, event); err == nil && event.Flagged && event.EventType == moderationEventPolicyHit {
-		if disposition, appliedAt, dispositionErr := s.applyModerationAutoDisposition(ctx, input.UserID); dispositionErr == nil && disposition != "" {
-			event.Disposition = disposition
-			event.DispositionAppliedAt = appliedAt
-			_, _ = s.repo.UpdateModerationEventDisposition(ctx, event.ID, disposition, appliedAt)
+	if barrier.Block == nil {
+		result.Moderation = &MessageModerationOutcome{
+			Blocked: false,
+			State:   firstNonEmptyString(barrier.State, "passed"),
 		}
+		return
+	}
+	result.postBillingCompaction = nil
+	result.MetadataRefreshHint = conversationMetadataRefreshNotNeeded
+	applyBlockedSnapshot(result, *barrier.Block, barrier.TerminalEmitted)
+}
+
+func applyBlockedSnapshot(result *SendMessageResult, block appcm.BlockInfo, terminalEmitted bool) {
+	if result == nil {
+		return
+	}
+	if block.Direction == appcm.DirectionInput {
+		result.UserMessage.Status = "blocked"
+		result.UserMessage.ModerationEventID = block.EventID
+		result.UserMessage.ModerationCategoriesJSON = mustJSONArray(block.Categories)
+		result.UserMessage.ErrorCode = "content_moderation.blocked"
+		result.UserMessage.ErrorMessage = "content blocked by moderation"
+	}
+	result.AssistantMessage.Status = "blocked"
+	result.AssistantMessage.Content = ""
+	result.AssistantMessage.ReasoningContent = ""
+	result.AssistantMessage.Attachments = "[]"
+	result.AssistantMessage.ProcessTrace = nil
+	result.AssistantMessage.ModerationEventID = block.EventID
+	result.AssistantMessage.ModerationCategoriesJSON = mustJSONArray(block.Categories)
+	result.AssistantMessage.ErrorCode = "content_moderation.blocked"
+	result.AssistantMessage.ErrorMessage = "content blocked by moderation"
+	result.Moderation = &MessageModerationOutcome{
+		Blocked:         true,
+		EventID:         block.EventID,
+		Direction:       block.Direction,
+		Categories:      append([]string(nil), block.Categories...),
+		State:           "blocked",
+		TerminalEmitted: terminalEmitted,
 	}
 }
 
-func (s *Service) moderationFailureResult(err error) *moderationCheckResult {
-	cfg := normalizeModerationRuntimeConfig(s.cfg.Snapshot())
-	return &moderationCheckResult{
-		Flagged:        shouldBlockOnModerationError(cfg.FailStrategy),
-		Threshold:      cfg.Threshold,
-		Model:          cfg.Model,
-		CategoriesJSON: "{}",
-		Reason:         err.Error(),
+// applyBlockedRunFields copies soft-block outcome onto a conversation run for finalize/upsert.
+func applyBlockedRunFields(run *model.Run, result *SendMessageResult) {
+	if run == nil || result == nil || !result.IsModerationBlocked() {
+		return
+	}
+	run.Status = "blocked"
+	run.ErrorCode = "content_moderation.blocked"
+	run.ErrorMessage = "content blocked by moderation"
+	run.ModerationState = "blocked"
+	if result.Moderation != nil {
+		run.ModerationEventID = result.Moderation.EventID
+		run.ModerationCategoriesJSON = mustJSONArray(result.Moderation.Categories)
 	}
 }
 
-func (s *Service) shouldFailCloseModeration() bool {
-	cfg := normalizeModerationRuntimeConfig(s.cfg.Snapshot())
-	return shouldBlockOnModerationError(cfg.FailStrategy)
+// applyModerationRunState copies non-blocked barrier state onto the run for upsert.
+func applyModerationRunState(run *model.Run, result *SendMessageResult) {
+	if run == nil || result == nil || result.Moderation == nil {
+		return
+	}
+	if result.Moderation.Blocked {
+		applyBlockedRunFields(run, result)
+		return
+	}
+	if state := strings.TrimSpace(result.Moderation.State); state != "" {
+		run.ModerationState = state
+	}
 }
 
-func (s *Service) applyModerationAutoDisposition(ctx context.Context, userID uint) (string, *time.Time, error) {
-	if s.userEnforcer == nil || userID == 0 {
-		return "", nil, nil
+func mustJSONArray(items []string) string {
+	if len(items) == 0 {
+		return "[]"
 	}
-	cfg := normalizeModerationRuntimeConfig(s.cfg.Snapshot())
-	if cfg.AutoLimitThreshold <= 0 && cfg.AutoSuspendThreshold <= 0 {
-		return "", nil, nil
-	}
-	user, err := s.userEnforcer.GetByID(ctx, userID)
-	if err != nil || user == nil || domainuser.IsAdminRole(user.Role) {
-		return "", nil, err
-	}
-	count, err := s.repo.CountFlaggedModerationEvents(ctx, userID, time.Now().Add(-time.Duration(cfg.AutoWindowHours)*time.Hour))
+	raw, err := json.Marshal(items)
 	if err != nil {
-		return "", nil, err
+		return "[]"
 	}
-	now := time.Now().UTC()
-	if cfg.AutoSuspendThreshold > 0 && count >= int64(cfg.AutoSuspendThreshold) &&
-		(user.Status == domainuser.StatusActive || user.Status == domainuser.StatusLocked) {
-		if err = s.userEnforcer.UpdateUserStatus(ctx, userID, domainuser.StatusSuspended); err != nil {
-			return "", nil, err
+	return string(raw)
+}
+
+func moderationOutputText(parts ...string) string {
+	seen := make(map[string]struct{}, len(parts))
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
 		}
-		if err = s.userEnforcer.SetUserSuspension(ctx, userID, moderationVisibleSuspensionReason, moderationAutoSuspendDetail, &now, nil); err != nil {
-			return "", nil, err
+		if _, exists := seen[part]; exists {
+			continue
 		}
-		if err = s.userEnforcer.RevokeAllSessions(ctx, userID, moderationAutoSuspendRevokeReason); err != nil {
-			return "", nil, err
-		}
-		s.notifyModerationAutoDisposition(ctx, userID, moderationDispositionSuspend, now)
-		return moderationDispositionSuspend, &now, nil
+		seen[part] = struct{}{}
+		kept = append(kept, part)
 	}
-	if cfg.AutoLimitThreshold > 0 && count >= int64(cfg.AutoLimitThreshold) && user.Status == domainuser.StatusActive && s.rateLimiter != nil {
-		ttl := time.Duration(cfg.AutoLimitDurationMinutes) * time.Minute
-		_, overrideExisted, _ := s.rateLimiter.GetUserRateLimitOverride(ctx, userID)
-		if err = s.rateLimiter.SetUserRateLimitOverride(ctx, userID, cfg.AutoLimitRPM, ttl); err != nil {
-			return "", nil, err
-		}
-		if !overrideExisted {
-			s.notifyModerationAutoDisposition(ctx, userID, moderationDispositionLimit, now)
-		}
-		return moderationDispositionLimit, &now, nil
-	}
-	return "", nil, nil
+	return strings.Join(kept, "\n\n")
 }
 
-func (s *Service) notifyModerationAutoDisposition(ctx context.Context, userID uint, disposition string, appliedAt time.Time) {
-	if s.moderationNotifier == nil || userID == 0 {
-		return
+func (s *Service) loadImageForModeration(ctx context.Context, userID uint, fileID string) (appcm.PreparedImage, error) {
+	empty := appcm.PreparedImage{}
+	file, err := s.repo.GetActiveFileObjectByID(ctx, userID, strings.TrimSpace(fileID))
+	if err != nil || file == nil {
+		return empty, err
 	}
-	input, ok := moderationDispositionNotification(disposition, appliedAt)
-	if !ok {
-		return
+	declaredMIME := firstNonEmptyString(file.DetectedMIME, file.MimeType)
+	if normalizeAttachmentKind("", declaredMIME) != "image" {
+		return empty, appcm.ErrNonImageAttachment
 	}
-	_, _ = s.moderationNotifier.CreateSystemNotification(ctx, userID, input)
-}
-
-func moderationDispositionNotification(disposition string, appliedAt time.Time) (appnotification.SystemNotificationInput, bool) {
-	input := appnotification.SystemNotificationInput{
-		Type:      domainnotification.TypeModeration,
-		ActionURL: moderationNotificationLink,
-		Source:    moderationNotificationSource,
-		SourceID:  fmt.Sprintf("%s:%d", strings.TrimSpace(disposition), appliedAt.Unix()),
-		Metadata: map[string]any{
-			"disposition": disposition,
-			"appliedAt":   appliedAt.UTC().Format(time.RFC3339),
-		},
+	cfg := s.cfg.Snapshot()
+	storeProvider := s.storeProvider
+	if storeProvider == nil {
+		storeProvider = appstorage.NewRuntimeProvider(config.NewRuntime(cfg), nil)
 	}
-	switch disposition {
-	case moderationDispositionLimit:
-		input.Title = moderationLimitNotificationTitle
-		input.Body = moderationLimitNotificationBody
-	case moderationDispositionSuspend:
-		input.Title = moderationSuspendNotificationTitle
-		input.Body = moderationSuspendNotificationBody
-	default:
-		return appnotification.SystemNotificationInput{}, false
-	}
-	return input, true
-}
-
-func (s *Service) notifyModerationDispositionRelease(ctx context.Context, userID uint, eventID uint, disposition string, releasedAt time.Time) {
-	if s.moderationNotifier == nil || userID == 0 {
-		return
-	}
-	input, ok := moderationReleaseNotification(eventID, disposition, releasedAt)
-	if !ok {
-		return
-	}
-	_, _ = s.moderationNotifier.CreateSystemNotification(ctx, userID, input)
-}
-
-func moderationReleaseNotification(eventID uint, disposition string, releasedAt time.Time) (appnotification.SystemNotificationInput, bool) {
-	if eventID == 0 {
-		return appnotification.SystemNotificationInput{}, false
-	}
-	return appnotification.SystemNotificationInput{
-		Type:      domainnotification.TypeModeration,
-		Title:     moderationReleaseNotificationTitle,
-		Body:      moderationReleaseNotificationBody,
-		ActionURL: moderationNotificationLink,
-		Source:    moderationNotificationSource,
-		SourceID:  fmt.Sprintf("release:%d", eventID),
-		Metadata: map[string]any{
-			"disposition": strings.TrimSpace(disposition),
-			"releasedAt":  releasedAt.UTC().Format(time.RFC3339),
-		},
-	}, true
-}
-
-func (s *Service) CheckContentForPolicy(ctx context.Context, userID uint, content string, direction string) error {
-	return s.checkContentForPolicy(ctx, userID, 0, 0, "", content, direction)
-}
-
-func (s *Service) checkContentForPolicy(ctx context.Context, userID uint, conversationID uint, messageID uint, runID string, content string, direction string) error {
-	result, err := s.checkModeration(ctx, direction, content)
-	input := SendMessageInput{UserID: userID, ConversationID: conversationID}
+	store, err := storeProvider.Open(ctx)
 	if err != nil {
-		s.recordModerationEvent(ctx, input, messageID, runID, direction, s.moderationFailureResult(err), "check_failed", content)
-		if s.shouldFailCloseModeration() {
-			return ErrModerationBlocked
-		}
+		return empty, err
+	}
+	reader, _, err := store.Open(ctx, strings.TrimSpace(file.StoragePath))
+	if err != nil {
+		return empty, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(reader, maxConversationImageSourceBytes+1))
+	_ = reader.Close()
+	if readErr != nil {
+		return empty, readErr
+	}
+	if len(data) == 0 {
+		return empty, errEmptyModerationImage
+	}
+	if len(data) > 20*1024*1024 {
+		return empty, errModerationImageTooLarge
+	}
+	detectedMIME := detectGeneratedImageMIME(data)
+	if detectedMIME == "" {
+		return empty, errUnsupportedModerationImage
+	}
+	maxDim := cfg.ImageMaxDimension
+	if maxDim <= 0 {
+		maxDim = 1024
+	}
+	resized, actualMIME := resizeImageIfNeeded(data, detectedMIME, maxDim)
+	return appcm.PreparedImage{
+		Data:   resized,
+		SHA256: file.SHA256,
+		Mime:   actualMIME,
+		Size:   int64(len(resized)),
+		FileID: file.FileID,
+	}, nil
+}
+
+var (
+	errEmptyModerationImage       = errString("empty image")
+	errModerationImageTooLarge    = errString("image exceeds 20MB")
+	errUnsupportedModerationImage = errString("unsupported moderation image")
+)
+
+type stringError string
+
+func (e stringError) Error() string { return string(e) }
+func errString(s string) error      { return stringError(s) }
+
+// loadOutputImagesForModeration loads final assistant image attachments for output checks.
+func (s *Service) loadOutputImagesForModeration(ctx context.Context, coord *appcm.RunCoordinator, userID uint, attachmentsJSON string) []appcm.OutputImageSource {
+	refs := parseAttachmentSnapshotRefs(attachmentsJSON)
+	if len(refs) == 0 {
 		return nil
 	}
-	if result != nil && result.Flagged {
-		s.recordModerationEvent(ctx, input, messageID, runID, direction, result, "blocked", content)
-		return ErrModerationBlocked
+	out := make([]appcm.OutputImageSource, 0, len(refs))
+	for _, ref := range refs {
+		fileID := strings.TrimSpace(ref.FileID)
+		if fileID == "" {
+			continue
+		}
+		kind := normalizeAttachmentKind(ref.Kind, firstNonEmptyString(ref.DetectedMIME, ref.MimeType))
+		if kind != "image" {
+			continue
+		}
+		prepared, err := s.loadImageForModeration(ctx, userID, fileID)
+		if err != nil || len(prepared.Data) == 0 {
+			if err == nil {
+				err = errEmptyModerationImage
+			}
+			coord.RecordOutputImageFailure(fileID, err)
+			continue
+		}
+		out = append(out, appcm.OutputImageSource{
+			FileID:   fileID,
+			Data:     prepared.Data,
+			MimeType: prepared.Mime,
+			SHA256:   prepared.SHA256,
+		})
 	}
-	return nil
+	return out
+}
+
+func loadOutputImagesFromFiles(coord *appcm.RunCoordinator, files []model.FileObject, dataByFileID map[string][]byte) []appcm.OutputImageSource {
+	out := make([]appcm.OutputImageSource, 0, len(files))
+	for _, file := range files {
+		data := dataByFileID[file.FileID]
+		if len(data) == 0 {
+			coord.RecordOutputImageFailure(file.FileID, errEmptyModerationImage)
+			continue
+		}
+		out = append(out, appcm.OutputImageSource{
+			FileID:   file.FileID,
+			Data:     data,
+			MimeType: firstNonEmptyString(file.DetectedMIME, file.MimeType, "image/png"),
+			SHA256:   file.SHA256,
+		})
+	}
+	return out
+}
+
+func (s *Service) resetGenerationStreamEvents(runID string) {
+	runID = normalizeRunID(runID)
+	if runID == "" || s == nil || s.generationStreams == nil {
+		return
+	}
+	s.generationStreams.resetEvents(context.Background(), runID)
+}
+
+type moderationObjectStoreAdapter struct {
+	service *Service
+}
+
+func (a *moderationObjectStoreAdapter) Put(ctx context.Context, path string, data []byte, contentType string) error {
+	store, err := a.open(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = store.Put(ctx, path, bytes.NewReader(data), objectstore.PutOptions{ContentType: contentType})
+	return err
+}
+
+func (a *moderationObjectStoreAdapter) Open(ctx context.Context, path string) ([]byte, error) {
+	store, err := a.open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reader, _, err := store.Open(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return io.ReadAll(reader)
+}
+
+func (a *moderationObjectStoreAdapter) Delete(ctx context.Context, path string) error {
+	store, err := a.open(ctx)
+	if err != nil {
+		return err
+	}
+	return store.Delete(ctx, path)
+}
+
+func (a *moderationObjectStoreAdapter) open(ctx context.Context) (objectstore.Store, error) {
+	provider := a.service.storeProvider
+	if provider == nil {
+		provider = appstorage.NewRuntimeProvider(a.service.cfg, nil)
+	}
+	return provider.Open(ctx)
+}
+
+type moderationFileAccessAdapter struct {
+	service *Service
+}
+
+var _ appcm.FileAccessController = (*moderationFileAccessAdapter)(nil)
+
+type moderationBlockedFileLister interface {
+	ListModerationBlockedFileIDsForCleanup(ctx context.Context, limit int) ([]string, error)
+}
+
+func (a *moderationFileAccessAdapter) RevokeGeneratedFile(ctx context.Context, fileID string) error {
+	if a.service == nil || a.service.repo == nil {
+		return nil
+	}
+	fileID = strings.TrimSpace(fileID)
+	if fileID == "" {
+		return nil
+	}
+	return a.service.repo.RevokeGeneratedFileForModeration(ctx, fileID)
+}
+
+func (a *moderationFileAccessAdapter) DeleteGeneratedFileArtifacts(ctx context.Context, fileID string) error {
+	if a.service == nil || a.service.repo == nil {
+		return nil
+	}
+	fileID = strings.TrimSpace(fileID)
+	if fileID == "" {
+		return nil
+	}
+	var storagePath string
+	if file, err := a.service.repo.GetFileObjectByFileIDAnyStatus(ctx, fileID); err == nil && file != nil {
+		storagePath = strings.TrimSpace(file.StoragePath)
+	}
+	if err := a.service.repo.DeleteGeneratedFileArtifactsForModeration(ctx, fileID); err != nil {
+		return err
+	}
+	if storagePath == "" {
+		return nil
+	}
+	storeProvider := a.service.storeProvider
+	if storeProvider == nil {
+		storeProvider = appstorage.NewRuntimeProvider(a.service.cfg, nil)
+	}
+	store, err := storeProvider.Open(ctx)
+	if err != nil {
+		return err
+	}
+	if err := store.Delete(ctx, storagePath); err != nil {
+		return err
+	}
+	return a.service.repo.ClearGeneratedFileStoragePath(ctx, fileID)
+}
+
+func (a *moderationFileAccessAdapter) RetryBlockedGeneratedFileDeletes(ctx context.Context, limit int) (int, error) {
+	if a.service == nil || a.service.repo == nil {
+		return 0, nil
+	}
+	lister, ok := a.service.repo.(moderationBlockedFileLister)
+	if !ok {
+		return 0, errors.New("conversation repository does not support moderation file cleanup")
+	}
+	fileIDs, err := lister.ListModerationBlockedFileIDsForCleanup(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	deleted := 0
+	var cleanupErr error
+	for _, fileID := range fileIDs {
+		if err := a.DeleteGeneratedFileArtifacts(ctx, fileID); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
+		}
+		deleted++
+	}
+	return deleted, cleanupErr
+}
+
+// filterBlockedMessages excludes blocked messages from model context.
+func filterBlockedMessages(messages []model.Message) []model.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	out := make([]model.Message, 0, len(messages))
+	for _, item := range messages {
+		if strings.EqualFold(strings.TrimSpace(item.Status), "blocked") {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }

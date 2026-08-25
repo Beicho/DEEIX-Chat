@@ -14,21 +14,14 @@ import (
 )
 
 const (
-	defaultPageSize             = 20
-	maxPageSize                 = 100
-	maxAdminEventPageSize       = 1000
-	maxMessagePageSize          = 1000
-	maxConversationSearchQuery  = 120
-	searchResultSnippetMaxRunes = 180
-	messageBookmarkNoteMaxRunes = 512
-	messageBookmarkTagMaxRunes  = 40
-	messageBookmarkMaxTags      = 12
-	newConversationDraftKey     = "__new__"
-	conversationDraftMaxRunes   = 20000
-	conversationDraftMaxJSONLen = 120000
-	conversationDraftMaxFiles   = 20
-	conversationExportVersion   = 1
-	conversationExportScopeFull = "full"
+	defaultPageSize                     = 20
+	maxPageSize                         = 100
+	maxAdminEventPageSize               = 1000
+	maxMessagePageSize                  = 1000
+	conversationPreviewMessageLimit     = 10
+	conversationPreviewAncestorMaxDepth = 100
+	conversationExportVersion           = 1
+	conversationExportScopeFull         = "full"
 )
 
 // DeleteConversationOptions 定义会话删除选项。
@@ -41,6 +34,11 @@ type DeleteConversationResult struct {
 	Deleted          bool
 	DeletedFileCount int
 	Quota            *model.StorageQuota
+}
+
+// ConversationSearchResult 表示会话搜索列表中的单个结果。
+type ConversationSearchResult struct {
+	Conversation model.Conversation
 }
 
 // CreateConversation 创建用户新会话。
@@ -107,144 +105,37 @@ func (s *Service) ListConversations(
 	return s.repo.ListConversationsByUser(ctx, userID, offset, limit, statusFilter, starredFilter, shareFilter, normalizeConversationProjectFilter(projectFilter), searchQuery)
 }
 
-// SearchConversations 分页搜索当前用户会话标题、标签和消息正文。
-func (s *Service) SearchConversations(ctx context.Context, userID uint, query string, page int, pageSize int) ([]model.ConversationSearchResult, int64, error) {
-	normalizedQuery := normalizeConversationSearchQuery(query)
-	if normalizedQuery == "" {
-		return []model.ConversationSearchResult{}, 0, nil
-	}
-
+// SearchConversations 分页搜索当前用户的会话，并通过前瞻记录判断是否还有下一页。
+func (s *Service) SearchConversations(
+	ctx context.Context,
+	userID uint,
+	page int,
+	pageSize int,
+	searchQuery string,
+) ([]ConversationSearchResult, bool, error) {
 	offset, limit := normalizePage(page, pageSize)
-	if limit > 50 {
-		limit = 50
+	items, err := s.repo.ListConversationsForSearch(
+		ctx,
+		userID,
+		offset,
+		limit+1,
+		searchQuery,
+	)
+	if err != nil || len(items) == 0 {
+		return []ConversationSearchResult{}, false, err
 	}
-	items, total, err := s.repo.SearchConversationsByUser(ctx, userID, normalizedQuery, offset, limit)
-	if err != nil {
-		return nil, 0, err
-	}
-	for index := range items {
-		if strings.TrimSpace(items[index].MessageSnippet) == "" {
-			items[index].MessageSnippet = items[index].Conversation.Title
-		}
-		items[index].MessageSnippet = buildConversationSearchSnippet(items[index].MessageSnippet, normalizedQuery, searchResultSnippetMaxRunes)
-	}
-	return items, total, nil
-}
-
-// GetConversationDraft 查询当前用户某个会话的输入框草稿。
-func (s *Service) GetConversationDraft(ctx context.Context, userID uint, conversationPublicID string) (*model.ConversationDraft, error) {
-	normalizedKey := normalizeConversationDraftKey(conversationPublicID)
-	if err := s.ensureConversationDraftAccess(ctx, userID, normalizedKey); err != nil {
-		return nil, err
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
 	}
 
-	item, err := s.repo.GetConversationDraft(ctx, userID, normalizedKey)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return emptyConversationDraft(userID, normalizedKey), nil
-		}
-		return nil, err
-	}
-	return item, nil
-}
-
-// UpsertConversationDraft 保存当前用户某个会话的输入框草稿；空草稿会清理服务端记录。
-func (s *Service) UpsertConversationDraft(ctx context.Context, userID uint, conversationPublicID string, draft string, attachmentsJSON string) (*model.ConversationDraft, error) {
-	normalizedKey := normalizeConversationDraftKey(conversationPublicID)
-	if err := s.ensureConversationDraftAccess(ctx, userID, normalizedKey); err != nil {
-		return nil, err
-	}
-	if len([]rune(draft)) > conversationDraftMaxRunes {
-		return nil, ErrInvalidConversationDraft
-	}
-
-	normalizedAttachmentsJSON, err := normalizeConversationDraftAttachmentsJSON(attachmentsJSON)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(draft) == "" && normalizedAttachmentsJSON == "[]" {
-		if err := s.repo.DeleteConversationDraft(ctx, userID, normalizedKey); err != nil {
-			return nil, err
-		}
-		return emptyConversationDraft(userID, normalizedKey), nil
-	}
-
-	return s.repo.UpsertConversationDraft(ctx, &model.ConversationDraft{
-		UserID:               userID,
-		ConversationPublicID: normalizedKey,
-		Draft:                draft,
-		AttachmentsJSON:      normalizedAttachmentsJSON,
-	})
-}
-
-// DeleteConversationDraft 删除当前用户某个会话的输入框草稿。
-func (s *Service) DeleteConversationDraft(ctx context.Context, userID uint, conversationPublicID string) (*model.ConversationDraft, error) {
-	normalizedKey := normalizeConversationDraftKey(conversationPublicID)
-	if err := s.ensureConversationDraftAccess(ctx, userID, normalizedKey); err != nil {
-		return nil, err
-	}
-	if err := s.repo.DeleteConversationDraft(ctx, userID, normalizedKey); err != nil {
-		return nil, err
-	}
-	return emptyConversationDraft(userID, normalizedKey), nil
-}
-
-func normalizeConversationDraftKey(value string) string {
-	normalized := strings.TrimSpace(value)
-	if normalized == "" {
-		return newConversationDraftKey
-	}
-	return normalized
-}
-
-func emptyConversationDraft(userID uint, conversationPublicID string) *model.ConversationDraft {
-	return &model.ConversationDraft{
-		UserID:               userID,
-		ConversationPublicID: conversationPublicID,
-		Draft:                "",
-		AttachmentsJSON:      "[]",
-	}
-}
-
-func (s *Service) ensureConversationDraftAccess(ctx context.Context, userID uint, conversationPublicID string) error {
-	if conversationPublicID == newConversationDraftKey {
-		return nil
-	}
-	if _, err := s.repo.GetConversationByPublicID(ctx, conversationPublicID, userID); err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return ErrConversationNotFound
-		}
-		return err
-	}
-	return nil
-}
-
-func normalizeConversationDraftAttachmentsJSON(raw string) (string, error) {
-	normalized := strings.TrimSpace(raw)
-	if normalized == "" || normalized == "null" {
-		return "[]", nil
-	}
-	if len([]byte(normalized)) > conversationDraftMaxJSONLen {
-		return "", ErrInvalidConversationDraft
-	}
-
-	items := make([]json.RawMessage, 0)
-	if err := json.Unmarshal([]byte(normalized), &items); err != nil {
-		return "", ErrInvalidConversationDraft
-	}
-	if len(items) > conversationDraftMaxFiles {
-		return "", ErrInvalidConversationDraft
-	}
+	results := make([]ConversationSearchResult, 0, len(items))
 	for _, item := range items {
-		if len(item) == 0 || strings.TrimSpace(string(item)) == "null" {
-			return "", ErrInvalidConversationDraft
-		}
+		results = append(results, ConversationSearchResult{
+			Conversation: item,
+		})
 	}
-	compacted, err := json.Marshal(items)
-	if err != nil {
-		return "", ErrInvalidConversationDraft
-	}
-	return string(compacted), nil
+	return results, hasMore, nil
 }
 
 // ListMessages 查询会话消息（分页）。
@@ -331,6 +222,19 @@ func (s *Service) ListAllConversationsAfterID(ctx context.Context, afterID uint,
 	return s.repo.ListAllConversationsAfterID(ctx, afterID, limit)
 }
 
+// ListUserConversationsAfterID 按主键游标分页列出指定用户的会话。
+func (s *Service) ListUserConversationsAfterID(ctx context.Context, userID uint, afterID uint, limit int) ([]model.Conversation, error) {
+	return s.repo.ListUserConversationsAfterID(ctx, userID, afterID, limit)
+}
+
+// ExportUserConversationData 导出单会话完整数据，校验用户归属。
+func (s *Service) ExportUserConversationData(ctx context.Context, userID uint, conversation *model.Conversation) (*ConversationExportResult, error) {
+	if conversation.UserID != userID {
+		return nil, ErrConversationNotFound
+	}
+	return s.ExportConversationData(ctx, conversation)
+}
+
 // ExportConversationData 导出单会话完整数据，不做用户归属校验（管理员用）。
 func (s *Service) ExportConversationData(ctx context.Context, conversation *model.Conversation) (*ConversationExportResult, error) {
 	items, err := s.repo.ListAllMessages(ctx, conversation.ID)
@@ -403,6 +307,20 @@ func (s *Service) ListRecentMessages(ctx context.Context, userID uint, conversat
 		return nil, 0, err
 	}
 	return items, total, nil
+}
+
+// ListConversationPreviewMessages 返回最新分支末尾的可见消息，供搜索结果按需预览。
+func (s *Service) ListConversationPreviewMessages(ctx context.Context, userID uint, conversationPublicID string) ([]model.Message, error) {
+	conversation, err := s.repo.GetConversationByPublicID(ctx, strings.TrimSpace(conversationPublicID), userID)
+	if err != nil {
+		return nil, ErrConversationNotFound
+	}
+	return s.repo.ListLatestBranchPreviewMessages(
+		ctx,
+		conversation.ID,
+		conversationPreviewAncestorMaxDepth,
+		conversationPreviewMessageLimit,
+	)
 }
 
 // GetConversationByPublicID 查询用户会话元信息（公开 ID）。
@@ -684,16 +602,13 @@ func (s *Service) ListConversationRuns(
 	return s.repo.ListConversationRuns(ctx, userID, conversationID, offset, limit)
 }
 
-// GetLatestConversationRunModel 查询当前用户最近一次真实使用的模型。
-func (s *Service) GetLatestConversationRunModel(ctx context.Context, userID uint) (*model.Run, error) {
-	run, err := s.repo.GetLatestConversationRunModel(ctx, userID)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, nil
-		}
-		return nil, err
+// GetConversationSystemDefaultModel 返回后台配置的新会话系统推荐模型。
+func (s *Service) GetConversationSystemDefaultModel() string {
+	if s == nil || s.cfg == nil {
+		return ""
 	}
-	return run, nil
+	cfg := s.cfg.Snapshot()
+	return strings.TrimSpace(cfg.ConversationDefaultModel)
 }
 
 // EventLogListFilter 描述管理员对话事件筛选和排序条件。
@@ -723,6 +638,21 @@ func (s *Service) ListConversationEventLogs(ctx context.Context, page int, pageS
 		CreatedTo:      filter.CreatedTo,
 		Sort:           filter.Sort,
 	}, offset, limit)
+}
+
+// GetConversationEventLog 查询单条管理员对话事件详情。
+func (s *Service) GetConversationEventLog(ctx context.Context, eventID uint) (*model.EventLog, error) {
+	if eventID == 0 {
+		return nil, ErrConversationEventNotFound
+	}
+	item, err := s.repo.GetConversationEventLog(ctx, eventID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, ErrConversationEventNotFound
+		}
+		return nil, err
+	}
+	return item, nil
 }
 
 // ListConversationRunsByRunIDs 批量查询消息对应的运行快照。

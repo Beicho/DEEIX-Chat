@@ -1,10 +1,12 @@
 "use client";
 
+import { AnimatePresence, motion } from "motion/react";
 import * as React from "react";
 import { createPortal } from "react-dom";
 
 import {
   useMessageScroller,
+  useMessageScrollerScrollable,
   useMessageScrollerVisibility,
 } from "@/components/ui/message-scroller";
 import type { ChatAreaMessage } from "@/features/chat/types/messages";
@@ -15,6 +17,9 @@ const ANSWER_PREVIEW_MAX_LENGTH = 420;
 const PREVIEW_EDGE_MARGIN_PX = 12;
 const PREVIEW_ESTIMATED_HEIGHT_PX = 96;
 const PREVIEW_OFFSET_X_PX = 8;
+const RAIL_LINE_BASE_WIDTH_REM = 0.6;
+const RAIL_LINE_ACTIVE_WIDTH_MULTIPLIER = 2;
+const RAIL_LINE_ADJACENT_WIDTH_MULTIPLIER = 1.5;
 
 type TurnPreviewItem = {
   answer: string;
@@ -61,51 +66,71 @@ function resolvePreviewPosition({
   return clamp(boundary.top, minTop, maxTop);
 }
 
+function resolveRailLineWidthRem(distance: number, distributed: boolean) {
+  if (!distributed || distance >= 2) {
+    return RAIL_LINE_BASE_WIDTH_REM;
+  }
+
+  return (
+    RAIL_LINE_BASE_WIDTH_REM *
+    (distance === 0 ? RAIL_LINE_ACTIVE_WIDTH_MULTIPLIER : RAIL_LINE_ADJACENT_WIDTH_MULTIPLIER)
+  );
+}
+
 function ChatMessagePositionPreview({
   item,
   position,
   previewRef,
   top,
 }: {
-  item: TurnPreviewItem;
-  position: PreviewPosition;
+  item: TurnPreviewItem | null;
+  position: PreviewPosition | null;
   previewRef: React.RefObject<HTMLDivElement | null>;
-  top: number;
+  top: number | null;
 }) {
   return createPortal(
-    <div
-      ref={previewRef}
-      className="pointer-events-none fixed z-[9999] w-[min(22rem,calc(100vw-5rem))] -translate-y-1/2"
-      style={{ left: position.left, maxHeight: position.maxHeight, top }}
-      data-screenshot-exclude="true"
-    >
-      <div className="max-h-full scroll-fade-y scroll-fade-12 overflow-y-auto rounded-lg bg-sidebar-accent px-3 py-2 text-left text-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <span
-          className="block text-sm font-medium leading-5 text-foreground"
-          style={{
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
+    <AnimatePresence initial={false}>
+      {item && position && top !== null ? (
+        <motion.div
+          ref={previewRef}
+          key="chat-message-position-preview"
+          className="pointer-events-none fixed z-[9999] w-[min(22rem,calc(100vw-5rem))] -translate-y-1/2"
+          style={{ left: position.left, maxHeight: position.maxHeight, top }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15, ease: "easeOut" }}
+          data-screenshot-exclude="true"
         >
-          {item.question}
-        </span>
-        {item.answer ? (
-          <span
-            className="mt-1 block text-xs leading-5 text-muted-foreground"
-            style={{
-              display: "-webkit-box",
-              maxHeight: "3.75rem",
-              overflow: "hidden",
-              WebkitBoxOrient: "vertical",
-              WebkitLineClamp: 3,
-            }}
-          >
-            {item.answer}
-          </span>
-        ) : null}
-      </div>
-    </div>,
+          <div className="max-h-full scroll-fade-y scroll-fade-12 overflow-y-auto rounded-lg bg-sidebar-accent px-3 py-2 text-left text-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <span
+              className="block text-sm font-medium leading-5 text-foreground"
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {item.question}
+            </span>
+            {item.answer ? (
+              <span
+                className="mt-1 block text-xs leading-5 text-muted-foreground"
+                style={{
+                  display: "-webkit-box",
+                  maxHeight: "3.75rem",
+                  overflow: "hidden",
+                  WebkitBoxOrient: "vertical",
+                  WebkitLineClamp: 3,
+                }}
+              >
+                {item.answer}
+              </span>
+            ) : null}
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>,
     document.body,
   );
 }
@@ -118,7 +143,8 @@ function ChatMessagePositionRailComponent({
   messages: ChatAreaMessage[];
 }) {
   const { scrollToMessage } = useMessageScroller();
-  const { currentAnchorId, visibleMessageIds } = useMessageScrollerVisibility();
+  const { end: canScrollToEnd } = useMessageScrollerScrollable();
+  const { visibleMessageIds } = useMessageScrollerVisibility();
   const [hoveredID, setHoveredID] = React.useState<string | null>(null);
   const [previewPosition, setPreviewPosition] = React.useState<PreviewPosition | null>(null);
   const [previewHeight, setPreviewHeight] = React.useState(PREVIEW_ESTIMATED_HEIGHT_PX);
@@ -179,8 +205,8 @@ function ChatMessagePositionRailComponent({
   const visibleIDs = React.useMemo(() => new Set(visibleMessageIds), [visibleMessageIds]);
   const turnIsActive = React.useCallback(
     (item: TurnPreviewItem) =>
-      item.messageIDs.some((messageID) => messageID === currentAnchorId || visibleIDs.has(messageID)),
-    [currentAnchorId, visibleIDs],
+      item.messageIDs.some((messageID) => visibleIDs.has(messageID)),
+    [visibleIDs],
   );
   const activatePreview = React.useCallback((id: string, target: HTMLElement) => {
     const targetRect = target.getBoundingClientRect();
@@ -202,9 +228,11 @@ function ChatMessagePositionRailComponent({
     setPreviewPosition(null);
   }, []);
 
-  const currentIndex = items.findIndex(turnIsActive);
+  const visibleIndex = items.findIndex(turnIsActive);
+  const currentIndex = !canScrollToEnd && items.length > 0 ? items.length - 1 : visibleIndex;
   const hoveredIndex = hoveredID ? items.findIndex((item) => item.id === hoveredID) : -1;
   const activeIndex = hoveredIndex >= 0 ? hoveredIndex : currentIndex >= 0 ? currentIndex : items.length - 1;
+  const railLineDistributionActive = hoveredIndex >= 0;
   const currentItem = items[currentIndex >= 0 ? currentIndex : items.length - 1] ?? null;
   const currentItemID = currentItem?.id ?? "";
   const previewItem = hoveredID ? items.find((item) => item.id === hoveredID) : null;
@@ -278,7 +306,7 @@ function ChatMessagePositionRailComponent({
 
   const previewTop = previewPosition ? resolvePreviewPosition({ boundary: previewPosition, previewHeight }) : null;
   const preview =
-    previewItem && previewPosition && previewTop !== null && typeof document !== "undefined" ? (
+    typeof document !== "undefined" ? (
       <ChatMessagePositionPreview
         item={previewItem}
         position={previewPosition}
@@ -304,13 +332,12 @@ function ChatMessagePositionRailComponent({
       >
         {items.map((item, index) => {
           const distance = Math.abs(index - activeIndex);
-          const focused = distance === 0;
+          const lineWidthRem = resolveRailLineWidthRem(distance, railLineDistributionActive);
           const lineClassName = cn(
             "h-0.5 rounded-full bg-current opacity-35 transition-[opacity,width]",
-            focused && "w-6 text-foreground opacity-100",
-            distance === 1 && "w-4 opacity-70",
-            distance === 2 && "w-3.5 opacity-50",
-            distance > 2 && (index === 0 || index === items.length - 1 ? "w-2.5" : "w-3"),
+            distance === 0 && "text-foreground opacity-100",
+            distance === 1 && "opacity-70",
+            distance === 2 && "opacity-50",
           );
           return (
             <div key={item.id} className="relative flex w-6 justify-center">
@@ -323,14 +350,14 @@ function ChatMessagePositionRailComponent({
                   itemRefs.current.delete(item.id);
                 }}
                 type="button"
-                className="flex h-1.5 w-6 items-center justify-center rounded-sm"
+                className="flex h-1.5 w-6 items-center justify-start rounded-sm"
                 onMouseEnter={(event) => activatePreview(item.id, event.currentTarget)}
                 onFocus={(event) => activatePreview(item.id, event.currentTarget)}
                 onClick={() => scrollToMessage(item.id, { align: "start", behavior: "smooth", scrollMargin: 16 })}
                 aria-label={item.question}
                 tabIndex={-1}
               >
-                <span className={lineClassName} />
+                <span className={lineClassName} style={{ width: `${lineWidthRem}rem` }} />
               </button>
             </div>
           );

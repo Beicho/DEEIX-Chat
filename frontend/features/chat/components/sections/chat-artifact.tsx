@@ -1,9 +1,9 @@
 "use client";
 
-import * as React from "react";
-import { AnimatePresence, motion } from "motion/react";
 import { Download, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useTranslations } from "next-intl";
+import * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,14 +15,25 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ChatArtifactSVGPreview } from "@/features/chat/components/sections/chat-artifact-svg-preview";
 import {
   buildArtifactPreviewDocument,
-  downloadArtifactHTML,
-  resolveArtifactDownloadName,
   type ChatArtifact,
+  resolveArtifactDownloadName,
 } from "@/features/chat/model/chat-artifacts";
-import { CopyActionButton } from "@/shared/components/copy-action";
+import {
+  useChatFontPreference,
+  useChatFontWeightPreference,
+} from "@/features/settings/utils/chat-font";
+import { useFontSizePreference } from "@/features/settings/utils/font-size";
 import { cn } from "@/lib/utils";
+import { CopyActionButton } from "@/shared/components/copy-action";
+import { useTheme } from "@/shared/components/theme-provider";
+import { downloadBlob } from "@/shared/lib/export-download";
+import {
+  captureHTMLVisualThemeSnapshot,
+  type HTMLVisualThemeSnapshot,
+} from "@/shared/lib/html-visual-theme";
 
 type ChatArtifactWorkspaceProps = {
   artifact: ChatArtifact | null;
@@ -142,34 +153,32 @@ function ChatArtifactPanel({
   onClose,
 }: ChatArtifactPanelProps) {
   const t = useTranslations("chat.artifacts");
-  const [copied, setCopied] = React.useState(false);
-  const previewLabels = React.useMemo(
-    () => ({
-      htmlTitle: t("previewLabels.htmlTitle"),
-      cssTitle: t("previewLabels.cssTitle"),
-      cssEyebrow: t("previewLabels.cssEyebrow"),
-      cssHeading: t("previewLabels.cssHeading"),
-      cssDescription: t("previewLabels.cssDescription"),
-      cssPrimaryAction: t("previewLabels.cssPrimaryAction"),
-      cssSecondaryAction: t("previewLabels.cssSecondaryAction"),
-      cssCardTitle: t("previewLabels.cssCardTitle"),
-      cssCardDescription: t("previewLabels.cssCardDescription"),
-      cssMetricTitle: t("previewLabels.cssMetricTitle"),
-      jsTitle: t("previewLabels.jsTitle"),
-      svgTitle: t("previewLabels.svgTitle"),
-      markdownTitle: t("previewLabels.markdownTitle"),
-      mermaidTitle: t("previewLabels.mermaidTitle"),
-      reactTitle: t("previewLabels.reactTitle"),
-      unknownError: t("previewLabels.unknownError"),
-      reactMissingComponent: t("previewLabels.reactMissingComponent"),
-      reactUnsupportedImport: t("previewLabels.reactUnsupportedImport"),
-    }),
-    [t],
-  );
+  const { preset, resolvedTheme } = useTheme();
+  const chatFont = useChatFontPreference();
+  const chatFontWeight = useChatFontWeightPreference();
+  const fontSize = useFontSizePreference();
+  const [previewTheme, setPreviewTheme] = React.useState<HTMLVisualThemeSnapshot>({
+    colorScheme: "light",
+    variables: [],
+  });
 
-  const previewHTML = React.useMemo(
-    () => buildArtifactPreviewDocument(artifact.kind, artifact.code, previewLabels),
-    [artifact.code, artifact.kind, previewLabels],
+  React.useEffect(() => {
+    setPreviewTheme(captureHTMLVisualThemeSnapshot(resolvedTheme));
+  }, [chatFont, chatFontWeight, fontSize, preset, resolvedTheme]);
+
+  const artifactPreview = React.useMemo(
+    () =>
+      artifact.kind === "svg"
+        ? ({ mode: "svg" } as const)
+        : ({
+            documentHTML: buildArtifactPreviewDocument(
+              artifact.kind,
+              artifact.code,
+              previewTheme,
+            ),
+            mode: "frame",
+          } as const),
+    [artifact.code, artifact.kind, previewTheme],
   );
   const canPreview = artifact.code.trim().length > 0;
   const artifactOptions = React.useMemo(
@@ -183,8 +192,18 @@ function ChatArtifactPanel({
 
   const handleDownload = React.useCallback(() => {
     if (!canPreview) return;
-    downloadArtifactHTML(resolveArtifactDownloadName(artifact.kind), previewHTML);
-  }, [artifact.kind, canPreview, previewHTML]);
+    if (artifactPreview.mode === "svg") {
+      downloadBlob(
+        new Blob([artifact.code], { type: "image/svg+xml;charset=utf-8" }),
+        resolveArtifactDownloadName(artifact.kind),
+      );
+      return;
+    }
+    downloadBlob(
+      new Blob([artifactPreview.documentHTML], { type: "text/html;charset=utf-8" }),
+      resolveArtifactDownloadName(artifact.kind),
+    );
+  }, [artifact.kind, artifact.code, artifactPreview, canPreview]);
 
   return (
     <aside
@@ -238,7 +257,11 @@ function ChatArtifactPanel({
               </TooltipTrigger>
               <TooltipContent side="bottom">{t("copySource")}</TooltipContent>
             </Tooltip>
-            <ArtifactActionButton label={t("downloadHtml")} disabled={!canPreview} onClick={handleDownload}>
+            <ArtifactActionButton
+              label={artifact.kind === "svg" ? t("downloadSvg") : t("downloadHtml")}
+              disabled={!canPreview}
+              onClick={handleDownload}
+            >
               <Download className="size-3" />
             </ArtifactActionButton>
             <ArtifactActionButton label={t("close")} onClick={onClose}>
@@ -266,11 +289,21 @@ function ChatArtifactPanel({
 
         <TabsContent value="preview" className="mt-0 min-h-0 flex-1 overflow-hidden">
           {canPreview ? (
-            <ArtifactPreviewFrame
-              key={artifact.id}
-              documentHTML={previewHTML}
-              title={t("previewTitle")}
-            />
+            artifactPreview.mode === "svg" ? (
+              <ChatArtifactSVGPreview
+                complete={artifact.complete}
+                invalidMessage={t("invalidSvg")}
+                source={artifact.code}
+                theme={previewTheme}
+                title={t("previewTitle")}
+              />
+            ) : (
+              <ArtifactPreviewFrame
+                key={artifact.id}
+                documentHTML={artifactPreview.documentHTML}
+                title={t("previewTitle")}
+              />
+            )
           ) : (
             <div className="flex h-full min-h-[320px] items-center justify-center bg-muted/15 px-6 text-center text-sm text-muted-foreground">
               {t("empty")}

@@ -31,6 +31,7 @@ type Plan struct {
 	DiscountPercent     int
 	SortOrder           int
 	IsActive            bool
+	PermissionGroupID   *uint
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -91,23 +92,25 @@ const (
 	BalanceTransactionTypeTopUp = "topup"
 	// BalanceTransactionTypeUsage 表示按量扣费。
 	BalanceTransactionTypeUsage = "usage_debit"
-	// BalanceTransactionTypeUsageReserve 表示按量调用前预扣。
+	// BalanceTransactionTypeUsageReserve 表示旧版按量调用前预扣流水，仅用于识别历史记录。
 	BalanceTransactionTypeUsageReserve = "usage_reserve"
-	// BalanceTransactionTypeUsageRefund 表示按量预扣退回。
+	// BalanceTransactionTypeUsageRefund 表示旧版预扣退回流水，仅用于识别历史记录。
 	BalanceTransactionTypeUsageRefund = "usage_refund"
 	// BalanceTransactionTypeAdminSet 表示管理员设置余额。
 	BalanceTransactionTypeAdminSet = "admin_set"
 	// BalanceTransactionTypeRedemption 表示兑换码入账。
 	BalanceTransactionTypeRedemption = "redemption"
-	// BalanceTransactionTypeCheckIn 表示每日签到奖励入账。
-	BalanceTransactionTypeCheckIn = "checkin"
-	// BalanceTransactionTypeNewAPITransferIn 表示从 NewAPI 单向转入余额。
-	BalanceTransactionTypeNewAPITransferIn = "newapi_transfer_in"
 
-	// BalanceTransactionRefTypeCheckIn 表示余额流水关联签到记录。
-	BalanceTransactionRefTypeCheckIn = "checkin"
-	// BalanceTransactionRefTypeExternalTransfer 表示余额流水关联外部划转记录。
-	BalanceTransactionRefTypeExternalTransfer = "external_transfer"
+	// UsageReservationStatusActive 表示用量预算仍被当前请求占用。
+	UsageReservationStatusActive = "active"
+	// UsageReservationStatusSettled 表示用量预算已经完成真实账单结算。
+	UsageReservationStatusSettled = "settled"
+	// UsageReservationStatusReleased 表示请求未产生账单，预算已经释放。
+	UsageReservationStatusReleased = "released"
+	// UsageReservationStatusReconciliation 表示上游已产生费用，但账单需要后台核对。
+	UsageReservationStatusReconciliation = "reconciliation"
+	// UsageReservationMaxActivePerUser 限制单个用户同时占用的付费调用预算数量。
+	UsageReservationMaxActivePerUser = 5
 )
 
 // PaymentOrder 表示一次支付单。
@@ -321,11 +324,43 @@ type Redemption struct {
 	UpdatedAt            time.Time
 }
 
-// UsageBalanceReservation 表示一次按量调用的预扣记录。
+// UsageBalanceReservationRequest 描述调用前需要原子预留的风险预算。
+type UsageBalanceReservationRequest struct {
+	UserID              uint
+	RefNo               string
+	Mode                string
+	RequestedNanousd    int64
+	PeriodStartAt       *time.Time
+	PeriodEndAt         *time.Time
+	PeriodCreditNanousd int64
+}
+
+// UsageBalanceReservation 表示一次模型调用的持久化预算预留。
 type UsageBalanceReservation struct {
-	UserID        uint
-	AmountNanousd int64
-	RefNo         string
+	ID                  uint
+	UserID              uint
+	RefNo               string
+	Mode                string
+	BalanceNanousd      int64
+	PeriodCreditNanousd int64
+	PeriodLimitNanousd  int64
+	PeriodStartAt       *time.Time
+	PeriodEndAt         *time.Time
+	Status              string
+	UsageLedgerID       uint
+	ExpiresAt           time.Time
+	SettledAt           *time.Time
+	ReleasedAt          *time.Time
+	ReconciliationAt    *time.Time
+	FailureCode         string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+// UsageAuthorization 表示一次上游调用在请求开始时确定的计费策略与可选预算预留。
+type UsageAuthorization struct {
+	Mode        string
+	Reservation *UsageBalanceReservation
 }
 
 // ModelPricing 表示平台模型名对应的统一计费单价。
@@ -373,6 +408,7 @@ type UsageLedger struct {
 	ServiceTier         string
 	BilledCurrency      string
 	BilledNanousd       int64
+	BalanceAfterNanousd *int64
 	PricingSnapshotJSON string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
@@ -470,49 +506,44 @@ type UsageDailyModelSummary struct {
 	BilledNanousd     int64
 }
 
-// AdminDashboardStats is the aggregate billing snapshot shown in the admin dashboard.
-type AdminDashboardStats struct {
-	Usage       AdminDashboardUsageStats
-	Sales       AdminDashboardSalesStats
-	TopModels   []AdminDashboardModelStats
-	GeneratedAt time.Time
+// UsageStatisticsMetrics 表示一组聚合后的用量指标。
+type UsageStatisticsMetrics struct {
+	RecordCount      int64
+	InputTokens      int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	OutputTokens     int64
+	ReasoningTokens  int64
+	CallCount        int64
+	AvgLatencyMS     int64
+	BilledNanousd    int64
+}
+
+// UsageStatisticsTrendPoint 表示一个按日或按月聚合的趋势点。
+type UsageStatisticsTrendPoint struct {
 	PeriodStart time.Time
-	PeriodEnd   time.Time
+	Metrics     UsageStatisticsMetrics
 }
 
-// AdminDashboardUsageStats summarizes usage ledgers in the selected period.
-type AdminDashboardUsageStats struct {
-	RecordCount     int64
-	ActiveUserCount int64
-	CallCount       int64
-	TokenCount      int64
-	DurationSeconds int64
-	BilledNanousd   int64
-}
-
-// AdminDashboardSalesStats summarizes paid payment orders in the selected period.
-type AdminDashboardSalesStats struct {
-	PaidOrderCount  int64
-	BaseAmountCents int64
-	CreditNanousd   int64
-}
-
-// AdminDashboardModelStats summarizes usage by platform model.
-type AdminDashboardModelStats struct {
+// UsageStatisticsModelRank 表示平台模型的用量排名项。
+type UsageStatisticsModelRank struct {
 	PlatformModelName string
-	RecordCount       int64
-	ActiveUserCount   int64
-	CallCount         int64
-	TokenCount        int64
-	DurationSeconds   int64
-	BilledNanousd     int64
+	Metrics           UsageStatisticsMetrics
+	Trend             []UsageStatisticsTrendPoint
 }
 
-// AdminCheckInStats summarizes daily check-in activity for admin pages.
-type AdminCheckInStats struct {
-	TodayCheckIns          int64
-	ActiveUsersLast7Days   int64
-	TotalClaims            int64
-	TotalRewardNanousd     int64
-	AverageConsecutiveDays float64
+// UsageStatisticsUserRank 表示用户的用量排名项。
+type UsageStatisticsUserRank struct {
+	UserID  uint
+	Metrics UsageStatisticsMetrics
+	Trend   []UsageStatisticsTrendPoint
+}
+
+// UsageStatistics 表示管理员仪表盘使用的全局用量聚合。
+type UsageStatistics struct {
+	Granularity string
+	Totals      UsageStatisticsMetrics
+	Trend       []UsageStatisticsTrendPoint
+	TopModels   []UsageStatisticsModelRank
+	TopUsers    []UsageStatisticsUserRank
 }

@@ -16,10 +16,10 @@ func (m *Module) RegisterPublicRoutes(api *gin.RouterGroup) {
 	api.POST("/auth/email-login/complete", m.Handler.CompleteEmailCodeLogin)
 	api.POST("/auth/refresh", m.Handler.RefreshToken)
 	api.GET("/auth/providers/:slug/start", m.Handler.StartProviderLogin)
+	api.POST("/auth/providers/:slug/authorize", m.Handler.StartProviderAuthBridge)
 	api.GET("/auth/providers/:slug/callback", m.Handler.ProviderCallback)
 	api.POST("/auth/providers/:slug/callback", m.Handler.CompleteProviderLogin)
-	api.POST("/auth/register/provider/complete", m.Handler.CompleteProviderRegistration)
-	api.GET("/auth/providers/:slug/logo", m.Handler.IdentityProviderLogo)
+	api.POST("/auth/providers/:slug/exchange", m.Handler.ExchangeProviderAuthBridgeGrant)
 }
 
 // RegisterProtectedRoutes 注册需登录的鉴权路由。

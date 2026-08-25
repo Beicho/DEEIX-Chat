@@ -1,9 +1,12 @@
 {
   "sections": {
     "conversation": "Conversation settings",
-    "contextCompression": "Context compression",
+    "contextManagement": "Context management",
     "optionPassthrough": "Option passthrough",
     "dataExport": "Data export"
+  },
+  "defaultModel": {
+    "systemRecommended": "System recommended"
   },
   "taskModel": {
     "follow": "Follow current model"
@@ -14,6 +17,10 @@
     "disabled": "Disabled"
   },
   "fields": {
+    "defaultModel": {
+      "label": "New conversation default model",
+      "description": "Used first when users choose System recommended or have no personal default model. Leave empty to fall back to the first available model."
+    },
     "taskModel": {
       "label": "Task model",
       "description": "Chat model used to generate conversation titles and labels."
@@ -25,21 +32,26 @@
     },
     "contextCompactEnabled": {
       "label": "Context compression",
-      "description": "Allow context compression globally. Users can still opt out in their own chat settings."
+      "description": "Summarize older conversation turns into a rolling context. Users can still opt out in chat settings."
     },
     "contextTokenBudget": {
-      "label": "Token budget truncation",
-      "description": "Automatically compute budget from the current model context window and trim sendable history."
+      "label": "Token budget protection",
+      "description": "Automatically trim history that exceeds the model context budget."
     },
     "contextMaxTurns": {
       "label": "Compression trigger turns",
       "description": "Trigger context compression when the conversation exceeds this turn count. Set 0 to disable this trigger.",
       "placeholder": "Trigger turns"
     },
-    "contextCompactTriggerTokens": {
-      "label": "Compression token threshold",
-      "description": "Trigger context compression when accumulated message tokens exceed this value. Set 0 to disable this trigger.",
-      "placeholder": "Token threshold"
+    "contextWindowFallbackTokens": {
+      "label": "Default context window",
+      "description": "Used when the model context window cannot be identified.",
+      "placeholder": "Default 128000"
+    },
+    "contextCompactTriggerPercent": {
+      "label": "Compression trigger ratio",
+      "description": "Trigger compression when accumulated context reaches this percentage of the active model's effective input budget. Set 0 to disable the token trigger.",
+      "placeholder": "Default 80"
     },
     "contextCompactPreserveTurns": {
       "label": "Recent turns to preserve",
@@ -63,7 +75,7 @@
     },
     "compactAsync": {
       "label": "Background compression",
-      "description": "Run template or LLM compression after the current response to reduce blocking in the reply pipeline."
+      "description": "Run template or LLM compression after the current response. Results are persisted in the message process trace, with start, completion, and failure recorded in backend logs."
     },
     "compactLLM": {
       "label": "LLM compression",
@@ -148,6 +160,8 @@
     "title": "All conversations",
     "description": "Export all conversations, messages, and metadata as a JSONL file.",
     "exportButton": "Export",
+    "success": "Exported {count} conversations",
+    "partial": "Exported {exported} conversations, {failed} failed",
     "failed": "Export failed. Please try again."
   }
 }

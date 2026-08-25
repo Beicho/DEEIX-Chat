@@ -37,7 +37,8 @@ func (n WebhookNotifier) Notify(ctx context.Context, event AlertEvent) error {
 	if target == "" {
 		return fmt.Errorf("webhook notifier is not configured")
 	}
-	if err := security.ValidateOutboundHTTPURL(target, n.Env, n.SSRFEnabled); err != nil {
+	policy := security.NewStrictOutboundPolicy(n.SSRFEnabled)
+	if err := security.ValidateOutboundHTTPURL(target, policy); err != nil {
 		return fmt.Errorf("webhook url is not allowed")
 	}
 
@@ -67,7 +68,7 @@ func (n WebhookNotifier) Notify(ctx context.Context, event AlertEvent) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := security.NewOutboundHTTPClient(n.Env, n.SSRFEnabled, 10*time.Second)
+	client := security.NewOutboundHTTPClient(policy, 10*time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("webhook request failed")

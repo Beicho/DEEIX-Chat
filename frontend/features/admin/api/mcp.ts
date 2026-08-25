@@ -9,6 +9,7 @@ import type {
   AdminMCPOrderListResponse,
   AdminMCPOrderGroupDTO,
   AdminMCPServerPayload,
+  AdminMCPToolPayload,
   AdminMCPToolListResponse,
 } from "@/features/admin/api/mcp.types";
 
@@ -80,9 +81,14 @@ export async function listAdminMCPServerTools(accessToken: string, serverID: num
   return data.results ?? [];
 }
 
-export async function syncAdminMCPServerTools(accessToken: string, serverID: number): Promise<MCPToolDTO[]> {
+export async function syncAdminMCPServerTools(
+  accessToken: string,
+  serverID: number,
+  overwriteCustomizedMetadata = false,
+): Promise<MCPToolDTO[]> {
+  const query = overwriteCustomizedMetadata ? "?overwrite_customized_metadata=true" : "";
   const data = await authedRequest<AdminMCPToolListResponse>(
-    `/api/v1/admin/mcp/servers/${pathParam(String(serverID))}/sync`,
+    `/api/v1/admin/mcp/servers/${pathParam(String(serverID))}/sync${query}`,
     {
       method: "POST",
       accessToken,
@@ -91,12 +97,6 @@ export async function syncAdminMCPServerTools(accessToken: string, serverID: num
   );
   return data.results ?? [];
 }
-
-export type AdminMCPToolPayload = {
-  displayName?: string;
-  description?: string;
-  status?: "active" | "inactive";
-};
 
 export async function updateAdminMCPTool(
   accessToken: string,

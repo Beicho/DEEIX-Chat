@@ -109,7 +109,7 @@ func (s *Service) SendTest(ctx context.Context, kind string, override TestOverri
 		if url == "" {
 			return fmt.Errorf("%w: webhook url is required", ErrInvalidConfig)
 		}
-		if err := validateWebhookURL(url, env, ssrf); err != nil {
+		if err := validateWebhookURL(url, ssrf); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 		}
 		return WebhookNotifier{URL: url, Env: env, SSRFEnabled: ssrf}.Notify(ctx, event)
@@ -180,8 +180,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func validateWebhookURL(raw string, env string, ssrfEnabled bool) error {
-	if err := security.ValidateOutboundHTTPURL(raw, env, ssrfEnabled); err != nil {
+func validateWebhookURL(raw string, ssrfEnabled bool) error {
+	if err := security.ValidateOutboundHTTPURL(raw, security.NewStrictOutboundPolicy(ssrfEnabled)); err != nil {
 		return fmt.Errorf("webhook url is not allowed")
 	}
 	return nil

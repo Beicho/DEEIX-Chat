@@ -51,7 +51,7 @@ func (n TelegramNotifier) Notify(ctx context.Context, event AlertEvent) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := security.NewOutboundHTTPClient(n.Env, n.SSRFEnabled, 10*time.Second)
+	client := security.NewOutboundHTTPClient(security.NewStrictOutboundPolicy(n.SSRFEnabled), 10*time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		// 不回显 token：错误里 endpoint 含 token，需脱敏。

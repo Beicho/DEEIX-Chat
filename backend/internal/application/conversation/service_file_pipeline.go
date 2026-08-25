@@ -167,6 +167,7 @@ func (s *Service) resolveAttachments(
 				EmbedStatus:            fileItem.EmbedStatus,
 				RagOptOut:              fileItem.RagOptOut,
 				ChunkCount:             fileItem.ChunkCount,
+				FileUpdatedAt:          fileItem.UpdatedAt,
 			})
 		}
 	}
@@ -245,6 +246,7 @@ func (s *Service) resolveConversationFileContext(
 			EmbedStatus:            fileItem.EmbedStatus,
 			RagOptOut:              fileItem.RagOptOut,
 			ChunkCount:             fileItem.ChunkCount,
+			FileUpdatedAt:          fileItem.UpdatedAt,
 			Current:                isCurrent,
 		})
 	}
@@ -262,7 +264,7 @@ func (s *Service) hydrateAttachmentsForSend(
 	}
 
 	// 多文件并行等待：每个文件独立 WaitUntilReady，总耗时 = max(单个文件) 而非 sum。
-	// 图片和空 FileID 直接跳过等待，不启动 goroutine。
+	// 本轮图片会作为 image part 直传；历史图片仅在 OCR 开启时等待提取文本。
 	items := make([]AttachmentInput, len(attachments))
 	for i, att := range attachments {
 		items[i] = att // 预置，图片/空 FileID 直接保留
@@ -272,8 +274,13 @@ func (s *Service) hydrateAttachmentsForSend(
 	var mu sync.Mutex
 	g, gCtx := errgroup.WithContext(ctx)
 
+	cfg := config.Config{}
+	if s != nil && s.cfg != nil {
+		cfg = s.cfg.Snapshot()
+	}
 	for i, att := range attachments {
-		if strings.TrimSpace(att.FileID) == "" || att.FileCategory == fileCategoryImage {
+		if strings.TrimSpace(att.FileID) == "" ||
+			(att.FileCategory == fileCategoryImage && (att.Current || strings.EqualFold(strings.TrimSpace(att.MessageRole), "user") || !cfg.ExtractImageOCREnabled)) {
 			continue
 		}
 		i, att := i, att // 闭包捕获
@@ -291,7 +298,10 @@ func (s *Service) hydrateAttachmentsForSend(
 				})
 			})
 			if err != nil {
-				if !att.Current {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return err
+				}
+				if !att.Current || att.FileCategory == fileCategoryImage {
 					if latestFile != nil {
 						items[i].ProcessingStatus = latestFile.ProcessingStatus
 						items[i].ProcessingReady = latestFile.ProcessingReady
@@ -315,6 +325,7 @@ func (s *Service) hydrateAttachmentsForSend(
 			items[i].ExtractStatus = readyFile.ExtractStatus
 			items[i].EmbedStatus = readyFile.EmbedStatus
 			items[i].ExtractedText = readyFile.ExtractedText
+			items[i].FileUpdatedAt = readyFile.File.UpdatedAt
 			return nil
 		})
 	}
@@ -333,7 +344,7 @@ func (s *Service) hydrateAttachmentsForSend(
 }
 
 func canUseAttachmentFullContext(att AttachmentInput, cfg config.Config) bool {
-	if att.FileCategory == fileCategoryImage {
+	if att.FileCategory == fileCategoryVideo {
 		return false
 	}
 	text := strings.TrimSpace(att.ExtractedText)
@@ -353,7 +364,7 @@ func canUseAttachmentFullContext(att AttachmentInput, cfg config.Config) bool {
 }
 
 func buildFileAttachmentSnapshot(att AttachmentInput) map[string]interface{} {
-	return map[string]interface{}{
+	payload := map[string]interface{}{
 		"file_id":                  att.FileID,
 		"kind":                     att.Kind,
 		"file_name":                att.FileName,
@@ -366,6 +377,10 @@ func buildFileAttachmentSnapshot(att AttachmentInput) map[string]interface{} {
 		"processing_error_code":    att.ProcessingErrorCode,
 		"processing_error_message": att.ProcessingErrorMessage,
 	}
+	if att.DurationSeconds > 0 {
+		payload["duration_seconds"] = att.DurationSeconds
+	}
+	return payload
 }
 
 func marshalAttachmentSnapshots(items []AttachmentInput) string {

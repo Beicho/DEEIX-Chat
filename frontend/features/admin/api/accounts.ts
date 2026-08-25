@@ -1,6 +1,7 @@
 import { authedRequest } from "@/shared/api/authed-client";
 import type {
   AdminUserData,
+  AdminUserDTO,
   PatchAdminUserRequest,
   CreateAdminUserRequest,
   DeleteAdminUserData,
@@ -13,14 +14,18 @@ import type {
   ImportOpenWebUIUsersRequest,
 } from "@/features/admin/api/admin.types";
 import type { PagePayload } from "@/shared/api/common.types";
-import type { UserDTO } from "@/shared/api/auth.types";
 
 import { normalizeAdminPagePayload, resolveAdminPage, type AdminListQueryOptions } from "./shared";
 
+type ListAdminUsersOptions = AdminListQueryOptions & {
+  subscriptionStatus?: string;
+  identityProvider?: string;
+};
+
 export async function listAdminUsers(
   accessToken: string,
-  options: AdminListQueryOptions = {},
-): Promise<PagePayload<UserDTO>> {
+  options: ListAdminUsersOptions = {},
+): Promise<PagePayload<AdminUserDTO>> {
   const { page, pageSize } = resolveAdminPage(options);
   const params = new URLSearchParams({
     page: String(page),
@@ -29,7 +34,13 @@ export async function listAdminUsers(
   if (options.query?.trim()) {
     params.set("q", options.query.trim());
   }
-  const data = await authedRequest<PagePayload<UserDTO>>(
+  if (options.subscriptionStatus?.trim()) {
+    params.set("subscription_status", options.subscriptionStatus.trim());
+  }
+  if (options.identityProvider?.trim()) {
+    params.set("identity_provider", options.identityProvider.trim());
+  }
+  const data = await authedRequest<PagePayload<AdminUserDTO>>(
     `/api/v1/admin/users?${params.toString()}`,
     { accessToken },
     true,

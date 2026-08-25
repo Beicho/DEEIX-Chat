@@ -92,9 +92,15 @@ type ModelResponse struct {
 	ID                 uint   `json:"id"`
 	PlatformModelName  string `json:"platformModelName"`
 	Vendor             string `json:"vendor"`
+	VendorName         string `json:"vendorName"`
+	VendorIcon         string `json:"vendorIcon"`
+	DisplayGroupID     *uint  `json:"displayGroupID" extensions:"x-nullable,!x-omitempty"`
+	DisplayGroupName   string `json:"displayGroupName"`
+	DisplayGroupIcon   string `json:"displayGroupIcon"`
 	KindsJSON          string `json:"kindsJSON"`
 	Icon               string `json:"icon"`
 	CapabilitiesJSON   string `json:"capabilitiesJSON"`
+	ContextWindow      int    `json:"contextWindow"`
 	SystemPrompt       string `json:"systemPrompt"`
 	AccessScope        string `json:"accessScope"`
 	Status             string `json:"status"`
@@ -107,6 +113,7 @@ type ModelResponse struct {
 	SourceCount        int64  `json:"sourceCount"`
 	ActiveSourceCount  int64  `json:"activeSourceCount"`
 	ProtocolsJSON      string `json:"protocolsJSON"`
+	UpstreamNamesJSON  string `json:"upstreamNamesJSON"`
 	CreatedAt          string `json:"createdAt"`
 	UpdatedAt          string `json:"updatedAt"`
 }
@@ -116,9 +123,15 @@ func toModelResponse(v appchannel.ModelView) ModelResponse {
 		ID:                 v.ID,
 		PlatformModelName:  v.PlatformModelName,
 		Vendor:             v.Vendor,
+		VendorName:         v.VendorName,
+		VendorIcon:         v.VendorIcon,
+		DisplayGroupID:     v.DisplayGroupID,
+		DisplayGroupName:   v.DisplayGroupName,
+		DisplayGroupIcon:   v.DisplayGroupIcon,
 		KindsJSON:          v.KindsJSON,
 		Icon:               v.Icon,
 		CapabilitiesJSON:   v.CapabilitiesJSON,
+		ContextWindow:      v.ContextWindow,
 		SystemPrompt:       v.SystemPrompt,
 		AccessScope:        v.AccessScope,
 		Status:             v.Status,
@@ -131,6 +144,7 @@ func toModelResponse(v appchannel.ModelView) ModelResponse {
 		SourceCount:        v.SourceCount,
 		ActiveSourceCount:  v.ActiveSourceCount,
 		ProtocolsJSON:      v.ProtocolsJSON,
+		UpstreamNamesJSON:  v.UpstreamNamesJSON,
 		CreatedAt:          v.CreatedAt,
 		UpdatedAt:          v.UpdatedAt,
 	}
@@ -597,13 +611,18 @@ type CircuitResetResponse struct {
 type PublicModelResponse struct {
 	PlatformModelName string                      `json:"platformModelName"`
 	Vendor            string                      `json:"vendor"`
+	VendorName        string                      `json:"vendorName"`
+	VendorIcon        string                      `json:"vendorIcon"`
+	DisplayGroupID    *uint                       `json:"displayGroupID" extensions:"x-nullable,!x-omitempty"`
+	DisplayGroupName  string                      `json:"displayGroupName"`
+	DisplayGroupIcon  string                      `json:"displayGroupIcon"`
 	KindsJSON         string                      `json:"kindsJSON"`
 	Icon              string                      `json:"icon"`
 	ProtocolsJSON     string                      `json:"protocolsJSON"`
 	CapabilitiesJSON  string                      `json:"capabilitiesJSON"`
 	Description       string                      `json:"description"`
 	SortOrder         int                         `json:"sortOrder"`
-	Pricing           *PublicModelPricingResponse `json:"pricing"`
+	Pricing           *PublicModelPricingResponse `json:"pricing" extensions:"x-nullable,!x-omitempty"`
 }
 
 // PublicModelPricingResponse 面向前端的模型价格 DTO。
@@ -623,7 +642,7 @@ type PublicModelPricingResponse struct {
 // PublicModelPricingTierResponse 面向前端的模型阶梯价格 DTO。
 type PublicModelPricingTierResponse struct {
 	FromTokens              int64   `json:"fromTokens"`
-	UpToTokens              *int64  `json:"upToTokens"`
+	UpToTokens              *int64  `json:"upToTokens" extensions:"x-nullable,!x-omitempty"`
 	InputUSDPerMTokens      float64 `json:"inputUSDPerMTokens"`
 	CacheReadUSDPerMTokens  float64 `json:"cacheReadUSDPerMTokens"`
 	CacheWriteUSDPerMTokens float64 `json:"cacheWriteUSDPerMTokens"`
@@ -704,6 +723,12 @@ type UpdateModelResponseDoc struct {
 	Data     ModelDataResponse `json:"data"`
 }
 
+// SetModelProtocolsResponseDoc 平台模型协议集合更新响应文档。
+type SetModelProtocolsResponseDoc struct {
+	ErrorMsg string            `json:"errorMsg"`
+	Data     ModelDataResponse `json:"data"`
+}
+
 // UpsertUpstreamModelResponseDoc 上游模型路由绑定响应文档。
 type UpsertUpstreamModelResponseDoc struct {
 	ErrorMsg string                    `json:"errorMsg"`
@@ -778,6 +803,11 @@ func toPublicModelResponse(v appchannel.ModelView) PublicModelResponse {
 	return PublicModelResponse{
 		PlatformModelName: v.PlatformModelName,
 		Vendor:            v.Vendor,
+		VendorName:        v.VendorName,
+		VendorIcon:        v.VendorIcon,
+		DisplayGroupID:    v.DisplayGroupID,
+		DisplayGroupName:  v.DisplayGroupName,
+		DisplayGroupIcon:  v.DisplayGroupIcon,
 		KindsJSON:         v.KindsJSON,
 		Icon:              v.Icon,
 		ProtocolsJSON:     v.ProtocolsJSON,

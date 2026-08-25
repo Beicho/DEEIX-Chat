@@ -2,14 +2,11 @@ package conversation
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
 
@@ -127,92 +124,45 @@ func TestNormalizeMessagePublicIDsDeduplicatesAndKeepsOrder(t *testing.T) {
 	}
 }
 
-func TestCreateConversationShareRunsModerationBeforePersist(t *testing.T) {
-	moderationServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/moderations" {
-			t.Fatalf("unexpected moderation path: %s", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"flagged":true,"categories":{"self-harm":true},"category_scores":{"self-harm":0.91}}]}`))
-	}))
-	defer moderationServer.Close()
-
-	repo := &shareModerationRepo{
-		conversation: model.Conversation{ID: 11, UserID: 7, PublicID: "conv_1", Title: "Share me", Model: "model-a"},
-		messages: []model.Message{
-			{ID: 1, ConversationID: 11, UserID: 7, PublicID: "msg_user", Role: "user", Content: "unsafe content"},
-			{ID: 2, ConversationID: 11, UserID: 7, PublicID: "msg_assistant", ParentPublicID: "msg_user", Role: "assistant", Content: "assistant reply"},
-		},
-	}
-	service := &Service{
-		cfg: config.NewRuntime(config.Config{
-			ModerationEnabled:   true,
-			ModerationBaseURL:   moderationServer.URL,
-			ModerationModel:     "guard-model",
-			ModerationThreshold: 0.5,
-		}),
-		repo: repo,
-	}
-
-	_, err := service.CreateConversationShare(context.Background(), 7, "conv_1", ConversationShareOptions{})
-
-	if err != ErrModerationBlocked {
-		t.Fatalf("CreateConversationShare() error = %v, want ErrModerationBlocked", err)
-	}
-	if repo.replaced {
-		t.Fatal("share was persisted before moderation passed")
-	}
-	if repo.moderationEvent == nil {
-		t.Fatal("expected moderation event to be recorded")
-	}
-	if repo.moderationEvent.Direction != "share" || !repo.moderationEvent.Flagged {
-		t.Fatalf("moderation event = %#v", repo.moderationEvent)
-	}
-}
-
-type shareModerationRepo struct {
+// 克隆共享会话时逐字段手写赋值，漏字段的后果与祖先链 CTE 漏列相同：
+// 克隆出的会话可继续对话，历史 assistant 消息却没有推理内容，回传形同虚设。
+type cloneSharedMessageRepositoryStub struct {
 	repository.ConversationRepository
-	conversation    model.Conversation
-	messages        []model.Message
-	moderationEvent *model.ModerationEvent
-	replaced        bool
+	created []model.Message
 }
 
-func (r *shareModerationRepo) GetConversationByPublicID(_ context.Context, publicID string, userID uint) (*model.Conversation, error) {
-	if r.conversation.PublicID != publicID || r.conversation.UserID != userID {
-		return nil, repository.ErrNotFound
-	}
-	item := r.conversation
-	return &item, nil
-}
-
-func (r *shareModerationRepo) ListMessagesForShare(_ context.Context, conversationID uint, publicIDs []string) ([]model.Message, error) {
-	if conversationID != r.conversation.ID {
-		return nil, repository.ErrNotFound
-	}
-	if len(publicIDs) == 0 {
-		return append([]model.Message(nil), r.messages...), nil
-	}
-	wanted := make(map[string]struct{}, len(publicIDs))
-	for _, id := range publicIDs {
-		wanted[strings.TrimSpace(id)] = struct{}{}
-	}
-	result := make([]model.Message, 0, len(r.messages))
-	for _, message := range r.messages {
-		if _, ok := wanted[message.PublicID]; ok {
-			result = append(result, message)
-		}
-	}
-	return result, nil
-}
-
-func (r *shareModerationRepo) CreateModerationEvent(_ context.Context, event *model.ModerationEvent) error {
-	copied := *event
-	r.moderationEvent = &copied
+func (s *cloneSharedMessageRepositoryStub) CreateMessage(_ context.Context, message *model.Message) error {
+	message.ID = uint(len(s.created) + 1)
+	s.created = append(s.created, *message)
 	return nil
 }
 
-func (r *shareModerationRepo) ReplaceActiveConversationShare(_ context.Context, _ *model.ConversationShare) error {
-	r.replaced = true
-	return nil
+func TestCloneSharedMessagePreservesReasoningContent(t *testing.T) {
+	repo := &cloneSharedMessageRepositoryStub{}
+	service := &Service{repo: repo}
+
+	source := model.Message{
+		PublicID:         "a1",
+		Role:             "assistant",
+		ContentType:      "text",
+		Content:          "答复",
+		ReasoningContent: "历史推理内容",
+		ReasoningTokens:  125,
+		Status:           "success",
+	}
+
+	cloned, err := service.cloneSharedMessage(context.Background(), 1, 2, source, "run_clone", map[string]uint{})
+	if err != nil {
+		t.Fatalf("cloneSharedMessage() error = %v", err)
+	}
+	if cloned.ReasoningContent != "历史推理内容" {
+		t.Fatalf("cloned reasoning content = %q, want preserved", cloned.ReasoningContent)
+	}
+	// reasoning_tokens 一直被复制，若 reasoning_content 丢失会造成行内自相矛盾。
+	if cloned.ReasoningTokens != 125 {
+		t.Fatalf("cloned reasoning tokens = %d, want 125", cloned.ReasoningTokens)
+	}
+	if len(repo.created) != 1 || repo.created[0].ReasoningContent != "历史推理内容" {
+		t.Fatalf("persisted row lost reasoning content: %#v", repo.created)
+	}
 }

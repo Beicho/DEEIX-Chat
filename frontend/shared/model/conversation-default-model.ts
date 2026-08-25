@@ -1,9 +1,9 @@
 import { getConversationDefaultModelCandidate } from "@/shared/api/conversation";
 import { listPublicModels } from "@/shared/api/model";
 import type { PublicModelDTO } from "@/shared/api/model.types";
-import { getUserSettings } from "@/shared/api/user-settings";
+import { loadUserSettingsSnapshot } from "@/shared/model/user-settings-store";
 
-export type ConversationDefaultModelSource = "explicit" | "user_default" | "latest_run" | "recommended" | "none";
+export type ConversationDefaultModelSource = "explicit" | "user_default" | "system_default" | "recommended" | "none";
 
 export type ConversationDefaultModelResult = {
   platformModelName: string;
@@ -37,16 +37,20 @@ export async function resolveConversationDefaultModel({
     return { platformModelName: explicit, source: "explicit" };
   }
 
-  const defaultModel = userDefaultModel ?? (await getUserSettings(accessToken).catch(() => ({})))["chat.default_model"];
+  const defaultModel = userDefaultModel
+    ?? (await loadUserSettingsSnapshot(accessToken))["chat.default_model"];
   const userDefault = findAvailableModel(models, defaultModel ?? "");
   if (userDefault) {
     return { platformModelName: userDefault, source: "user_default" };
   }
 
-  const latestRunCandidate = await getConversationDefaultModelCandidate(accessToken).catch(() => null);
-  const latestRunModel = findAvailableModel(models, latestRunCandidate?.platformModelName ?? "");
-  if (latestRunModel) {
-    return { platformModelName: latestRunModel, source: "latest_run" };
+  const candidate = await getConversationDefaultModelCandidate(accessToken).catch(() => null);
+  const candidateModel = findAvailableModel(models, candidate?.platformModelName ?? "");
+  if (candidateModel) {
+    return {
+      platformModelName: candidateModel,
+      source: "system_default",
+    };
   }
 
   const recommended = models[0]?.platformModelName?.trim() ?? "";

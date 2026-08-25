@@ -51,16 +51,15 @@ import { resolveAvatarImageSrc } from "@/shared/lib/avatar";
 import { TimeZoneSelect } from "@/shared/components/time-zone-select";
 import { cn } from "@/lib/utils";
 import { AdminDateTimePicker } from "@/features/admin/components/admin-date-time-picker";
-import type { UserDTO } from "@/shared/api/auth.types";
-import type { AdminUserRole, AdminUserStatus } from "@/features/admin/api/admin.types";
+import type { AdminUserDTO, AdminUserRole, AdminUserStatus } from "@/features/admin/api/admin.types";
 import {
-  COMPACT_COMBOBOX_CLASSNAME,
   USER_STATUS_OPTIONS,
   type CreateUserPayload,
   type EditUserPayload,
   type UserTier,
 } from "@/features/admin/types/accounts";
 import type { AdminBillingMode, AdminBillingPlanDTO } from "@/features/admin/api/billing.types";
+import type { BillingDisplayOptions } from "@/shared/lib/billing-display";
 import { formatBillingBalance, resolveDetailValue } from "@/features/admin/utils/account-display";
 
 const DIALOG_LAYOUT_TRANSITION = {
@@ -285,10 +284,11 @@ type EditUserSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pending: boolean;
-  editDialogTarget: UserDTO | null;
+  editDialogTarget: AdminUserDTO | null;
   editPayload: EditUserPayload;
   setEditPayload: React.Dispatch<React.SetStateAction<EditUserPayload>>;
   billingMode: AdminBillingMode;
+  billingDisplay: BillingDisplayOptions;
   billingPlans: AdminBillingPlanDTO[];
   statusChanged: boolean;
   timeZoneOptions: string[];
@@ -303,7 +303,7 @@ type EditUserSheetProps = {
   resetTwoFactorPending: boolean;
   revokePending: boolean;
   deletePending: boolean;
-  resolveUserInitial: (user: UserDTO) => string;
+  resolveUserInitial: (user: AdminUserDTO) => string;
 };
 
 function SheetSection({
@@ -355,6 +355,7 @@ export function EditUserSheet({
   editPayload,
   setEditPayload,
   billingMode,
+  billingDisplay,
   billingPlans,
   statusChanged,
   timeZoneOptions,
@@ -449,7 +450,7 @@ export function EditUserSheet({
                 ) : null}
                 {billingMode !== "self" ? (
                   <Badge variant="outline" className="text-muted-foreground">
-                    {formatBillingBalance(editDialogTarget?.billingBalanceUSD)}
+                    {formatBillingBalance(editDialogTarget?.billingBalanceUSD, billingDisplay)}
                   </Badge>
                 ) : null}
               </div>
@@ -635,7 +636,6 @@ export function EditUserSheet({
                   <Label className="text-xs font-normal text-muted-foreground">{t("editor.accountBalance")}</Label>
                   <Input
                     type="number"
-                    min="0"
                     step="0.000001"
                     value={editPayload.billingBalanceUSD}
                     onChange={(event) => setEditPayload((current) => ({ ...current, billingBalanceUSD: event.target.value }))}

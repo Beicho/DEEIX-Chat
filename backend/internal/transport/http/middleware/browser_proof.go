@@ -47,7 +47,7 @@ func BrowserProofMiddleware(verifier BrowserProofVerifier) gin.HandlerFunc {
 			return
 		}
 		if verifier == nil {
-			response.Error(c, http.StatusForbidden, "browser proof verifier unavailable")
+			response.ErrorWithCode(c, http.StatusForbidden, "browser_proof.unavailable", "browser proof verifier unavailable")
 			c.Abort()
 			return
 		}
@@ -60,13 +60,13 @@ func BrowserProofMiddleware(verifier BrowserProofVerifier) gin.HandlerFunc {
 		}
 		proofHeader := strings.TrimSpace(c.GetHeader(BrowserProofHeader))
 		if proofHeader == "" {
-			response.Error(c, http.StatusForbidden, "browser proof is required")
+			response.ErrorWithCode(c, http.StatusForbidden, "browser_proof.required", "browser proof is required")
 			c.Abort()
 			return
 		}
 		var proofPayload browserProofPayload
 		if err := json.Unmarshal([]byte(proofHeader), &proofPayload); err != nil {
-			response.Error(c, http.StatusForbidden, "browser proof is invalid")
+			response.ErrorWithCode(c, http.StatusForbidden, "browser_proof.invalid", "browser proof is invalid")
 			c.Abort()
 			return
 		}
@@ -87,7 +87,8 @@ func BrowserProofMiddleware(verifier BrowserProofVerifier) gin.HandlerFunc {
 			Body:      body,
 			Proof:     &proof,
 		}); err != nil {
-			response.Error(c, http.StatusForbidden, "browser proof is invalid")
+			_ = c.Error(err)
+			response.ErrorWithCode(c, http.StatusForbidden, "browser_proof.invalid", "browser proof is invalid")
 			c.Abort()
 			return
 		}

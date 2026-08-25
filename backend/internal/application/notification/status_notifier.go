@@ -70,7 +70,7 @@ func (n WebhookStatusNotifier) Notify(ctx context.Context, title string, message
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := security.NewOutboundHTTPClient(n.Env, n.SSRFEnabled, 10*time.Second)
+	client := security.NewOutboundHTTPClient(security.NewStrictOutboundPolicy(n.SSRFEnabled), 10*time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err

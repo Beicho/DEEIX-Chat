@@ -10,10 +10,20 @@ import (
 	"strings"
 	"sync/atomic"
 
+	sharedsecurity "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
 	"gopkg.in/yaml.v3"
 )
 
 const (
+	defaultAppName                      = "DEEIX Chat"
+	defaultBrandTitle                   = "DEEIX Chat"
+	defaultBrandShortName               = "DEEIX"
+	defaultBrandDescription             = "DEEIX Chat is a multi-model AI conversation system."
+	defaultBrandFaviconURL              = "/favicon.ico"
+	defaultBrandPWAIcon192URL           = "/pwa/icon-192.png"
+	defaultBrandPWAIcon512URL           = "/pwa/icon-512.png"
+	defaultBrandPWAMaskableIcon512URL   = "/pwa/icon-maskable-512.png"
+	defaultBrandAppleTouchIcon180URL    = "/pwa/apple-touch-icon.png"
 	defaultJWTSecret                    = "deeix-chat-dev-secret"
 	defaultDataEncryptionKey            = "deeix-chat-dev-data-encryption-key"
 	defaultAdminUsername                = "admin"
@@ -23,6 +33,18 @@ const (
 	defaultHTTPReadTimeoutSeconds       = 120
 	defaultHTTPIdleTimeoutSeconds       = 120
 	defaultHTTPMaxHeaderBytes           = 1 << 20
+	// DefaultFileFullContextMaxBytes 是全文注入的默认提取文本大小上限（2 MiB）。
+	DefaultFileFullContextMaxBytes int64 = 2 * 1024 * 1024
+
+	// DefaultContextWindowFallbackTokens 是无法从模型能力配置或内置目录识别窗口时的默认值。
+	DefaultContextWindowFallbackTokens = 128_000
+	// MinContextWindowFallbackTokens 与 MaxContextWindowFallbackTokens 限制管理员可配置的安全范围。
+	MinContextWindowFallbackTokens = 16_384
+	MaxContextWindowFallbackTokens = 16_000_000
+	// DefaultContextCompactTriggerPercent 在有效输入预算的 80% 处主动压缩。
+	DefaultContextCompactTriggerPercent = 80
+	MinContextCompactTriggerPercent     = 10
+	MaxContextCompactTriggerPercent     = 95
 )
 
 const (
@@ -101,19 +123,44 @@ func DefaultModelOptionAllowedPathsJSON() string {
     "size",
     "user"
   ],
-  "google_image_generation": [
-    "generationConfig.responseModalities",
-    "generationConfig.imageConfig.aspectRatio",
-    "generationConfig.imageConfig.imageSize"
-  ],
   "anthropic_messages": [
     "speed",
     "top_k",
     "thinking.type",
     "thinking.budget_tokens"
   ],
+  "gemini_generate_content": [
+    "generationConfig.temperature",
+    "generationConfig.topP",
+    "generationConfig.maxOutputTokens",
+    "generationConfig.responseMimeType",
+    "generationConfig.thinkingConfig.includeThoughts",
+    "generationConfig.thinkingConfig.thinkingLevel"
+  ],
+  "google_image_generation": [
+    "generationConfig.responseModalities",
+    "generationConfig.imageConfig.aspectRatio",
+    "generationConfig.imageConfig.imageSize"
+  ],
+  "gemini_interactions": [
+    "generation_config.temperature",
+    "generation_config.top_p",
+    "generation_config.max_output_tokens",
+    "generation_config.thinking_level",
+    "generation_config.thinking_summaries",
+    "response_format.type",
+    "response_format.aspect_ratio",
+    "response_format.image_size",
+    "response_format.mime_type",
+    "response_format.schema",
+    "generation_config.video_config.task"
+  ],
   "xai_responses": [
-    "reasoning.effort"
+    "reasoning.effort",
+    "min_p",
+    "parallel_tool_calls",
+    "store",
+    "top_k"
   ],
   "xai_image": [
     "aspect_ratio",
@@ -127,11 +174,13 @@ func DefaultModelOptionAllowedPathsJSON() string {
     "resolution",
     "response_format"
   ],
-  "gemini_generate_content": [
-    "generationConfig.temperature",
-    "generationConfig.topP",
-    "generationConfig.maxOutputTokens",
-    "generationConfig.responseMimeType"
+  "xai_video": [
+    "aspect_ratio",
+    "duration",
+    "resolution"
+  ],
+  "xai_video_extensions": [
+    "duration"
   ]
 }`
 }
@@ -166,6 +215,17 @@ type yamlConfig struct {
 		Name string `yaml:"name"`
 		Env  string `yaml:"env"`
 	} `yaml:"app"`
+	Branding struct {
+		Title                 string `yaml:"title"`
+		ShortName             string `yaml:"short_name"`
+		Description           string `yaml:"description"`
+		LogoURL               string `yaml:"logo_url"`
+		FaviconURL            string `yaml:"favicon_url"`
+		PWAIcon192URL         string `yaml:"pwa_icon_192_url"`
+		PWAIcon512URL         string `yaml:"pwa_icon_512_url"`
+		PWAMaskableIcon512URL string `yaml:"pwa_maskable_icon_512_url"`
+		AppleTouchIcon180URL  string `yaml:"apple_touch_icon_180_url"`
+	} `yaml:"branding"`
 	Server struct {
 		HTTPPort                 string `yaml:"http_port"`
 		CORSAllowOrigin          string `yaml:"cors_allow_origin"`
@@ -182,6 +242,8 @@ type yamlConfig struct {
 		JWTSecret              string `yaml:"jwt_secret"`
 		DataEncryptionKey      string `yaml:"data_encryption_key"`
 		SSRFProtectionEnabled  *bool  `yaml:"ssrf_protection_enabled"`
+		SSRFAllowedHosts       string `yaml:"ssrf_allowed_hosts"`
+		SSRFAllowedCIDRs       string `yaml:"ssrf_allowed_cidrs"`
 		TurnstileSiteverifyURL string `yaml:"turnstile_siteverify_url"`
 		BrowserProof           struct {
 			Enabled    *bool `yaml:"enabled"`
@@ -272,83 +334,84 @@ type yamlConfig struct {
 // 静态字段由 YAML/ENV 加载；动态字段由 settings.RuntimeSettings.ApplyTo 从数据库覆盖。
 type Config struct {
 	// ── 静态配置（YAML/ENV） ──
-	AppName                            string
-	Env                                string
-	HTTPPort                           string
-	CORSAllowOrigin                    string
-	TrustedProxies                     string
-	PublicAPIBaseURL                   string
-	PublicWebBaseURL                   string
-	FrontendDistDir                    string
-	HTTPReadHeaderTimeoutSeconds       int
-	HTTPReadTimeoutSeconds             int
-	HTTPIdleTimeoutSeconds             int
-	HTTPMaxHeaderBytes                 int
-	JWTSecret                          string
-	DataEncryptionKey                  string
-	SSRFProtectionEnabled              bool
-	DatabaseDriver                     string
-	PostgresDSN                        string
-	PostgresMaxOpenConns               int
-	PostgresMaxIdleConns               int
-	PostgresConnMaxLifetimeMin         int
-	PostgresConnMaxIdleTimeMin         int
-	SQLitePath                         string
-	SQLiteDSN                          string
-	SQLiteMaxOpenConns                 int
-	SQLiteBusyTimeoutMS                int
-	SQLiteCacheSizeKB                  int
-	SQLiteMmapSizeBytes                int64
-	SQLiteSynchronous                  string
-	SQLiteTempStore                    string
-	CacheDriver                        string
-	RedisAddr                          string
-	RedisUsername                      string
-	RedisPassword                      string
-	RedisDB                            int
-	RedisTLSEnabled                    bool
-	RedisTLSInsecureSkipVerify         bool
-	StorageBackend                     string
-	StorageRootDir                     string
-	StorageS3Endpoint                  string
-	StorageS3Region                    string
-	StorageS3Bucket                    string
-	StorageS3Prefix                    string
-	StorageS3AccessKeyID               string
-	StorageS3SecretAccessKey           string
-	StorageS3ForcePathStyle            bool
-	AdminUsername                      string
-	AdminDisplayName                   string
-	GeoIPProvider                      string
-	GeoIPBaseURL                       string
-	GeoIPToken                         string
-	GeoIPTimeoutMS                     int
-	GeoIPDatabaseURL                   string
-	GeoIPDatabasePath                  string
-	GeoIPDatabaseMaxBytes              int64
-	GeoIPRefreshIntervalHours          int
-	SMTPHost                           string
-	SMTPPort                           int
-	SMTPUsername                       string
-	SMTPPassword                       string
-	SMTPFrom                           string
-	TurnstileSiteverifyURL             string
-	BrowserProofEnabled                bool
-	BrowserProofShadowMode             bool
-	PoWEnabled                         bool
-	PoWBaseDifficulty                  map[string]int
-	PoWMaxDifficulty                   int
-	PoWChallengeTTLSeconds             int
-	PoWNonceTTLSeconds                 int
-	RequestSigningEnabled              bool
-	RequestSigningTimestampSkewSeconds int
-	RequestSigningNonceTTLSeconds      int
-	OTelEnabled                        *bool
-	OTelExporterOTLPEndpoint           string
-	OTelExporterOTLPHeaders            string
-	OTelExporterOTLPInsecure           bool
-	OTelExporterOTLPProtocol           string
-	OTelSamplingRate                   float64
+	AppName                      string
+	Env                          string
+	BrandTitle                   string
+	BrandShortName               string
+	BrandDescription             string
+	BrandLogoURL                 string
+	BrandFaviconURL              string
+	BrandPWAIcon192URL           string
+	BrandPWAIcon512URL           string
+	BrandPWAMaskableIcon512URL   string
+	BrandAppleTouchIcon180URL    string
+	HTTPPort                     string
+	CORSAllowOrigin              string
+	TrustedProxies               string
+	PublicAPIBaseURL             string
+	PublicWebBaseURL             string
+	FrontendDistDir              string
+	HTTPReadHeaderTimeoutSeconds int
+	HTTPReadTimeoutSeconds       int
+	HTTPIdleTimeoutSeconds       int
+	HTTPMaxHeaderBytes           int
+	JWTSecret                    string
+	DataEncryptionKey            string
+	SSRFProtectionEnabled        bool
+	SSRFAllowedHosts             string
+	SSRFAllowedCIDRs             string
+	DatabaseDriver               string
+	PostgresDSN                  string
+	PostgresMaxOpenConns         int
+	PostgresMaxIdleConns         int
+	PostgresConnMaxLifetimeMin   int
+	PostgresConnMaxIdleTimeMin   int
+	SQLitePath                   string
+	SQLiteDSN                    string
+	SQLiteMaxOpenConns           int
+	SQLiteBusyTimeoutMS          int
+	SQLiteCacheSizeKB            int
+	SQLiteMmapSizeBytes          int64
+	SQLiteSynchronous            string
+	SQLiteTempStore              string
+	CacheDriver                  string
+	RedisAddr                    string
+	RedisUsername                string
+	RedisPassword                string
+	RedisDB                      int
+	RedisTLSEnabled              bool
+	RedisTLSInsecureSkipVerify   bool
+	StorageBackend               string
+	StorageRootDir               string
+	StorageS3Endpoint            string
+	StorageS3Region              string
+	StorageS3Bucket              string
+	StorageS3Prefix              string
+	StorageS3AccessKeyID         string
+	StorageS3SecretAccessKey     string
+	StorageS3ForcePathStyle      bool
+	AdminUsername                string
+	AdminDisplayName             string
+	GeoIPProvider                string
+	GeoIPBaseURL                 string
+	GeoIPToken                   string
+	GeoIPTimeoutMS               int
+	GeoIPDatabaseURL             string
+	GeoIPDatabasePath            string
+	GeoIPDatabaseMaxBytes        int64
+	GeoIPRefreshIntervalHours    int
+	SMTPHost                     string
+	SMTPPort                     int
+	SMTPUsername                 string
+	SMTPPassword                 string
+	SMTPFrom                     string
+	TurnstileSiteverifyURL       string
+	OTelEnabled                  *bool
+	OTelExporterOTLPEndpoint     string
+	OTelExporterOTLPHeaders      string
+	OTelExporterOTLPInsecure     bool
+	OTelExporterOTLPProtocol     string
+	OTelSamplingRate             float64
 
 	// ── 动态配置（由 DB 种子初始化默认值，settings.RuntimeSettings.ApplyTo 覆盖） ──
 	// 认证配置
@@ -375,20 +438,21 @@ type Config struct {
 	TurnstileSiteKey             string
 	TurnstileSecretKey           string
 	// 对话配置
-	MaxContextMessages       int
-	ContextMaxTurns          int
-	ContextMaxInputTokens    int
-	ContextCompactEnabled    bool
-	ContextCompactTrigger    int
-	ContextCompactPreserve   int
-	ConversationTaskModel    string
-	ConversationTitlePrompt  string
-	ConversationLabelsPrompt string
-	DefaultSystemPrompt      string
-	SkillsPrompt             string
-	ModelOptionPolicyMode    string
-	ModelOptionAllowedPaths  string
-	ModelOptionDeniedPaths   string
+	MaxContextMessages           int
+	ContextMaxTurns              int
+	ContextCompactEnabled        bool
+	ContextWindowFallbackTokens  int
+	ContextCompactTriggerPercent int
+	ContextCompactPreserve       int
+	ConversationDefaultModel     string
+	ConversationTaskModel        string
+	ConversationTitlePrompt      string
+	ConversationLabelsPrompt     string
+	DefaultSystemPrompt          string
+	SkillsPrompt                 string
+	ModelOptionPolicyMode        string
+	ModelOptionAllowedPaths      string
+	ModelOptionDeniedPaths       string
 	// 存储配置
 	UserStorageQuotaBytes int64
 	MaxUploadFileBytes    int64
@@ -435,8 +499,13 @@ type Config struct {
 	ExtractAliyunOCRTimeoutSeconds    int    // 阿里云 OCR 请求超时(秒)
 	ExtractMinerUSource               string // MinerU 服务类型(cloud/self_hosted)
 	ExtractMinerUBaseURL              string // MinerU 服务地址
+	ExtractMinerUFileTypes            string // MinerU 处理的文件类型（逗号分隔）
 	ExtractMinerUTimeoutSeconds       int    // MinerU 请求超时(秒)
 	ExtractMinerUAuthToken            string // MinerU 鉴权 Token
+	ExtractMistralOCRBaseURL          string // Mistral OCR 服务地址
+	ExtractMistralOCRModel            string // Mistral OCR 请求模型
+	ExtractMistralOCRTimeoutSeconds   int    // Mistral OCR 请求超时(秒)
+	ExtractMistralOCRAuthToken        string // Mistral OCR 鉴权 Token
 	ExtractLLMOCRBaseURL              string // LLM OCR 服务地址
 	ExtractLLMOCRModel                string // LLM OCR 请求模型
 	ExtractLLMOCRTimeoutSeconds       int    // LLM OCR 请求超时(秒)
@@ -557,259 +626,217 @@ func Load() Config {
 	yc := loadYAML()
 	return Config{
 		// 静态基础设施
-		AppName:                            envOr("APP_NAME", yc.App.Name, "DEEIX Chat"),
-		Env:                                normalizeEnv(envOrNonEmpty("APP_ENV", yc.App.Env, "prod")),
-		HTTPPort:                           envOr("HTTP_PORT", yc.Server.HTTPPort, "8080"),
-		CORSAllowOrigin:                    envOr("CORS_ALLOW_ORIGIN", yc.Server.CORSAllowOrigin, "http://127.0.0.1:8080,http://localhost:8080"),
-		TrustedProxies:                     envOr("TRUSTED_PROXIES", yc.Server.TrustedProxies, ""),
-		PublicAPIBaseURL:                   envOr("PUBLIC_API_BASE_URL", yc.Server.PublicAPIBaseURL, ""),
-		PublicWebBaseURL:                   envOr("PUBLIC_WEB_BASE_URL", yc.Server.PublicWebBaseURL, ""),
-		FrontendDistDir:                    envOrPath("FRONTEND_DIST_DIR", yc.Server.FrontendDistDir, "../frontend/out", yc.sourceDir),
-		HTTPReadHeaderTimeoutSeconds:       envOrInt("HTTP_READ_HEADER_TIMEOUT_SECONDS", yc.Server.ReadHeaderTimeoutSeconds, defaultHTTPReadHeaderTimeoutSeconds),
-		HTTPReadTimeoutSeconds:             envOrInt("HTTP_READ_TIMEOUT_SECONDS", yc.Server.ReadTimeoutSeconds, defaultHTTPReadTimeoutSeconds),
-		HTTPIdleTimeoutSeconds:             envOrInt("HTTP_IDLE_TIMEOUT_SECONDS", yc.Server.IdleTimeoutSeconds, defaultHTTPIdleTimeoutSeconds),
-		HTTPMaxHeaderBytes:                 envOrInt("HTTP_MAX_HEADER_BYTES", yc.Server.MaxHeaderBytes, defaultHTTPMaxHeaderBytes),
-		JWTSecret:                          envOr("JWT_SECRET", yc.Security.JWTSecret, defaultJWTSecret),
-		DataEncryptionKey:                  envOr("DATA_ENCRYPTION_KEY", yc.Security.DataEncryptionKey, defaultDataEncryptionKey),
-		SSRFProtectionEnabled:              envOrBoolPtr("SSRF_PROTECTION_ENABLED", yc.Security.SSRFProtectionEnabled, true),
-		DatabaseDriver:                     normalizeDatabaseDriver(envOr("DATABASE_DRIVER", yc.Database.Driver, "postgres")),
-		PostgresDSN:                        normalizePostgresDSN(envOr("POSTGRES_DSN", yc.Database.Postgres.DSN, "host=127.0.0.1 user=deeix_chat password=deeix_chat_dev_2026 dbname=deeix_chat port=5432 sslmode=disable TimeZone=Asia/Shanghai")),
-		PostgresMaxOpenConns:               envOrInt("POSTGRES_MAX_OPEN_CONNS", yc.Database.Postgres.MaxOpenConns, 30),
-		PostgresMaxIdleConns:               envOrInt("POSTGRES_MAX_IDLE_CONNS", yc.Database.Postgres.MaxIdleConns, 10),
-		PostgresConnMaxLifetimeMin:         envOrInt("POSTGRES_CONN_MAX_LIFETIME_MINUTES", yc.Database.Postgres.ConnMaxLifetimeMin, 60),
-		PostgresConnMaxIdleTimeMin:         envOrInt("POSTGRES_CONN_MAX_IDLE_TIME_MINUTES", yc.Database.Postgres.ConnMaxIdleTimeMin, 10),
-		SQLitePath:                         envOrPath("SQLITE_PATH", yc.Database.SQLite.Path, "./data/deeix.db", yc.sourceDir),
-		SQLiteDSN:                          envOr("SQLITE_DSN", yc.Database.SQLite.DSN, ""),
-		SQLiteMaxOpenConns:                 envOrInt("SQLITE_MAX_OPEN_CONNS", yc.Database.SQLite.MaxOpenConns, 1),
-		SQLiteBusyTimeoutMS:                envOrInt("SQLITE_BUSY_TIMEOUT_MS", yc.Database.SQLite.BusyTimeoutMS, 5000),
-		SQLiteCacheSizeKB:                  envOrInt("SQLITE_CACHE_SIZE_KB", yc.Database.SQLite.CacheSizeKB, 20480),
-		SQLiteMmapSizeBytes:                envOrInt64("SQLITE_MMAP_SIZE_BYTES", yc.Database.SQLite.MmapSizeBytes, 268435456),
-		SQLiteSynchronous:                  normalizeSQLiteSynchronous(envOr("SQLITE_SYNCHRONOUS", yc.Database.SQLite.Synchronous, "NORMAL")),
-		SQLiteTempStore:                    normalizeSQLiteTempStore(envOr("SQLITE_TEMP_STORE", yc.Database.SQLite.TempStore, "MEMORY")),
-		CacheDriver:                        normalizeCacheDriver(envOr("CACHE_DRIVER", yc.Cache.Driver, "redis")),
-		RedisAddr:                          envOr("REDIS_ADDR", yc.Database.Redis.Addr, "127.0.0.1:6379"),
-		RedisUsername:                      envOr("REDIS_USERNAME", yc.Database.Redis.Username, ""),
-		RedisPassword:                      envOr("REDIS_PASSWORD", yc.Database.Redis.Password, ""),
-		RedisDB:                            envOrInt("REDIS_DB", yc.Database.Redis.DB, 0),
-		RedisTLSEnabled:                    envOrBoolPtr("REDIS_TLS_ENABLED", yc.Database.Redis.TLSEnabled, false),
-		RedisTLSInsecureSkipVerify:         envOrBoolPtr("REDIS_TLS_INSECURE_SKIP_VERIFY", yc.Database.Redis.TLSInsecureSkipVerify, false),
-		StorageBackend:                     envOr("STORAGE_BACKEND", yc.Storage.Backend, "local"),
-		StorageRootDir:                     envOrPath("STORAGE_ROOT_DIR", yc.Storage.Local.RootDir, "./storage", yc.sourceDir),
-		StorageS3Endpoint:                  envOr("STORAGE_S3_ENDPOINT", yc.Storage.S3.Endpoint, ""),
-		StorageS3Region:                    envOr("STORAGE_S3_REGION", yc.Storage.S3.Region, "auto"),
-		StorageS3Bucket:                    envOr("STORAGE_S3_BUCKET", yc.Storage.S3.Bucket, ""),
-		StorageS3Prefix:                    envOr("STORAGE_S3_PREFIX", yc.Storage.S3.Prefix, ""),
-		StorageS3AccessKeyID:               envOr("STORAGE_S3_ACCESS_KEY_ID", yc.Storage.S3.AccessKeyID, ""),
-		StorageS3SecretAccessKey:           envOr("STORAGE_S3_SECRET_ACCESS_KEY", yc.Storage.S3.SecretAccessKey, ""),
-		StorageS3ForcePathStyle:            envOrBoolPtr("STORAGE_S3_FORCE_PATH_STYLE", yc.Storage.S3.ForcePathStyle, true),
-		AdminUsername:                      defaultAdminUsername,
-		AdminDisplayName:                   defaultAdminDisplayName,
-		GeoIPProvider:                      envOr("GEOIP_PROVIDER", yc.GeoIP.Provider, "ipwhois"),
-		GeoIPBaseURL:                       envOr("GEOIP_BASE_URL", yc.GeoIP.BaseURL, "https://ipwho.is"),
-		GeoIPToken:                         envOr("GEOIP_TOKEN", yc.GeoIP.Token, ""),
-		GeoIPTimeoutMS:                     envOrInt("GEOIP_TIMEOUT_MS", yc.GeoIP.TimeoutMS, 2500),
-		GeoIPDatabaseURL:                   envOr("GEOIP_DATABASE_URL", yc.GeoIP.DatabaseURL, ""),
-		GeoIPDatabasePath:                  envOrPath("GEOIP_DATABASE_PATH", yc.GeoIP.DatabasePath, "./data/geoip/geoip.mmdb", yc.sourceDir),
-		GeoIPDatabaseMaxBytes:              envOrInt64("GEOIP_DATABASE_MAX_BYTES", yc.GeoIP.DatabaseMaxBytes, defaultGeoIPMaxBytes),
-		GeoIPRefreshIntervalHours:          envOrInt("GEOIP_REFRESH_INTERVAL_HOURS", yc.GeoIP.RefreshIntervalHours, 168),
-		SMTPHost:                           "",
-		SMTPPort:                           587,
-		SMTPUsername:                       "",
-		SMTPPassword:                       "",
-		SMTPFrom:                           "",
-		TurnstileSiteverifyURL:             envOr("TURNSTILE_SITEVERIFY_URL", yc.Security.TurnstileSiteverifyURL, DefaultTurnstileSiteverifyURL),
-		BrowserProofEnabled:                envOrBoolPtr("BROWSER_PROOF_ENABLED", yc.Security.BrowserProof.Enabled, true),
-		BrowserProofShadowMode:             envOrBoolPtr("BROWSER_PROOF_SHADOW_MODE", yc.Security.BrowserProof.ShadowMode, false),
-		PoWEnabled:                         envOrBoolPtr("POW_ENABLED", yc.Security.PoW.Enabled, true),
-		PoWBaseDifficulty:                  defaultPoWBaseDifficulty(yc.Security.PoW.BaseDifficulty),
-		PoWMaxDifficulty:                   envOrInt("POW_MAX_DIFFICULTY", yc.Security.PoW.MaxDifficulty, 10),
-		PoWChallengeTTLSeconds:             envOrInt("POW_CHALLENGE_TTL_SECONDS", yc.Security.PoW.ChallengeTTLSeconds, 60),
-		PoWNonceTTLSeconds:                 envOrInt("POW_NONCE_TTL_SECONDS", yc.Security.PoW.NonceTTLSeconds, 120),
-		RequestSigningEnabled:              envOrBoolPtr("REQUEST_SIGNING_ENABLED", yc.Security.RequestSigning.Enabled, true),
-		RequestSigningTimestampSkewSeconds: envOrInt("REQUEST_SIGNING_TIMESTAMP_SKEW_SECONDS", yc.Security.RequestSigning.TimestampSkewSeconds, 60),
-		RequestSigningNonceTTLSeconds:      envOrInt("REQUEST_SIGNING_NONCE_TTL_SECONDS", yc.Security.RequestSigning.NonceTTLSeconds, 120),
-		OTelEnabled:                        envOrBoolOptional("OTEL_ENABLED", yc.Observability.Tracing.Enabled),
-		OTelExporterOTLPEndpoint:           envOr("OTEL_EXPORTER_OTLP_ENDPOINT", yc.Observability.Tracing.Endpoint, ""),
-		OTelExporterOTLPHeaders:            envOr("OTEL_EXPORTER_OTLP_HEADERS", yc.Observability.Tracing.Headers, ""),
-		OTelExporterOTLPInsecure:           envOrBoolPtr("OTEL_EXPORTER_OTLP_INSECURE", yc.Observability.Tracing.Insecure, false),
-		OTelExporterOTLPProtocol:           normalizeOTelExporterOTLPProtocol(envOr("OTEL_EXPORTER_OTLP_PROTOCOL", yc.Observability.Tracing.Protocol, "grpc")),
-		OTelSamplingRate:                   envOrFloat("OTEL_TRACES_SAMPLER_ARG", envOrFloat("OTEL_SAMPLING_RATE", yc.Observability.Tracing.SamplingRate, 1), 1),
+		AppName:                      envOr("APP_NAME", yc.App.Name, defaultAppName),
+		Env:                          normalizeEnv(envOrNonEmpty("APP_ENV", yc.App.Env, "prod")),
+		BrandTitle:                   valueOrDefault(yc.Branding.Title, defaultBrandTitle),
+		BrandShortName:               valueOrDefault(yc.Branding.ShortName, defaultBrandShortName),
+		BrandDescription:             valueOrDefault(yc.Branding.Description, defaultBrandDescription),
+		BrandLogoURL:                 strings.TrimSpace(yc.Branding.LogoURL),
+		BrandFaviconURL:              valueOrDefault(yc.Branding.FaviconURL, defaultBrandFaviconURL),
+		BrandPWAIcon192URL:           valueOrDefault(yc.Branding.PWAIcon192URL, defaultBrandPWAIcon192URL),
+		BrandPWAIcon512URL:           valueOrDefault(yc.Branding.PWAIcon512URL, defaultBrandPWAIcon512URL),
+		BrandPWAMaskableIcon512URL:   valueOrDefault(yc.Branding.PWAMaskableIcon512URL, defaultBrandPWAMaskableIcon512URL),
+		BrandAppleTouchIcon180URL:    valueOrDefault(yc.Branding.AppleTouchIcon180URL, defaultBrandAppleTouchIcon180URL),
+		HTTPPort:                     envOr("HTTP_PORT", yc.Server.HTTPPort, "8080"),
+		CORSAllowOrigin:              envOr("CORS_ALLOW_ORIGIN", yc.Server.CORSAllowOrigin, "http://127.0.0.1:8080,http://localhost:8080"),
+		TrustedProxies:               envOr("TRUSTED_PROXIES", yc.Server.TrustedProxies, ""),
+		PublicAPIBaseURL:             envOr("PUBLIC_API_BASE_URL", yc.Server.PublicAPIBaseURL, ""),
+		PublicWebBaseURL:             envOr("PUBLIC_WEB_BASE_URL", yc.Server.PublicWebBaseURL, ""),
+		FrontendDistDir:              envOrPath("FRONTEND_DIST_DIR", yc.Server.FrontendDistDir, "../frontend/out", yc.sourceDir),
+		HTTPReadHeaderTimeoutSeconds: envOrInt("HTTP_READ_HEADER_TIMEOUT_SECONDS", yc.Server.ReadHeaderTimeoutSeconds, defaultHTTPReadHeaderTimeoutSeconds),
+		HTTPReadTimeoutSeconds:       envOrInt("HTTP_READ_TIMEOUT_SECONDS", yc.Server.ReadTimeoutSeconds, defaultHTTPReadTimeoutSeconds),
+		HTTPIdleTimeoutSeconds:       envOrInt("HTTP_IDLE_TIMEOUT_SECONDS", yc.Server.IdleTimeoutSeconds, defaultHTTPIdleTimeoutSeconds),
+		HTTPMaxHeaderBytes:           envOrInt("HTTP_MAX_HEADER_BYTES", yc.Server.MaxHeaderBytes, defaultHTTPMaxHeaderBytes),
+		JWTSecret:                    envOr("JWT_SECRET", yc.Security.JWTSecret, defaultJWTSecret),
+		DataEncryptionKey:            envOr("DATA_ENCRYPTION_KEY", yc.Security.DataEncryptionKey, defaultDataEncryptionKey),
+		SSRFProtectionEnabled:        envOrBoolPtr("SSRF_PROTECTION_ENABLED", yc.Security.SSRFProtectionEnabled, false),
+		SSRFAllowedHosts:             envOr("SSRF_ALLOWED_HOSTS", yc.Security.SSRFAllowedHosts, ""),
+		SSRFAllowedCIDRs:             envOr("SSRF_ALLOWED_CIDRS", yc.Security.SSRFAllowedCIDRs, ""),
+		DatabaseDriver:               normalizeDatabaseDriver(envOr("DATABASE_DRIVER", yc.Database.Driver, "postgres")),
+		PostgresDSN:                  normalizePostgresDSN(envOr("POSTGRES_DSN", yc.Database.Postgres.DSN, "host=127.0.0.1 user=deeix_chat password=deeix_chat_dev_2026 dbname=deeix_chat port=5432 sslmode=disable TimeZone=Asia/Shanghai")),
+		PostgresMaxOpenConns:         envOrInt("POSTGRES_MAX_OPEN_CONNS", yc.Database.Postgres.MaxOpenConns, 30),
+		PostgresMaxIdleConns:         envOrInt("POSTGRES_MAX_IDLE_CONNS", yc.Database.Postgres.MaxIdleConns, 10),
+		PostgresConnMaxLifetimeMin:   envOrInt("POSTGRES_CONN_MAX_LIFETIME_MINUTES", yc.Database.Postgres.ConnMaxLifetimeMin, 60),
+		PostgresConnMaxIdleTimeMin:   envOrInt("POSTGRES_CONN_MAX_IDLE_TIME_MINUTES", yc.Database.Postgres.ConnMaxIdleTimeMin, 10),
+		SQLitePath:                   envOrPath("SQLITE_PATH", yc.Database.SQLite.Path, "./data/deeix.db", yc.sourceDir),
+		SQLiteDSN:                    envOr("SQLITE_DSN", yc.Database.SQLite.DSN, ""),
+		SQLiteMaxOpenConns:           envOrInt("SQLITE_MAX_OPEN_CONNS", yc.Database.SQLite.MaxOpenConns, 1),
+		SQLiteBusyTimeoutMS:          envOrInt("SQLITE_BUSY_TIMEOUT_MS", yc.Database.SQLite.BusyTimeoutMS, 5000),
+		SQLiteCacheSizeKB:            envOrInt("SQLITE_CACHE_SIZE_KB", yc.Database.SQLite.CacheSizeKB, 20480),
+		SQLiteMmapSizeBytes:          envOrInt64("SQLITE_MMAP_SIZE_BYTES", yc.Database.SQLite.MmapSizeBytes, 268435456),
+		SQLiteSynchronous:            normalizeSQLiteSynchronous(envOr("SQLITE_SYNCHRONOUS", yc.Database.SQLite.Synchronous, "NORMAL")),
+		SQLiteTempStore:              normalizeSQLiteTempStore(envOr("SQLITE_TEMP_STORE", yc.Database.SQLite.TempStore, "MEMORY")),
+		CacheDriver:                  normalizeCacheDriver(envOr("CACHE_DRIVER", yc.Cache.Driver, "redis")),
+		RedisAddr:                    envOr("REDIS_ADDR", yc.Database.Redis.Addr, "127.0.0.1:6379"),
+		RedisUsername:                envOr("REDIS_USERNAME", yc.Database.Redis.Username, ""),
+		RedisPassword:                envOr("REDIS_PASSWORD", yc.Database.Redis.Password, ""),
+		RedisDB:                      envOrInt("REDIS_DB", yc.Database.Redis.DB, 0),
+		RedisTLSEnabled:              envOrBoolPtr("REDIS_TLS_ENABLED", yc.Database.Redis.TLSEnabled, false),
+		RedisTLSInsecureSkipVerify:   envOrBoolPtr("REDIS_TLS_INSECURE_SKIP_VERIFY", yc.Database.Redis.TLSInsecureSkipVerify, false),
+		StorageBackend:               envOr("STORAGE_BACKEND", yc.Storage.Backend, "local"),
+		StorageRootDir:               envOrPath("STORAGE_ROOT_DIR", yc.Storage.Local.RootDir, "./storage", yc.sourceDir),
+		StorageS3Endpoint:            envOr("STORAGE_S3_ENDPOINT", yc.Storage.S3.Endpoint, ""),
+		StorageS3Region:              envOr("STORAGE_S3_REGION", yc.Storage.S3.Region, "auto"),
+		StorageS3Bucket:              envOr("STORAGE_S3_BUCKET", yc.Storage.S3.Bucket, ""),
+		StorageS3Prefix:              envOr("STORAGE_S3_PREFIX", yc.Storage.S3.Prefix, ""),
+		StorageS3AccessKeyID:         envOr("STORAGE_S3_ACCESS_KEY_ID", yc.Storage.S3.AccessKeyID, ""),
+		StorageS3SecretAccessKey:     envOr("STORAGE_S3_SECRET_ACCESS_KEY", yc.Storage.S3.SecretAccessKey, ""),
+		StorageS3ForcePathStyle:      envOrBoolPtr("STORAGE_S3_FORCE_PATH_STYLE", yc.Storage.S3.ForcePathStyle, true),
+		AdminUsername:                defaultAdminUsername,
+		AdminDisplayName:             defaultAdminDisplayName,
+		GeoIPProvider:                envOr("GEOIP_PROVIDER", yc.GeoIP.Provider, "ipwhois"),
+		GeoIPBaseURL:                 envOr("GEOIP_BASE_URL", yc.GeoIP.BaseURL, "https://ipwho.is"),
+		GeoIPToken:                   envOr("GEOIP_TOKEN", yc.GeoIP.Token, ""),
+		GeoIPTimeoutMS:               envOrInt("GEOIP_TIMEOUT_MS", yc.GeoIP.TimeoutMS, 2500),
+		GeoIPDatabaseURL:             envOr("GEOIP_DATABASE_URL", yc.GeoIP.DatabaseURL, ""),
+		GeoIPDatabasePath:            envOrPath("GEOIP_DATABASE_PATH", yc.GeoIP.DatabasePath, "./data/geoip/geoip.mmdb", yc.sourceDir),
+		GeoIPDatabaseMaxBytes:        envOrInt64("GEOIP_DATABASE_MAX_BYTES", yc.GeoIP.DatabaseMaxBytes, defaultGeoIPMaxBytes),
+		GeoIPRefreshIntervalHours:    envOrInt("GEOIP_REFRESH_INTERVAL_HOURS", yc.GeoIP.RefreshIntervalHours, 168),
+		SMTPHost:                     "",
+		SMTPPort:                     587,
+		SMTPUsername:                 "",
+		SMTPPassword:                 "",
+		SMTPFrom:                     "",
+		TurnstileSiteverifyURL:       envOr("TURNSTILE_SITEVERIFY_URL", yc.Security.TurnstileSiteverifyURL, DefaultTurnstileSiteverifyURL),
+		OTelEnabled:                  envOrBoolOptional("OTEL_ENABLED", yc.Observability.Tracing.Enabled),
+		OTelExporterOTLPEndpoint:     envOr("OTEL_EXPORTER_OTLP_ENDPOINT", yc.Observability.Tracing.Endpoint, ""),
+		OTelExporterOTLPHeaders:      envOr("OTEL_EXPORTER_OTLP_HEADERS", yc.Observability.Tracing.Headers, ""),
+		OTelExporterOTLPInsecure:     envOrBoolPtr("OTEL_EXPORTER_OTLP_INSECURE", yc.Observability.Tracing.Insecure, false),
+		OTelExporterOTLPProtocol:     normalizeOTelExporterOTLPProtocol(envOr("OTEL_EXPORTER_OTLP_PROTOCOL", yc.Observability.Tracing.Protocol, "grpc")),
+		OTelSamplingRate:             envOrFloat("OTEL_TRACES_SAMPLER_ARG", envOrFloat("OTEL_SAMPLING_RATE", yc.Observability.Tracing.SamplingRate, 1), 1),
 
 		// 动态配置默认值（会被 DB 覆盖）
-		TokenTTLHours:                      24,
-		RefreshTokenTTLHours:               720,
-		LoginMaxFailures:                   5,
-		LoginLockMinutes:                   15,
-		RateLimitEnabled:                   false,
-		RateLimitRPM:                       60,
-		PublicAuthRateLimitEnabled:         true,
-		PublicAuthRateLimitRPM:             30,
-		UsernameLoginEnabled:               true,
-		EmailLoginEnabled:                  true,
-		ThirdPartyLoginEnabled:             true,
-		EmailRegistrationEnabled:           true,
-		EmailVerificationEnabled:           false,
-		InviteRegistrationRequired:         false,
-		InviteProviderRegistration:         true,
-		PasswordResetEnabled:               false,
-		EmailRegistrationDomains:           "",
-		EmailRegistrationNoAlias:           false,
-		AutoLinkVerifiedEmail:              true,
-		TurnstileRegistrationEnabled:       false,
-		TurnstileSiteKey:                   "",
-		TurnstileSecretKey:                 "",
-		MaxContextMessages:                 20,
-		ContextMaxTurns:                    48,
-		ContextMaxInputTokens:              32000,
-		ContextCompactEnabled:              false,
-		ContextCompactTrigger:              32768,
-		ContextCompactPreserve:             8,
-		ConversationTaskModel:              "follow",
-		ConversationTitlePrompt:            "",
-		ConversationLabelsPrompt:           "",
-		DefaultSystemPrompt:                "",
-		SkillsPrompt:                       "",
-		ModelOptionPolicyMode:              "allowlist",
-		ModelOptionAllowedPaths:            DefaultModelOptionAllowedPathsJSON(),
-		ModelOptionDeniedPaths:             DefaultModelOptionDeniedPathsJSON(),
-		UserStorageQuotaBytes:              104857600,
-		MaxUploadFileBytes:                 20971520,
-		MaxMessageFiles:                    10,
-		ImageMaxDimension:                  1024,
-		FileFullContextLimitEnabled:        true,
-		FileFullContextMaxBytes:            512000, // 500KB (放宽 10 倍以支持长文档)
-		FileFullContextMaxTokens:           100000, // 100k tokens (适配长上下文模型)
-		FileImageMaxBytes:                  0,
-		FileDocMaxBytes:                    0,
-		FileFullContextPDFMaxPages:         20,
-		FileAllowedMIMETypes:               "image/jpeg,image/png,image/webp,image/gif,text/plain,text/markdown,text/csv,text/yaml,application/json,application/yaml,application/x-yaml,application/toml,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel",
-		ExtractEngine:                      "builtin",
-		ExtractOCREngine:                   "rapidocr",
-		ExtractImageOCREnabled:             false,
-		ExtractPDFOCRFallbackEnabled:       true,
-		ExtractTikaSource:                  "external",
-		ExtractTikaBaseURL:                 "http://127.0.0.1:9998",
-		ExtractTikaTimeoutSeconds:          60,
-		ExtractTikaAuthToken:               "",
-		ExtractDoclingBaseURL:              "http://127.0.0.1:8005/ocr",
-		ExtractDoclingTimeoutSeconds:       60,
-		ExtractDoclingAuthToken:            "",
-		ExtractTesseractOCRBaseURL:         "http://127.0.0.1:8004/ocr",
-		ExtractTesseractOCRTimeoutSeconds:  60,
-		ExtractTesseractOCRAuthToken:       "",
-		ExtractRapidOCRSource:              "external",
-		ExtractRapidOCRBaseURL:             "http://127.0.0.1:8002/ocr",
-		ExtractRapidOCRTimeoutSeconds:      60,
-		ExtractRapidOCRAuthToken:           "",
-		ExtractPaddleOCRBaseURL:            "",
-		ExtractPaddleOCRTimeoutSeconds:     60,
-		ExtractPaddleOCRAuthToken:          "",
-		ExtractTencentOCRSecretID:          "",
-		ExtractTencentOCRSecretKey:         "",
-		ExtractTencentOCRRegion:            "ap-guangzhou",
-		ExtractTencentOCREndpoint:          "ocr.tencentcloudapi.com",
-		ExtractTencentOCRTimeoutSeconds:    60,
-		ExtractAliyunOCRAccessKeyID:        "",
-		ExtractAliyunOCRAccessKeySecret:    "",
-		ExtractAliyunOCRRegion:             "cn-hangzhou",
-		ExtractAliyunOCREndpoint:           "ocr-api.cn-hangzhou.aliyuncs.com",
-		ExtractAliyunOCRTimeoutSeconds:     60,
-		ExtractMinerUSource:                "cloud",
-		ExtractMinerUBaseURL:               "https://mineru.net/api/v4",
-		ExtractMinerUTimeoutSeconds:        180,
-		ExtractMinerUAuthToken:             "",
-		ExtractLLMOCRBaseURL:               "",
-		ExtractLLMOCRModel:                 "",
-		ExtractLLMOCRTimeoutSeconds:        60,
-		ExtractLLMOCRAuthToken:             "",
-		ExtractLLMOCRPrompt:                "",
-		EmbeddingEnabled:                   false,
-		EmbeddingHost:                      "",
-		EmbeddingKey:                       "",
-		EmbeddingTimeoutSeconds:            60,
-		EmbeddingOutputDimensions:          1536,
-		EmbeddingNormalize:                 true,
-		EmbedTriggerOnUpload:               true,
-		EmbedChunkSizeTokens:               1024,
-		EmbedChunkOverlapTokens:            64,
-		EmbedBatchSize:                     20,
-		RAGTopK:                            5,
-		RAGModel:                           "sentence-transformers/all-MiniLM-L6-v2",
-		RAGEnabled:                         false,
-		RAGMinSimilarity:                   0.45,
-		RAGTokenBudget:                     2000,
-		RAGFetchMultiplier:                 3,
-		RAGWaitReadyMS:                     3000,
-		RAGQueryHistoryTurns:               0,
-		RAGRetrievalCacheTTL:               120,
-		ContextCompactHighlightsPerRole:    6,
-		ContextCompactSnippetChars:         140,
-		CompactLLMEnabled:                  true,
-		CompactTaskModel:                   "follow",
-		CompactAsyncEnabled:                true,
-		CompactMaxFailures:                 3,
-		ContextTokenBudgetEnabled:          true,
-		MessageEmbeddingEnabled:            false, // 默认关闭，需要 embedding 服务就绪后开启
-		SemanticContextEnabled:             false,
-		ProcessTraceEnabled:                true,
-		ProcessTraceVisibleToUser:          true,
-		ProcessTraceStoreUpstreamThink:     true,
-		ProcessTracePersistInflight:        true,
-		ContextArtifactRetentionDays:       90,
-		ModerationEnabled:                  false,
-		ModerationBaseURL:                  "",
-		ModerationAPIKey:                   "",
-		ModerationModel:                    "omni-moderation-latest",
-		ModerationThreshold:                0.5,
-		ModerationAction:                   "block",
-		ModerationTimeoutSeconds:           10,
-		ModerationMode:                     "moderations",
-		ModerationFailStrategy:             "fail_open",
-		ModerationClassifierTemplate:       "",
-		ModerationAutoWindowHours:          24,
-		ModerationAutoLimitThreshold:       0,
-		ModerationAutoSuspendThreshold:     0,
-		ModerationAutoLimitRPM:             5,
-		ModerationAutoLimitDurationMinutes: 60,
-		ModerationOutputWindowChars:        800,
-		StatusNotifierEnabled:              false,
-		StatusNotifierWebhookURL:           "",
-		StatusNotifierEmail:                "",
-		RiskCostGuardEnabled:               true,
-		RiskNewUserCooldownHours:           24,
-		RiskNewUserCooldownCostUSD:         1,
-		RiskDailySpendLimitUSD:             0,
-		RiskMaxConcurrentGenerations:       3,
-		RiskAutoSuspendDebtUSD:             5,
-		RiskSpendAlertSingleCallUSD:        5,
-		RiskSpendAlertDailyUserUSD:         50,
-		RiskFingerprintAlertEnabled:        true,
-		RiskFingerprintAlertMinAccts:       5,
-		RiskFingerprintAutoSuspend:         0,
-		MCPEnable:                          false,
-		MCPToolTimeoutSeconds:              60,
-		MCPToolRetryCount:                  0,
-		MCPMaxConcurrentCalls:              8,
-		MCPMaxSelectedToolsPerMessage:      DefaultMCPMaxSelectedToolsPerMessage,
-		MCPMaxLLMCallsPerRun:               5,
-		MCPMaxToolCallsPerRun:              8,
-		MCPToolPrompt:                      "",
-		WebSearchProvider:                  "disabled",
-		WebSearchBaseURL:                   "",
-		WebSearchAPIKey:                    "",
-		WebSearchTimeoutSeconds:            10,
-		WebSearchMaxResults:                5,
-		CodeSandboxEnabled:                 false,
-		CodeSandboxTimeoutSeconds:          5,
-		CodeSandboxMaxCodeChars:            12000,
-		CodeSandboxMaxOutputChars:          12000,
-		VoiceASREnabled:                    false,
-		VoiceASRProvider:                   "disabled",
-		VoiceASRModel:                      "",
-		VoiceTTSEnabled:                    false,
-		VoiceTTSProvider:                   "disabled",
-		VoiceTTSModel:                      "",
-		VoiceTTSVoice:                      "",
+		TokenTTLHours:                     24,
+		RefreshTokenTTLHours:              720,
+		LoginMaxFailures:                  5,
+		LoginLockMinutes:                  15,
+		RateLimitEnabled:                  false,
+		RateLimitRPM:                      60,
+		PublicAuthRateLimitRPM:            30,
+		UsernameLoginEnabled:              true,
+		EmailLoginEnabled:                 true,
+		ThirdPartyLoginEnabled:            true,
+		EmailRegistrationEnabled:          true,
+		EmailVerificationEnabled:          false,
+		PasswordResetEnabled:              false,
+		EmailRegistrationDomains:          "",
+		EmailRegistrationNoAlias:          false,
+		AutoLinkVerifiedEmail:             true,
+		TurnstileRegistrationEnabled:      false,
+		TurnstileSiteKey:                  "",
+		TurnstileSecretKey:                "",
+		MaxContextMessages:                20,
+		ContextMaxTurns:                   48,
+		ContextCompactEnabled:             false,
+		ContextWindowFallbackTokens:       DefaultContextWindowFallbackTokens,
+		ContextCompactTriggerPercent:      DefaultContextCompactTriggerPercent,
+		ContextCompactPreserve:            8,
+		ConversationDefaultModel:          "",
+		ConversationTaskModel:             "follow",
+		ConversationTitlePrompt:           "",
+		ConversationLabelsPrompt:          "",
+		DefaultSystemPrompt:               "",
+		SkillsPrompt:                      "",
+		ModelOptionPolicyMode:             "allowlist",
+		ModelOptionAllowedPaths:           DefaultModelOptionAllowedPathsJSON(),
+		ModelOptionDeniedPaths:            DefaultModelOptionDeniedPathsJSON(),
+		UserStorageQuotaBytes:             104857600,
+		MaxUploadFileBytes:                20971520,
+		MaxMessageFiles:                   10,
+		ImageMaxDimension:                 1024,
+		FileFullContextLimitEnabled:       true,
+		FileFullContextMaxBytes:           DefaultFileFullContextMaxBytes,
+		FileFullContextMaxTokens:          65536,
+		FileImageMaxBytes:                 0,
+		FileDocMaxBytes:                   0,
+		FileFullContextPDFMaxPages:        20,
+		FileAllowedMIMETypes:              "image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,text/plain,text/markdown,text/csv,text/yaml,application/json,application/yaml,application/x-yaml,application/toml,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel",
+		ExtractEngine:                     "builtin",
+		ExtractOCREngine:                  "rapidocr",
+		ExtractImageOCREnabled:            false,
+		ExtractPDFOCRFallbackEnabled:      false,
+		ExtractTikaSource:                 "external",
+		ExtractTikaBaseURL:                "http://127.0.0.1:9998",
+		ExtractTikaTimeoutSeconds:         60,
+		ExtractTikaAuthToken:              "",
+		ExtractDoclingBaseURL:             "http://127.0.0.1:8005/ocr",
+		ExtractDoclingTimeoutSeconds:      60,
+		ExtractDoclingAuthToken:           "",
+		ExtractTesseractOCRBaseURL:        "http://127.0.0.1:8004/ocr",
+		ExtractTesseractOCRTimeoutSeconds: 60,
+		ExtractTesseractOCRAuthToken:      "",
+		ExtractRapidOCRSource:             "external",
+		ExtractRapidOCRBaseURL:            "http://127.0.0.1:8002/ocr",
+		ExtractRapidOCRTimeoutSeconds:     60,
+		ExtractRapidOCRAuthToken:          "",
+		ExtractPaddleOCRBaseURL:           "",
+		ExtractPaddleOCRTimeoutSeconds:    60,
+		ExtractPaddleOCRAuthToken:         "",
+		ExtractTencentOCRSecretID:         "",
+		ExtractTencentOCRSecretKey:        "",
+		ExtractTencentOCRRegion:           "ap-guangzhou",
+		ExtractTencentOCREndpoint:         "ocr.tencentcloudapi.com",
+		ExtractTencentOCRTimeoutSeconds:   60,
+		ExtractAliyunOCRAccessKeyID:       "",
+		ExtractAliyunOCRAccessKeySecret:   "",
+		ExtractAliyunOCRRegion:            "cn-hangzhou",
+		ExtractAliyunOCREndpoint:          "ocr-api.cn-hangzhou.aliyuncs.com",
+		ExtractAliyunOCRTimeoutSeconds:    60,
+		ExtractMinerUSource:               "cloud",
+		ExtractMinerUBaseURL:              "https://mineru.net/api/v4",
+		ExtractMinerUFileTypes:            "pdf,word,presentation",
+		ExtractMinerUTimeoutSeconds:       180,
+		ExtractMinerUAuthToken:            "",
+		ExtractMistralOCRBaseURL:          "https://api.mistral.ai/v1/ocr",
+		ExtractMistralOCRModel:            "mistral-ocr-latest",
+		ExtractMistralOCRTimeoutSeconds:   60,
+		ExtractMistralOCRAuthToken:        "",
+		ExtractLLMOCRBaseURL:              "",
+		ExtractLLMOCRModel:                "",
+		ExtractLLMOCRTimeoutSeconds:       60,
+		ExtractLLMOCRAuthToken:            "",
+		ExtractLLMOCRPrompt:               "",
+		EmbeddingEnabled:                  false,
+		EmbeddingHost:                     "",
+		EmbeddingKey:                      "",
+		EmbeddingTimeoutSeconds:           60,
+		EmbeddingOutputDimensions:         1536,
+		EmbeddingNormalize:                true,
+		EmbedTriggerOnUpload:              true,
+		EmbedChunkSizeTokens:              1024,
+		EmbedChunkOverlapTokens:           64,
+		EmbedBatchSize:                    20,
+		RAGTopK:                           5,
+		RAGModel:                          "sentence-transformers/all-MiniLM-L6-v2",
+		RAGEnabled:                        false,
+		RAGMinSimilarity:                  0.45,
+		RAGTokenBudget:                    2000,
+		RAGFetchMultiplier:                3,
+		RAGWaitReadyMS:                    3000,
+		RAGQueryHistoryTurns:              0,
+		RAGRetrievalCacheTTL:              120,
+		ContextCompactHighlightsPerRole:   6,
+		ContextCompactSnippetChars:        140,
+		CompactLLMEnabled:                 true,
+		CompactTaskModel:                  "follow",
+		CompactAsyncEnabled:               true,
+		CompactMaxFailures:                3,
+		ContextTokenBudgetEnabled:         true,
+		MessageEmbeddingEnabled:           false, // 默认关闭，需要 embedding 服务就绪后开启
+		SemanticContextEnabled:            false,
+		ProcessTraceEnabled:               true,
+		ProcessTraceVisibleToUser:         true,
+		ProcessTraceStoreUpstreamThink:    true,
+		ProcessTracePersistInflight:       true,
+		ContextArtifactRetentionDays:      90,
+		MCPEnable:                         false,
+		MCPToolTimeoutSeconds:             10,
+		MCPToolRetryCount:                 0,
+		MCPMaxConcurrentCalls:             8,
+		MCPMaxSelectedToolsPerMessage:     DefaultMCPMaxSelectedToolsPerMessage,
+		MCPMaxLLMCallsPerRun:              5,
+		MCPMaxToolCallsPerRun:             8,
+		MCPToolPrompt:                     "",
 	}
 }
 
@@ -830,6 +857,12 @@ func (c Config) Validate() error {
 			return errors.New("invalid config: APP_ENV/app.env must be dev, development, prod, or production (got empty)")
 		}
 		return fmt.Errorf("invalid config: APP_ENV/app.env must be dev, development, prod, or production (got %q)", c.Env)
+	}
+	if _, err := sharedsecurity.NewOutboundPolicy(c.ssrfProtectionEnforced(), splitCommaSeparated(c.SSRFAllowedHosts), splitCommaSeparated(c.SSRFAllowedCIDRs)); err != nil {
+		return fmt.Errorf("invalid config: SSRF allowlist: %w", err)
+	}
+	if err := validateHTTPIntegrationURL(c.TurnstileSiteverifyURL, "TURNSTILE_SITEVERIFY_URL"); err != nil {
+		return err
 	}
 	if env != "prod" {
 		return nil
@@ -909,6 +942,17 @@ func (c Config) validateStorage() error {
 	}
 }
 
+func validateHTTPIntegrationURL(raw string, label string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil
+	}
+	if err := sharedsecurity.ValidateTrustedOutboundHTTPURL(value); err != nil {
+		return fmt.Errorf("invalid config: %s must be an http(s) URL without credentials; metadata and link-local targets are not allowed", label)
+	}
+	return nil
+}
+
 func validatePublicURL(raw string, label string) error {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed == nil || parsed.Host == "" || parsed.Scheme != "https" {
@@ -959,6 +1003,13 @@ func envOr(envKey string, yamlVal string, defaultVal string) string {
 		return yamlVal
 	}
 	return defaultVal
+}
+
+func valueOrDefault(value string, defaultValue string) string {
+	if normalized := strings.TrimSpace(value); normalized != "" {
+		return normalized
+	}
+	return defaultValue
 }
 
 func envOrNonEmpty(envKey string, yamlVal string, defaultVal string) string {
@@ -1189,7 +1240,36 @@ func envOrBoolPtr(envKey string, yamlVal *bool, defaultVal bool) bool {
 
 // TrustedProxyList 返回受信代理列表，支持逗号分隔。
 func (c Config) TrustedProxyList() []string {
-	raw := strings.TrimSpace(c.TrustedProxies)
+	return splitCommaSeparated(c.TrustedProxies)
+}
+
+// TrustedOutboundPolicy 返回部署级集成和可信私网重定向使用的全局 SSRF 白名单策略。
+// 管理员保存的模型、MCP、Embedding 和身份源 endpoint 由对应适配器按精确 origin 局部授权；
+// 只有跨 origin 的私网重定向目标需要显式进入全局白名单。
+// 非法白名单在 Config.Validate 阶段阻止启动；此处保守回退为无白名单严格策略。
+func (c Config) TrustedOutboundPolicy() sharedsecurity.OutboundPolicy {
+	policy, err := sharedsecurity.NewOutboundPolicy(
+		c.ssrfProtectionEnforced(),
+		splitCommaSeparated(c.SSRFAllowedHosts),
+		splitCommaSeparated(c.SSRFAllowedCIDRs),
+	)
+	if err != nil {
+		return sharedsecurity.NewStrictOutboundPolicy(c.ssrfProtectionEnforced())
+	}
+	return policy
+}
+
+// StrictOutboundPolicy 返回不继承私网白名单的 SSRF 策略，用于外部内容和固定公网请求。
+func (c Config) StrictOutboundPolicy() sharedsecurity.OutboundPolicy {
+	return sharedsecurity.NewStrictOutboundPolicy(c.ssrfProtectionEnforced())
+}
+
+func (c Config) ssrfProtectionEnforced() bool {
+	return normalizeEnv(c.Env) == "prod" && c.SSRFProtectionEnabled
+}
+
+func splitCommaSeparated(raw string) []string {
+	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil
 	}

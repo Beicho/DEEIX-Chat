@@ -1,15 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { PencilLine, SquareCheckBig } from "lucide-react";
+import { Ellipsis, PencilLine, SquareCheckBig, Trash2, Zap } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import { Ellipsis } from "@/components/animate-ui/icons/ellipsis";
-import { Trash2 } from "@/components/animate-ui/icons/trash-2";
 import { resolveFileIcon } from "@/shared/lib/file-display";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CenteredEmptyState } from "@/components/ui/empty-state";
+import { AnimatedText } from "@/components/ui/animated-text";
+import { Spinner } from "@/components/ui/spinner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,7 +17,8 @@ import {
   DropdownMenuItemIcon,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { useLoadMoreSentinel } from "@/shared/hooks/use-load-more-sentinel";
 import { cn } from "@/lib/utils";
 import type { FileObjectDTO } from "@/shared/api/file.types";
 
@@ -69,17 +70,19 @@ function SidebarListItem({
   onDeleteRequest: (item: FileObjectDTO) => void;
 }) {
   const t = useTranslations("files");
-  const [hovered, setHovered] = React.useState(false);
   const fileIcon = resolveFileIcon(item);
+  const showsRetrievalStatus = item.fileCategory !== "image" && item.embedStatus === "ready";
+  const [actionsMenuOpen, setActionsMenuOpen] = React.useState(false);
 
   if (renaming) {
     return (
       <div className="flex h-8 items-center rounded-md bg-accent/75 px-1.5 text-xs text-foreground">
         {React.createElement(fileIcon, { className: "size-3 text-muted-foreground" })}
-        <input
+        <Input
           autoFocus
           value={renameValue}
-          className="h-6 min-w-0 flex-1 bg-transparent text-xs outline-none ml-2"
+          aria-label={t("actions.rename")}
+          className="ml-2 h-6 min-w-0 flex-1 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
           onChange={(event) => onRenameValueChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -98,100 +101,116 @@ function SidebarListItem({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      className={cn(
-        "group relative flex h-8 w-full max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-md pl-1.5 pr-12 text-left transition-colors",
-        selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/65",
-      )}
-      onClick={() => onSelect(item.fileID)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onSelect(item.fileID);
-        }
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className="group relative h-8 w-full max-w-full min-w-0 overflow-hidden rounded-md"
+      data-animated-text-scroll-trigger
     >
       <Checkbox
         checked={checked}
-        className="mr-0.5 size-3 shrink-0"
+        className="absolute left-1.5 top-1/2 z-20 size-3 -translate-y-1/2"
         aria-label={t("actions.selectFile")}
         onClick={(event) => event.stopPropagation()}
         onCheckedChange={(nextChecked) => onToggleSelection(item.fileID, nextChecked === true)}
       />
-      {React.createElement(fileIcon, { className: "size-3 text-muted-foreground" })}
-
-      <span className="min-w-0 flex-1 truncate text-xs" title={item.fileName}>{item.fileName}</span>
-      {item.fileCategory !== "image" && item.embedStatus === "ready" ? (
-        <span
-          title={item.ragOptOut ? t("list.ragDisabled") : t("list.ragReady")}
-          className={`shrink-0 text-[10px] ${item.ragOptOut ? "text-muted-foreground/40" : "text-emerald-500/70"}`}
-        >
-          ⚡
-        </span>
-      ) : null}
-
-      <div
+      <Button
+        type="button"
+        variant="ghost"
         className={cn(
-          "absolute inset-y-0 right-1 flex items-center gap-0.5 transition-opacity duration-150",
-          (hovered || selected) && "pointer-events-auto opacity-100",
-          !(hovered || selected) && "pointer-events-none opacity-0",
+          "h-8 w-full max-w-full justify-start gap-2 overflow-hidden rounded-md py-0 pl-7 text-left text-xs font-normal shadow-none",
+          actionsMenuOpen
+            ? showsRetrievalStatus ? "pr-18" : "pr-12"
+            : showsRetrievalStatus ? "pr-7 group-hover:pr-18" : "pr-2 group-hover:pr-12",
+          selected ? "bg-accent text-accent-foreground hover:bg-accent" : "text-foreground hover:bg-accent/65 hover:text-foreground",
         )}
+        onClick={() => onSelect(item.fileID)}
       >
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-5 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              tabIndex={-1}
-            >
-              <Ellipsis className="size-3" strokeWidth={1} animate={hovered ? "pulse" : undefined} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-32">
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                onToggleSelection(item.fileID, !checked);
-              }}
-            >
-              <DropdownMenuItemIcon icon={SquareCheckBig} />
-              {checked ? t("actions.cancelSelect") : t("actions.select")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                onRenameStart(item);
-              }}
-            >
-              <DropdownMenuItemIcon icon={PencilLine} />
-              {t("actions.rename")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <span className="flex size-3 shrink-0 items-center justify-center">
+          {React.createElement(fileIcon, { className: "size-3 text-muted-foreground" })}
+        </span>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-5 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onDeleteRequest(item);
-          }}
-          tabIndex={-1}
+        <AnimatedText
+          text={item.fileName}
+          className="min-w-0 flex-1 text-xs"
+          textClassName="text-current"
+          scrollOverflow
+        />
+      </Button>
+
+      <div className="pointer-events-none absolute inset-y-0 right-1 z-20 flex items-center gap-0.5">
+        {showsRetrievalStatus ? (
+          <span
+            title={item.ragOptOut ? t("list.ragDisabled") : t("list.ragReady")}
+            className={cn(
+              "flex w-5 shrink-0 items-center justify-center",
+              item.ragOptOut ? "text-muted-foreground/40" : "text-primary/70",
+            )}
+          >
+            <Zap aria-hidden className="size-3" strokeWidth={1.5} />
+          </span>
+        ) : null}
+
+        <div
+          className={cn(
+            "flex items-center gap-0.5 overflow-hidden transition-[max-width,opacity] duration-150",
+            actionsMenuOpen
+              ? "pointer-events-auto max-w-11 opacity-100"
+              : "pointer-events-none max-w-0 opacity-0 group-hover:pointer-events-auto group-hover:max-w-11 group-hover:opacity-100",
+          )}
         >
-          <Trash2 className="size-3" strokeWidth={1} animate={hovered ? "default" : undefined} />
-        </Button>
+          <DropdownMenu modal={false} open={actionsMenuOpen} onOpenChange={setActionsMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-5 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={t("actions.moreActions")}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                tabIndex={-1}
+              >
+                <Ellipsis className="size-3" strokeWidth={1} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-32">
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onToggleSelection(item.fileID, !checked);
+                }}
+              >
+                <DropdownMenuItemIcon icon={SquareCheckBig} />
+                {checked ? t("actions.cancelSelect") : t("actions.select")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onRenameStart(item);
+                }}
+              >
+                <DropdownMenuItemIcon icon={PencilLine} />
+                {t("actions.rename")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-5 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label={t("actions.delete")}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onDeleteRequest(item);
+            }}
+            tabIndex={-1}
+          >
+            <Trash2 className="size-3" strokeWidth={1} />
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -218,39 +237,24 @@ export function SidebarList({
 }: SidebarListProps) {
   const t = useTranslations("files");
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
-  const loadMoreRef = React.useRef<HTMLDivElement | null>(null);
   const selectedFileIDSet = React.useMemo(() => new Set(selectedFileIDs), [selectedFileIDs]);
 
-  React.useEffect(() => {
-    if (!hasMore || loading || loadingMore) {
-      return;
-    }
+  const loadMoreRef = useLoadMoreSentinel<HTMLDivElement>({
+    enabled: hasMore && !loading && !loadingMore,
+    rootMargin: "0px 0px 200px 0px",
+    rootRef: scrollAreaRef,
+    onLoadMore,
+  });
 
-    const sentinel = loadMoreRef.current;
-    const viewport = scrollAreaRef.current;
-    if (!sentinel || !viewport) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry?.isIntersecting) {
-          onLoadMore();
-        }
-      },
-      {
-        root: viewport,
-        rootMargin: "0px 0px 200px 0px",
-        threshold: 0.01,
-      },
+  if (loading) {
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center pr-2 text-muted-foreground">
+        <Spinner className="size-4" />
+      </div>
     );
+  }
 
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore, onLoadMore]);
-
-  if (!loading && items.length === 0) {
+  if (items.length === 0) {
     return (
       <CenteredEmptyState
         className="min-w-0 flex-1"
@@ -267,14 +271,7 @@ export function SidebarList({
         className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pr-2"
       >
         <div className="w-full max-w-full min-w-0 space-y-1 px-1.5 py-2.5 pb-4">
-          {loading ? (
-            Array.from({ length: 12 }).map((_, index) => (
-              <div key={index} className="flex h-9 items-center gap-1.5 rounded-xl px-1.5">
-                <Skeleton className="size-6.5 rounded-lg" />
-                <Skeleton className="h-3 w-[60%] rounded-full" />
-              </div>
-            ))
-          ) : items.length > 0 ? (
+          {items.length > 0 ? (
             items.map((item) => {
               const isSelected = item.fileID === selectedFileID;
               const isChecked = selectedFileIDSet.has(item.fileID);
@@ -303,7 +300,7 @@ export function SidebarList({
           {!loading ? (
             <div ref={loadMoreRef} className="px-1.5 pt-2">
               <div className="flex h-9 w-full items-center justify-center text-center text-[11px] text-muted-foreground">
-                {loadingMore ? t("list.loadingMore") : hasMore ? t("list.loadMore") : syncing ? t("list.syncing") : items.length > 0 ? t("list.allLoaded") : null}
+                {loadingMore ? t("list.loadingMore") : syncing ? t("list.syncing") : hasMore ? t("list.loadMore") : items.length > 0 ? t("list.allLoaded") : null}
               </div>
             </div>
           ) : null}

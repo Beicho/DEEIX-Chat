@@ -74,3 +74,57 @@ func TestReuseModelOptionsSettingIsAllowed(t *testing.T) {
 		t.Fatal("expected invalid chat.reuse_model_options to be rejected")
 	}
 }
+
+func TestReasoningContentPassbackSettingIsAllowed(t *testing.T) {
+	t.Parallel()
+
+	if got := allowedKeys["chat.reasoning_content_passback"]; got != "true" {
+		t.Fatalf("expected chat.reasoning_content_passback default to be true, got %q", got)
+	}
+	for _, value := range []string{"true", "false"} {
+		if err := validateValue("chat.reasoning_content_passback", value); err != nil {
+			t.Fatalf("expected chat.reasoning_content_passback=%s to be accepted, got %v", value, err)
+		}
+	}
+	if err := validateValue("chat.reasoning_content_passback", "yes"); err == nil {
+		t.Fatal("expected invalid chat.reasoning_content_passback to be rejected")
+	}
+}
+
+func TestAutoGenerateLabelsSettingIsAllowed(t *testing.T) {
+	t.Parallel()
+
+	if got := allowedKeys["chat.auto_generate_labels"]; got != "true" {
+		t.Fatalf("expected chat.auto_generate_labels default to be true, got %q", got)
+	}
+	for _, value := range []string{"true", "false"} {
+		if err := validateValue("chat.auto_generate_labels", value); err != nil {
+			t.Fatalf("expected chat.auto_generate_labels=%s to be accepted, got %v", value, err)
+		}
+	}
+	if err := validateValue("chat.auto_generate_labels", "yes"); err == nil {
+		t.Fatal("expected invalid chat.auto_generate_labels to be rejected")
+	}
+}
+
+func TestTraceAutoExpandSettingsAreAllowed(t *testing.T) {
+	t.Parallel()
+
+	keys := []string{
+		"chat.auto_expand_thinking",
+		"chat.auto_expand_tool_calls",
+	}
+	for _, key := range keys {
+		if got := allowedKeys[key]; got != "true" {
+			t.Fatalf("expected %s default to be true, got %q", key, got)
+		}
+		for _, value := range []string{"true", "false"} {
+			if err := validateValue(key, value); err != nil {
+				t.Fatalf("expected %s=%s to be accepted, got %v", key, value, err)
+			}
+		}
+		if err := validateValue(key, "yes"); err == nil {
+			t.Fatalf("expected invalid %s to be rejected", key)
+		}
+	}
+}

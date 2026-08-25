@@ -45,23 +45,13 @@ type UpdateMCPServerInput struct {
 
 // UpdateMCPToolInput 定义更新 MCP 工具字段。
 type UpdateMCPToolInput struct {
-	DisplayName     *string
-	Description     *string
-	Status          *string
-	DefaultEnabled  *bool
-	RequiresConfirm *bool
-}
-
-// UpsertMCPToolPreferenceInput 定义用户工具选择偏好。
-type UpsertMCPToolPreferenceInput struct {
-	UserID               uint
-	ConversationPublicID string
-	SelectedToolIDs      []uint
-	ConfirmedToolIDs     []uint
-	WebSearchEnabled     bool
-	CodeSandboxEnabled   bool
-	ResearchMaxLLMCalls  int
-	ResearchMaxToolCalls int
+	DisplayName              *string
+	Description              *string
+	AttachmentInputMode      *string
+	AttachmentArgument       *string
+	AttachmentEncoding       *string
+	AttachmentPromptArgument *string
+	Status                   *string
 }
 
 type ReorderMCPServerInput struct {
@@ -78,7 +68,7 @@ type MCPRepository interface {
 	GetServer(ctx context.Context, serverID uint) (*domainmcp.Server, error)
 	GetServerForUser(ctx context.Context, serverID uint, userID uint, includePlatform bool) (*domainmcp.Server, error)
 	DeleteServer(ctx context.Context, serverID uint) error
-	ReplaceServerTools(ctx context.Context, serverID uint, tools []domainmcp.Tool) error
+	ReplaceServerTools(ctx context.Context, serverID uint, tools []domainmcp.Tool, overwriteCustomizedMetadata bool) error
 	ListTools(ctx context.Context, serverID uint, onlyActive bool) ([]domainmcp.Tool, error)
 	ListToolsByIDs(ctx context.Context, toolIDs []uint) ([]domainmcp.Tool, error)
 	ListToolsByIDsForUser(ctx context.Context, toolIDs []uint, userID uint) ([]domainmcp.Tool, error)

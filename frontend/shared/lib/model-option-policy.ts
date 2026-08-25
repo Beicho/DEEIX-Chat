@@ -9,9 +9,12 @@ export const MODEL_OPTION_POLICY_PROTOCOLS = [
   "anthropic_messages",
   "gemini_generate_content",
   "google_image_generation",
+  "gemini_interactions",
   "xai_responses",
   "xai_image",
   "xai_image_edits",
+  "xai_video",
+  "xai_video_extensions",
 ] as const;
 
 export type ModelOptionPolicyProtocol = (typeof MODEL_OPTION_POLICY_PROTOCOLS)[number];
@@ -68,9 +71,12 @@ export const MODEL_OPTION_POLICY_PROTOCOL_LABELS: Record<ModelOptionPolicyProtoc
   anthropic_messages: "Anthropic（Messages）",
   gemini_generate_content: "Google（Generate Content）",
   google_image_generation: "Google（Image Generation）",
+  gemini_interactions: "Google（Interactions）",
   xai_responses: "xAI（Responses）",
   xai_image: "xAI（Images Generations）",
   xai_image_edits: "xAI（Images Edits）",
+  xai_video: "xAI（Video Generations）",
+  xai_video_extensions: "xAI（Video Extensions）",
 };
 
 export const HARD_DENIED_MODEL_OPTION_PATHS = [
@@ -88,6 +94,10 @@ export const HARD_DENIED_MODEL_OPTION_PATHS = [
   "baseURL",
   "stream",
   "previous_response_id",
+  "prompt_cache_key",
+  "prompt_cache_options",
+  "prompt_cache_breakpoint",
+  "prompt_cache_retention",
 ];
 
 export function parseModelOptionRuleMap(raw: string): { value: ModelOptionRuleMap; error: string } {
@@ -141,6 +151,10 @@ export function resolveModelOptionPolicyProtocol(protocol: string): ModelOptionP
       return "xai_image";
     case "xai_image_edits":
       return "xai_image_edits";
+    case "xai_video":
+      return "xai_video";
+    case "xai_video_extensions":
+      return "xai_video_extensions";
     case "google":
     case "gemini":
     case "google_generate_content":
@@ -148,6 +162,8 @@ export function resolveModelOptionPolicyProtocol(protocol: string): ModelOptionP
       return "gemini_generate_content";
     case "google_image_generation":
       return "google_image_generation";
+    case "gemini_interactions":
+      return "gemini_interactions";
     default:
       return "openai_responses";
   }

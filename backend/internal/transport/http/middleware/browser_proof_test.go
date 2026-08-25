@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	appsecurity "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/security"
@@ -32,6 +33,16 @@ func TestBrowserProofMiddlewareRejectsProtectedEndpointWithoutProof(t *testing.T
 
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"errorCode":"browser_proof.required"`) {
+		t.Fatalf("expected stable browser proof error code, body=%s", recorder.Body.String())
+	}
+}
+
+func TestBrowserProofActionIncludesVideoGeneration(t *testing.T) {
+	action, ok := browserProofAction(http.MethodPost, "/api/v1/conversations/abc/media/videos/generations/stream")
+	if !ok || action != "generate_video" {
+		t.Fatalf("expected generate_video protected action, got action=%q ok=%v", action, ok)
 	}
 }
 

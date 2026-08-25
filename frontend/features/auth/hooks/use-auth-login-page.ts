@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
-import { completeEmailCodeLogin, completeEmailRegistration, completePasswordReset, getLoginOptions, getLoginPageSettings, login, startEmailCodeLogin, startEmailRegistration, startPasswordReset, startTwoFactorEmailVerification, verifyTwoFactorLogin } from "@/shared/api/auth";
+import { completeEmailRegistration, completePasswordReset, getLoginOptions, getLoginPageSettings, login, startEmailRegistration, startPasswordReset, startProviderAuthBridge, startTwoFactorEmailVerification, verifyTwoFactorLogin } from "@/shared/api/auth";
 import type { LoginOptionsData, LoginPageSettings, SecurityVerificationMethod } from "@/shared/api/auth.types";
 import { resolveApiBaseURL } from "@/shared/api/http-client";
 import { isPasswordPolicyValid } from "@/shared/auth/account-policy";
@@ -16,11 +16,13 @@ import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { getSuspendedAccountReason, isSuspendedAccountError } from "@/features/auth/lib/suspended-account-message";
 import {
   createProviderPKCE,
+  createProviderClientState,
   DEFAULT_LOGIN_OPTIONS,
   DEFAULT_LOGIN_SETTINGS,
   isTwoFactorChallengeExpired,
   normalizeRegisterCode,
   normalizeTwoFactorInput,
+  providerAuthBridgeStorageKey,
   providerPKCEStorageKey,
   TWO_FACTOR_CHALLENGE_STORAGE_KEY,
   TWO_FACTOR_METHODS_STORAGE_KEY,
@@ -160,10 +162,6 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
   }, []);
 
   React.useEffect(() => {
-    document.title = settings.title?.trim() || t("title");
-  }, [settings.title, t]);
-
-  React.useEffect(() => {
     if (mode === "login" && !passwordLoginEnabled && loginProviders.length === 0 && canShowRegister) {
       setMode("register");
     } else if (mode === "register" && !canShowRegister) {
@@ -250,19 +248,41 @@ export function useLoginPage({ nextPath }: UseLoginPageInput) {
 
   const handleProviderLogin = React.useCallback(async (slug: string, intent: ProviderAuthIntent = "login") => {
     try {
-      const params = new URLSearchParams();
       const redirectURI = `${window.location.origin}/auth/callback?provider=${encodeURIComponent(slug)}`;
       const pkce = await createProviderPKCE();
-      window.sessionStorage.setItem(providerPKCEStorageKey(slug), pkce.verifier);
-      params.set("redirect_uri", redirectURI);
-      params.set("next", resolvedNextPath);
-      params.set("code_challenge", pkce.challenge);
-      params.set("intent", intent);
-      window.location.href = `${resolveApiBaseURL()}/api/v1/auth/providers/${encodeURIComponent(slug)}/start?${params.toString()}`;
+      if (!options.providerAuthBridge.enabled) {
+        const params = new URLSearchParams();
+        window.sessionStorage.setItem(providerPKCEStorageKey(slug), pkce.verifier);
+        params.set("redirect_uri", redirectURI);
+        params.set("next", resolvedNextPath);
+        params.set("code_challenge", pkce.challenge);
+        params.set("intent", intent);
+        window.location.href = `${resolveApiBaseURL()}/api/v1/auth/providers/${encodeURIComponent(slug)}/start?${params.toString()}`;
+        return;
+      }
+      const clientState = createProviderClientState();
+      window.sessionStorage.setItem(providerAuthBridgeStorageKey(slug), JSON.stringify({
+        verifier: pkce.verifier,
+        state: clientState,
+        intent,
+        next: resolvedNextPath,
+      }));
+      const result = await startProviderAuthBridge(slug, {
+        clientID: "deeix-web",
+        redirectURI,
+        codeChallenge: pkce.challenge,
+        clientState,
+        intent,
+        next: resolvedNextPath,
+      });
+      // OAuth must use a full document navigation so the provider redirect can leave the app origin.
+      window.location.href = result.authorizationURL;
     } catch {
+      window.sessionStorage.removeItem(providerAuthBridgeStorageKey(slug));
+      window.sessionStorage.removeItem(providerPKCEStorageKey(slug));
       toast.error(t("toasts.providerStartFailed"));
     }
-  }, [resolvedNextPath, t]);
+  }, [options.providerAuthBridge.enabled, resolvedNextPath, t]);
 
   const requestRegisterCode = React.useCallback(async () => {
     if (!emailVerificationEnabled || sendingCode || registerCodeCooldownSeconds > 0) {

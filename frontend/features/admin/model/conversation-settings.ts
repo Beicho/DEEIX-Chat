@@ -6,12 +6,13 @@ export type ConversationVisibilityRule =
   | { field: string; equals: string }
   | { all: ConversationVisibilityRule[] };
 
-export type ConversationSettingsSection = "conversation" | "contextCompression" | "optionPassthrough";
+export type ConversationSettingsSection = "conversation" | "contextManagement" | "optionPassthrough";
 
 export type ConversationSettingsField = {
   section: ConversationSettingsSection;
   namespace: "chat";
   key:
+    | "conversation_default_model"
     | "conversation_task_model"
     | "default_system_prompt"
     | "conversation_title_prompt"
@@ -19,7 +20,8 @@ export type ConversationSettingsField = {
     | "context_compact_enabled"
     | "context_token_budget_enabled"
     | "context_max_turns"
-    | "context_compact_trigger_tokens"
+    | "context_window_fallback_tokens"
+    | "context_compact_trigger_percent"
     | "context_compact_preserve_recent_turns"
     | "context_compact_highlights_per_role"
     | "context_compact_snippet_chars"
@@ -37,12 +39,14 @@ export type ConversationSettingsField = {
   description: string;
   type: ConversationFieldType;
   placeholder?: string;
+  valueSuffix?: string;
   options?: Array<{ label: string; value: string }>;
   visibleWhen?: ConversationVisibilityRule;
   subgroupKey?: string;
 };
 
 export const CONVERSATION_TASK_MODEL_FOLLOW = "follow";
+export const CONVERSATION_DEFAULT_MODEL_SYSTEM = "";
 
 export const CONTEXT_COMPACT_ENABLED_RULE: ConversationVisibilityRule = {
   field: "chat.context_compact_enabled",
@@ -118,11 +122,6 @@ export const DEFAULT_MODEL_OPTION_ALLOWED_PATHS = `{
     "size",
     "user"
   ],
-  "google_image_generation": [
-    "generationConfig.responseModalities",
-    "generationConfig.imageConfig.aspectRatio",
-    "generationConfig.imageConfig.imageSize"
-  ],
   "anthropic_messages": [
     "speed",
     "top_k",
@@ -130,9 +129,38 @@ export const DEFAULT_MODEL_OPTION_ALLOWED_PATHS = `{
     "thinking.type",
     "thinking.budget_tokens"
   ],
+  "gemini_generate_content": [
+    "generationConfig.temperature",
+    "generationConfig.topP",
+    "generationConfig.maxOutputTokens",
+    "generationConfig.responseMimeType",
+    "generationConfig.thinkingConfig.includeThoughts",
+    "generationConfig.thinkingConfig.thinkingLevel"
+  ],
+  "google_image_generation": [
+    "generationConfig.responseModalities",
+    "generationConfig.imageConfig.aspectRatio",
+    "generationConfig.imageConfig.imageSize"
+  ],
+  "gemini_interactions": [
+    "generation_config.temperature",
+    "generation_config.top_p",
+    "generation_config.max_output_tokens",
+    "generation_config.thinking_level",
+    "generation_config.thinking_summaries",
+    "response_format.type",
+    "response_format.aspect_ratio",
+    "response_format.image_size",
+    "response_format.mime_type",
+    "response_format.schema",
+    "generation_config.video_config.task"
+  ],
   "xai_responses": [
+    "reasoning.effort",
+    "min_p",
+    "parallel_tool_calls",
     "store",
-    "reasoning.effort"
+    "top_k"
   ],
   "xai_image": [
     "aspect_ratio",
@@ -146,11 +174,13 @@ export const DEFAULT_MODEL_OPTION_ALLOWED_PATHS = `{
     "resolution",
     "response_format"
   ],
-  "gemini_generate_content": [
-    "generationConfig.temperature",
-    "generationConfig.topP",
-    "generationConfig.maxOutputTokens",
-    "generationConfig.responseMimeType"
+  "xai_video": [
+    "aspect_ratio",
+    "duration",
+    "resolution"
+  ],
+  "xai_video_extensions": [
+    "duration"
   ]
 }`;
 
@@ -177,6 +207,15 @@ type ConversationSettingsTranslator = (key: string) => string;
 
 export function buildConversationSettingsFields(t: ConversationSettingsTranslator): ConversationSettingsField[] {
   return [
+    {
+      section: "conversation",
+      namespace: "chat",
+      key: "conversation_default_model",
+      label: t("fields.defaultModel.label"),
+      description: t("fields.defaultModel.description"),
+      type: "select",
+      options: [{ label: t("defaultModel.systemRecommended"), value: CONVERSATION_DEFAULT_MODEL_SYSTEM }],
+    },
     {
       section: "conversation",
       namespace: "chat",
@@ -245,7 +284,24 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       placeholder: t("fields.defaultSystemPrompt.placeholder"),
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
+      namespace: "chat",
+      key: "context_window_fallback_tokens",
+      label: t("fields.contextWindowFallbackTokens.label"),
+      description: t("fields.contextWindowFallbackTokens.description"),
+      type: "int",
+      placeholder: t("fields.contextWindowFallbackTokens.placeholder"),
+    },
+    {
+      section: "contextManagement",
+      namespace: "chat",
+      key: "context_token_budget_enabled",
+      label: t("fields.contextTokenBudget.label"),
+      description: t("fields.contextTokenBudget.description"),
+      type: "bool",
+    },
+    {
+      section: "contextManagement",
       namespace: "chat",
       key: "context_compact_enabled",
       label: t("fields.contextCompactEnabled.label"),
@@ -253,16 +309,7 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       type: "bool",
     },
     {
-      section: "contextCompression",
-      namespace: "chat",
-      key: "context_token_budget_enabled",
-      label: t("fields.contextTokenBudget.label"),
-      description: t("fields.contextTokenBudget.description"),
-      type: "bool",
-      visibleWhen: CONTEXT_COMPACT_ENABLED_RULE,
-    },
-    {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "context_max_turns",
       label: t("fields.contextMaxTurns.label"),
@@ -270,19 +317,22 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       type: "int",
       placeholder: t("fields.contextMaxTurns.placeholder"),
       visibleWhen: CONTEXT_COMPACT_ENABLED_RULE,
+      subgroupKey: "context_compact",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
-      key: "context_compact_trigger_tokens",
-      label: t("fields.contextCompactTriggerTokens.label"),
-      description: t("fields.contextCompactTriggerTokens.description"),
+      key: "context_compact_trigger_percent",
+      label: t("fields.contextCompactTriggerPercent.label"),
+      description: t("fields.contextCompactTriggerPercent.description"),
       type: "int",
-      placeholder: t("fields.contextCompactTriggerTokens.placeholder"),
+      placeholder: t("fields.contextCompactTriggerPercent.placeholder"),
+      valueSuffix: "%",
       visibleWhen: CONTEXT_COMPACT_ENABLED_RULE,
+      subgroupKey: "context_compact",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "context_compact_preserve_recent_turns",
       label: t("fields.contextCompactPreserveTurns.label"),
@@ -290,9 +340,10 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       type: "int",
       placeholder: t("fields.contextCompactPreserveTurns.placeholder"),
       visibleWhen: CONTEXT_COMPACT_ENABLED_RULE,
+      subgroupKey: "context_compact",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "context_compact_highlights_per_role",
       label: t("fields.contextCompactHighlightsPerRole.label"),
@@ -300,9 +351,10 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       type: "int",
       placeholder: t("fields.contextCompactHighlightsPerRole.placeholder"),
       visibleWhen: CONTEXT_COMPACT_ENABLED_RULE,
+      subgroupKey: "context_compact",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "context_compact_snippet_chars",
       label: t("fields.contextCompactSnippetChars.label"),
@@ -310,9 +362,10 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       type: "int",
       placeholder: t("fields.contextCompactSnippetChars.placeholder"),
       visibleWhen: CONTEXT_COMPACT_ENABLED_RULE,
+      subgroupKey: "context_compact",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "context_artifact_retention_days",
       label: t("fields.contextArtifactRetentionDays.label"),
@@ -320,27 +373,30 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       type: "int",
       placeholder: t("fields.contextArtifactRetentionDays.placeholder"),
       visibleWhen: CONTEXT_COMPACT_ENABLED_RULE,
+      subgroupKey: "context_compact",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "compact_async_enabled",
       label: t("fields.compactAsync.label"),
       description: t("fields.compactAsync.description"),
       type: "bool",
       visibleWhen: CONTEXT_COMPACT_ENABLED_RULE,
+      subgroupKey: "context_compact",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "compact_llm_enabled",
       label: t("fields.compactLLM.label"),
       description: t("fields.compactLLM.description"),
       type: "bool",
       visibleWhen: CONTEXT_COMPACT_ENABLED_RULE,
+      subgroupKey: "context_compact",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "compact_task_model",
       label: t("fields.compactTaskModel.label"),
@@ -351,7 +407,7 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       subgroupKey: "compact_llm",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "compact_max_failures",
       label: t("fields.compactMaxFailures.label"),
@@ -362,7 +418,7 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       subgroupKey: "compact_llm",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "compact_system_prompt",
       label: t("fields.compactSystemPrompt.label"),
@@ -373,7 +429,7 @@ export function buildConversationSettingsFields(t: ConversationSettingsTranslato
       subgroupKey: "compact_llm",
     },
     {
-      section: "contextCompression",
+      section: "contextManagement",
       namespace: "chat",
       key: "compact_light_prompt",
       label: t("fields.compactLightPrompt.label"),
@@ -459,6 +515,7 @@ export function toEditorField(field: ConversationSettingsField) {
     description: field.description,
     type: field.type,
     placeholder: field.placeholder,
+    valueSuffix: field.valueSuffix,
     options: field.options,
   } as const;
 }

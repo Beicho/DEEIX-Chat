@@ -15,18 +15,22 @@ export type ChatSettings = {
   showLatency: boolean;
   showBillingCost: boolean;
   markdownRender: boolean;
+  autoExpandThinking: boolean;
+  autoExpandToolCalls: boolean;
   autoGenerateTitle: boolean;
+  autoGenerateLabels: boolean;
   deleteFilesByDefault: boolean;
   contextCompactAuto: boolean;
   restoreDraftOnFailure: boolean;
   preserveConversationDrafts: boolean;
   reuseModelOptions: boolean;
+  reasoningContentPassback: boolean;
   inputHeight: ChatInputHeight;
   contentWidth: ChatContentWidth;
   fileMode: FileMode;
 };
 
-export type ModelVendorGroup = [vendor: string, items: PublicModelDTO[]];
+export type ModelPresentationGroup = [groupKey: string, items: PublicModelDTO[]];
 
 export type ProfileDraft = {
   avatarUrl: string;

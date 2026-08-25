@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, FileBraces, ListOrdered, Pencil, Plus, RefreshCw, Save, Trash2, Wrench, XCircle } from "lucide-react";
+import { CheckCircle2, FileBraces, ListOrdered, Pencil, Plus, RefreshCw, Save, Trash2, Wrench, X, XCircle } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { toast } from "sonner";
 
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -52,6 +53,11 @@ import { useVirtualTableRows, VirtualTablePaddingRow } from "@/components/ui/vir
 import { AdminBulkConfirmDialog } from "@/features/admin/components/bulk-confirm-dialog";
 import { MCPOrderSheet } from "@/features/admin/components/sections/tools/mcp-order-sheet";
 import {
+  MCPToolEditDialog,
+  type MCPToolEditFormState,
+} from "@/features/admin/components/sections/tools/mcp-tool-edit-dialog";
+import { toolSchemaArgumentMetadata } from "@/features/admin/components/sections/tools/mcp-tool-schema";
+import {
   TOOL_SETTINGS_FIELDS,
   applyToolSettingsDefaults,
   flattenToolSettings,
@@ -62,6 +68,7 @@ import { resolveAdminErrorMessage } from "@/features/admin/utils/admin-error";
 import { cn } from "@/lib/utils";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
 import { CopyActionButton } from "@/shared/components/copy-action";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import {
   SettingsFieldItem,
   SettingsFieldList,
@@ -82,10 +89,9 @@ type ServerFormState = {
 
 type ToolBulkAction = "active" | "inactive";
 
-type ToolFormState = {
-  id: number;
-  displayName: string;
-  description: string;
+type ToolSyncConfirmation = {
+  serverID: number;
+  serverName: string;
 };
 
 const EMPTY_SERVER_FORM: ServerFormState = {
@@ -184,9 +190,10 @@ export function AdminToolsPage() {
   const [toolBulkAction, setToolBulkAction] = React.useState<ToolBulkAction | null>(null);
   const [toolBulkApplying, setToolBulkApplying] = React.useState(false);
   const [syncingServerID, setSyncingServerID] = React.useState<number | null>(null);
+  const [toolSyncConfirmation, setToolSyncConfirmation] = React.useState<ToolSyncConfirmation | null>(null);
   const [mcpOrderOpen, setMCPOrderOpen] = React.useState(false);
   const [schemaTool, setSchemaTool] = React.useState<MCPToolDTO | null>(null);
-  const [toolForm, setToolForm] = React.useState<ToolFormState | null>(null);
+  const [toolForm, setToolForm] = React.useState<MCPToolEditFormState | null>(null);
   const [toolSaving, setToolSaving] = React.useState(false);
   const mcpEnabled = settingsMap["mcp.mcp_enable"] === "true";
   const mcpEnableField = React.useMemo(
@@ -206,8 +213,10 @@ export function AdminToolsPage() {
     () => servers.find((item) => item.id === toolSheetServerID) ?? null,
     [servers, toolSheetServerID],
   );
-  const activeToolCount = React.useMemo(() => countActiveTools(tools), [tools]);
-
+  const stableToolSheetServer = useDialogSnapshot(toolSheetServer);
+  const stableSchemaTool = useDialogSnapshot(schemaTool);
+  const stableServerDeleteTarget = useDialogSnapshot(serverDeleteTarget);
+  const stableToolSyncConfirmation = useDialogSnapshot(toolSyncConfirmation);
   React.useEffect(() => {
     if (mcpEnabled) {
       return;
@@ -215,6 +224,7 @@ export function AdminToolsPage() {
     setToolSheetServerID(null);
     setToolForm(null);
     setSchemaTool(null);
+    setToolSyncConfirmation(null);
   }, [mcpEnabled]);
 
   const filteredServers = React.useMemo(() => {
@@ -444,7 +454,7 @@ export function AdminToolsPage() {
   }, []);
 
   const syncTools = React.useCallback(
-    async (serverID: number) => {
+    async (serverID: number, overwriteCustomizedMetadata = false) => {
       setSyncingServerID(serverID);
       const token = await resolveAccessToken();
       if (!token) {
@@ -454,7 +464,7 @@ export function AdminToolsPage() {
       }
 
       try {
-        const nextTools = await syncAdminMCPServerTools(token, serverID);
+        const nextTools = await syncAdminMCPServerTools(token, serverID, overwriteCustomizedMetadata);
         setToolSheetServerID(serverID);
         setTools(nextTools);
         toast.success(t("toast.toolsSynced"));
@@ -466,6 +476,30 @@ export function AdminToolsPage() {
       }
     },
     [loadServers, t],
+  );
+
+  const requestToolSync = React.useCallback(
+    (serverID: number) => {
+      const server = servers.find((item) => item.id === serverID);
+      if (server?.requiresToolMetadataSyncConfirmation) {
+        setToolSyncConfirmation({ serverID, serverName: server.name });
+        return;
+      }
+      void syncTools(serverID);
+    },
+    [servers, syncTools],
+  );
+
+  const confirmToolSync = React.useCallback(
+    (overwriteCustomizedMetadata: boolean) => {
+      if (!toolSyncConfirmation) {
+        return;
+      }
+      const serverID = toolSyncConfirmation.serverID;
+      setToolSyncConfirmation(null);
+      void syncTools(serverID, overwriteCustomizedMetadata);
+    },
+    [syncTools, toolSyncConfirmation],
   );
 
   const saveServer = React.useCallback(async () => {
@@ -628,10 +662,18 @@ export function AdminToolsPage() {
   }, [pagedToolIDs]);
 
   const openEditToolDialog = React.useCallback((tool: MCPToolDTO) => {
+    const schemaMetadata = toolSchemaArgumentMetadata(tool.inputSchemaJSON);
     setToolForm({
       id: tool.id,
       displayName: tool.displayName?.trim() || tool.name,
       description: tool.description ?? "",
+      attachmentInputMode: tool.attachmentInputMode,
+      attachmentArgument: tool.attachmentArgument,
+      attachmentEncoding: tool.attachmentEncoding || "base64",
+      attachmentPromptArgument: tool.attachmentPromptArgument,
+      passUserPrompt: Boolean(tool.attachmentPromptArgument),
+      schemaStringArguments: schemaMetadata.stringArguments,
+      schemaRequiredArguments: schemaMetadata.requiredArguments,
     });
   }, []);
 
@@ -645,11 +687,21 @@ export function AdminToolsPage() {
       if (!token) {
         throw new Error(t("toast.sessionExpired"));
       }
+      const attachmentConfig = toolForm.attachmentInputMode === "image" ? {
+        attachmentInputMode: toolForm.attachmentInputMode,
+        attachmentArgument: toolForm.attachmentArgument,
+        attachmentEncoding: toolForm.attachmentEncoding,
+        attachmentPromptArgument: toolForm.passUserPrompt ? toolForm.attachmentPromptArgument : "",
+      } : {
+        attachmentInputMode: toolForm.attachmentInputMode,
+      };
       const savedTool = await updateAdminMCPTool(token, toolForm.id, {
         displayName: toolForm.displayName,
         description: toolForm.description,
+        ...attachmentConfig,
       });
       setTools((items) => items.map((item) => (item.id === savedTool.id ? savedTool : item)));
+      await loadServers();
       setToolForm(null);
       toast.success(t("toast.toolUpdated"));
     } catch (error) {
@@ -657,10 +709,10 @@ export function AdminToolsPage() {
     } finally {
       setToolSaving(false);
     }
-  }, [t, toolForm]);
+  }, [loadServers, t, toolForm]);
 
   const schemaText = React.useMemo(() => {
-    const raw = schemaTool?.inputSchemaJSON?.trim();
+    const raw = stableSchemaTool?.inputSchemaJSON?.trim();
     if (!raw) {
       return "{}";
     }
@@ -669,7 +721,7 @@ export function AdminToolsPage() {
     } catch {
       return raw;
     }
-  }, [schemaTool]);
+  }, [stableSchemaTool]);
 
   const mcpEnableFieldID = mcpEnableField ? toolFieldID(mcpEnableField) : "";
   const mcpToolPromptFieldID = mcpToolPromptField ? toolFieldID(mcpToolPromptField) : "";
@@ -857,7 +909,7 @@ export function AdminToolsPage() {
                             variant="ghost"
                             className="text-muted-foreground shadow-none"
                             disabled={syncingServerID === server.id}
-                            onClick={() => void syncTools(server.id)}
+                            onClick={() => void requestToolSync(server.id)}
                             title={t("toolbar.syncTools")}
                             aria-label={t("toolbar.syncTools")}
                           >
@@ -897,7 +949,7 @@ export function AdminToolsPage() {
           <SheetHeader className="px-4 pb-4">
             <SheetTitle>{t("sections.tools")}</SheetTitle>
             <SheetDescription>
-              {toolSheetServer?.name ?? ""}
+              {stableToolSheetServer?.name ?? ""}
             </SheetDescription>
           </SheetHeader>
 
@@ -955,16 +1007,16 @@ export function AdminToolsPage() {
                   size="sm"
                   className="h-7 shrink-0 text-xs"
                   disabled={syncingServerID === toolSheetServer.id}
-                  onClick={() => void syncTools(toolSheetServer.id)}
+                  onClick={() => void requestToolSync(toolSheetServer.id)}
                 >
                   <RefreshCw className={cn("size-3.5 stroke-1", syncingServerID === toolSheetServer.id ? "animate-spin" : "")} />
                   {t("toolbar.sync")}
                 </Button>
               ) : null}
             </TableToolbar>
-            {toolSheetServer?.lastError ? (
+            {stableToolSheetServer?.lastError ? (
               <div className="mb-3 rounded-md bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
-                {toolSheetServer.lastError}
+                {stableToolSheetServer.lastError}
               </div>
             ) : null}
 
@@ -1192,60 +1244,20 @@ export function AdminToolsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(toolForm)} onOpenChange={(open) => !open && setToolForm(null)}>
-        <DialogContent className="flex max-h-[min(86vh,760px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-[520px]">
-          <DialogHeader className="shrink-0 px-4 py-4">
-            <DialogTitle>{t("toolDialog.title")}</DialogTitle>
-            <DialogDescription>{t("toolDialog.description")}</DialogDescription>
-          </DialogHeader>
-
-          <form
-            className="flex min-h-0 flex-1 flex-col"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void saveTool();
-            }}
-          >
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-2">
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">{t("toolDialog.displayName")}</p>
-                <Input
-                  value={toolForm?.displayName ?? ""}
-                  placeholder={t("toolDialog.displayNamePlaceholder")}
-                  maxLength={160}
-                  onChange={(event) => setToolForm((prev) => (prev ? { ...prev, displayName: event.target.value } : prev))}
-                />
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">{t("toolDialog.toolDescription")}</p>
-                <Textarea
-                  value={toolForm?.description ?? ""}
-                  className="h-28 resize-none text-xs leading-5"
-                  placeholder={t("toolDialog.toolDescriptionPlaceholder")}
-                  maxLength={4096}
-                  onChange={(event) => setToolForm((prev) => (prev ? { ...prev, description: event.target.value } : prev))}
-                />
-              </div>
-            </div>
-
-            <DialogFooter className="shrink-0 px-4 py-3">
-              <Button type="button" variant="ghost" onClick={() => setToolForm(null)} disabled={toolSaving}>
-                {tActions("cancel")}
-              </Button>
-              <Button type="submit" disabled={toolSaving}>
-                {tActions("save")}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <MCPToolEditDialog
+        form={toolForm}
+        saving={toolSaving}
+        onFormChange={setToolForm}
+        onClose={() => setToolForm(null)}
+        onSave={() => void saveTool()}
+      />
 
       <Dialog open={Boolean(schemaTool)} onOpenChange={(open) => !open && setSchemaTool(null)}>
         <DialogContent className="flex max-h-[min(86vh,760px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
           <DialogHeader className="shrink-0 px-4 py-4">
-            <DialogTitle>{schemaTool?.displayName || schemaTool?.name || t("schemaDialog.fallbackTitle")}</DialogTitle>
+            <DialogTitle>{stableSchemaTool?.displayName || stableSchemaTool?.name || t("schemaDialog.fallbackTitle")}</DialogTitle>
             <DialogDescription>
-              {schemaTool?.name ? t("schemaDialog.description", { name: schemaTool.name }) : t("schemaDialog.fallbackDescription")}
+              {stableSchemaTool?.name ? t("schemaDialog.description", { name: stableSchemaTool.name }) : t("schemaDialog.fallbackDescription")}
             </DialogDescription>
           </DialogHeader>
           <pre className="mx-4 min-h-0 flex-1 overflow-auto rounded-md border border-border/60 bg-muted/35 p-3 text-xs leading-5 text-foreground/86">
@@ -1259,7 +1271,7 @@ export function AdminToolsPage() {
               type="button"
               value={schemaText}
               messages={{ copied: t("toast.schemaCopied"), failed: t("toast.copyFailed") }}
-              disabled={!schemaTool}
+              disabled={!stableSchemaTool}
             >
               {tActions("copy")}
             </CopyActionButton>
@@ -1291,6 +1303,64 @@ export function AdminToolsPage() {
         }}
       />
 
+      <Dialog
+        open={toolSyncConfirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setToolSyncConfirmation(null);
+          }
+        }}
+      >
+        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-[380px]">
+          <DialogClose asChild>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="absolute top-3 right-3 z-10 text-muted-foreground shadow-none"
+              title={tActions("close")}
+              aria-label={tActions("close")}
+            >
+              <X className="size-3.5" />
+            </Button>
+          </DialogClose>
+          <DialogHeader className="px-4 pt-4 pr-11 pb-3">
+            <DialogTitle>{t("syncConfirm.title")}</DialogTitle>
+            <DialogDescription>
+              {t("syncConfirm.description", {
+                name: stableToolSyncConfirmation?.serverName ?? "",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mx-4 mb-4 overflow-hidden rounded-md border border-border/60">
+            <button
+              type="button"
+              className="flex min-h-12 w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+              disabled={syncingServerID !== null || !toolSyncConfirmation}
+              onClick={() => confirmToolSync(false)}
+            >
+              <Pencil className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-medium text-foreground">{t("syncConfirm.preserve")}</span>
+                <span className="block text-xs leading-5 text-muted-foreground">{t("syncConfirm.preserveDescription")}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="flex min-h-12 w-full items-center gap-3 border-t border-border/60 px-3 py-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+              disabled={syncingServerID !== null || !toolSyncConfirmation}
+              onClick={() => confirmToolSync(true)}
+            >
+              <RefreshCw className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-medium text-foreground">{t("syncConfirm.overwrite")}</span>
+                <span className="block text-xs leading-5 text-muted-foreground">{t("syncConfirm.overwriteDescription")}</span>
+              </span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog
         open={serverDeleteTarget !== null}
         onOpenChange={(open) => {
@@ -1303,7 +1373,7 @@ export function AdminToolsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("toolbar.deleteServer")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("confirm.deleteServer", { name: serverDeleteTarget?.name ?? "" })}
+              {t("confirm.deleteServer", { name: stableServerDeleteTarget?.name ?? "" })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

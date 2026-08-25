@@ -211,8 +211,8 @@ func (s *Service) UpdateConfig(ctx context.Context, input UpdateConfigInput) (Co
 	if input.WebhookURL != nil {
 		value := strings.TrimSpace(*input.WebhookURL)
 		if value != "" {
-			env, ssrf := s.outboundEnv()
-			if err := validateWebhookURL(value, env, ssrf); err != nil {
+			_, ssrf := s.outboundEnv()
+			if err := validateWebhookURL(value, ssrf); err != nil {
 				return ConfigView{}, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 			}
 		}

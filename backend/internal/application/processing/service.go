@@ -129,10 +129,14 @@ func (s *Service) InitializeUploadedFile(ctx context.Context, fileObj *domaincon
 		return nil
 	}
 	now := time.Now()
-	if fileObj.FileCategory == "image" && !s.snapshot().ExtractImageOCREnabled {
+	if fileObj.FileCategory == "video" || (fileObj.FileCategory == "image" && !s.snapshot().ExtractImageOCREnabled) {
 		fileObj.ProcessingStatus = "ready"
 		fileObj.ProcessingReady = true
 		fileObj.ExtractStatus = "none"
+		ragReason := "image_not_applicable"
+		if fileObj.FileCategory == "video" {
+			ragReason = "video_not_applicable"
+		}
 		processingStatus := "ready"
 		processingReady := true
 		processingErrorCode := ""
@@ -155,7 +159,7 @@ func (s *Service) InitializeUploadedFile(ctx context.Context, fileObj *domaincon
 			ProcessingStatus: "ready",
 			ExtractStatus:    "none",
 			RAGReady:         false,
-			RAGReason:        "image_not_applicable",
+			RAGReason:        ragReason,
 			ExtractorVersion: s.version(),
 			StartedAt:        &now,
 			CompletedAt:      &now,
@@ -506,7 +510,7 @@ func (s *Service) runFileProcessingWorker(ctx context.Context, consumerName stri
 }
 
 func (s *Service) handleProcessingMessage(ctx context.Context, msg repository.FileProcessingMessage) {
-	if msg.UserID == 0 || msg.FileID == "" {
+	if msg.FileID == "" {
 		_ = s.cache.AckFileProcessingMessage(ctx, msg.ID)
 		_ = s.cache.DeleteFileProcessingMessage(ctx, msg.ID)
 		return
@@ -538,7 +542,7 @@ func (s *Service) handleProcessingMessage(ctx context.Context, msg repository.Fi
 }
 
 func (s *Service) forceFinalizeFailed(userID uint, fileID string, processingErr error) {
-	if s == nil || s.repo == nil || userID == 0 || strings.TrimSpace(fileID) == "" {
+	if s == nil || s.repo == nil || strings.TrimSpace(fileID) == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), failurePersistTimeout)
@@ -693,6 +697,8 @@ func resolveOCRExtractTimeout(cfg config.Config) time.Duration {
 		timeoutSeconds = cfg.ExtractTencentOCRTimeoutSeconds
 	case extraction.OCREngineAliyun:
 		timeoutSeconds = cfg.ExtractAliyunOCRTimeoutSeconds
+	case extraction.OCREngineMistral:
+		timeoutSeconds = cfg.ExtractMistralOCRTimeoutSeconds
 	case extraction.OCREngineLLM:
 		timeoutSeconds = cfg.ExtractLLMOCRTimeoutSeconds
 	default:
@@ -1046,7 +1052,7 @@ func truncateError(message string, limit int) string {
 
 func supportsExtraction(category string) bool {
 	switch category {
-	case "pdf", "word", "excel", "text", "image":
+	case "pdf", "word", "presentation", "excel", "text", "image":
 		return true
 	default:
 		return false
@@ -1055,7 +1061,7 @@ func supportsExtraction(category string) bool {
 
 func supportsRAG(category string) bool {
 	switch category {
-	case "pdf", "word", "excel", "text", "image":
+	case "pdf", "word", "presentation", "excel", "text", "image":
 		return true
 	default:
 		return false

@@ -1,36 +1,19 @@
 "use client";
 
-import * as React from "react";
+import { Box, CornerDownRight, Eye, EyeOff, Film, HatGlasses, Image, ImageOff, ImagePlus, LoaderCircle, PencilLine, Trash2 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import dynamic from "next/dynamic";
-import { Box, CornerDownRight, Image, ImageOff, ImagePlus, LoaderCircle, PencilLine, Trash2 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import * as React from "react";
 import { toast } from "sonner";
 
 import { AudioLines } from "@/components/animate-ui/icons/audio-lines";
 import { Blocks } from "@/components/animate-ui/icons/blocks";
+import { Crop } from "@/components/animate-ui/icons/crop";
+import { Link as LinkIcon } from "@/components/animate-ui/icons/link";
 import { Pause } from "@/components/animate-ui/icons/pause";
 import { Send } from "@/components/animate-ui/icons/send";
-import { Link as LinkIcon } from "@/components/animate-ui/icons/link";
-import { Crop } from "@/components/animate-ui/icons/crop";
 import { X as XIcon } from "@/components/animate-ui/icons/x";
-import { PlusIcon } from "@/components/ui/plus";
-import type {
-  ChatModelOption,
-  PendingAttachment,
-  UploadingAttachment,
-} from "@/features/chat/types/chat-runtime";
-import { useChatSpeechInput } from "@/features/chat/hooks/use-chat-speech-input";
-import {
-  useChatMentionMenu,
-  type ChatMentionMenuKind,
-} from "@/features/chat/hooks/use-chat-mention-menu";
-import { ChatMentionMenuPortal } from "@/features/chat/components/shared/chat-mention-menu";
-import { ChatMCP } from "@/features/chat/components/sections/chat-mcp";
-import { ChatModelPicker } from "@/features/chat/components/sections/chat-model-picker";
-import { ChatModelConfig } from "@/features/chat/components/sections/chat-model-config";
-import { formatBytes, resolveFileExtension, resolveFileIcon } from "@/shared/lib/file-display";
-import type { ChatSubmitDecision } from "@/features/chat/model/chat-task";
-import { isMediaSubmitTask, resolveChatSubmitDecision } from "@/features/chat/model/chat-task";
 import {
   Attachment,
   AttachmentAction,
@@ -54,26 +37,57 @@ import {
   InputGroupButton,
   InputGroupTextarea,
 } from "@/components/ui/input-group";
+import { PlusIcon } from "@/components/ui/plus";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { resolveFileProcessingBadge } from "@/shared/lib/file-processing";
+import { ChatKnowledgeBases } from "@/features/chat/components/sections/chat-knowledge-bases";
+import { ChatMCP } from "@/features/chat/components/sections/chat-mcp";
+import { ChatModelConfig } from "@/features/chat/components/sections/chat-model-config";
+import { ChatModelPicker } from "@/features/chat/components/sections/chat-model-picker";
+import { ChatMentionMenuPortal } from "@/features/chat/components/shared/chat-mention-menu";
+import {
+  type ChatMentionMenuKind,
+  useChatMentionMenu,
+} from "@/features/chat/hooks/use-chat-mention-menu";
+import {
+  type SpeechInputErrorCode,
+  useChatSpeechInput,
+} from "@/features/chat/hooks/use-chat-speech-input";
+import { useMarkdownPreviewSync } from "@/features/chat/hooks/use-markdown-preview-sync";
+import type { ChatSubmitDecision } from "@/features/chat/model/chat-task";
+import { isMediaSubmitTask, resolveChatSubmitDecision } from "@/features/chat/model/chat-task";
+import type {
+  ChatModelOption,
+  PendingAttachment,
+  UploadingAttachment,
+} from "@/features/chat/types/chat-runtime";
+import {
+  formatClipboardMarkdownPaste,
+  resolveClipboardMarkdownPaste,
+} from "@/features/chat/utils/markdown-paste";
+import type { SendShortcut } from "@/features/settings/types/settings";
 import { cn } from "@/lib/utils";
 import type { ConversationOptions } from "@/shared/api/conversation.types";
 import type { FileObjectDTO } from "@/shared/api/file.types";
 import type { MCPToolDTO } from "@/shared/api/mcp.types";
 import type { SkillSummaryDTO } from "@/shared/api/skills.types";
-import type { ModelOptionPolicy } from "@/shared/lib/model-option-policy";
-import type { SendShortcut } from "@/features/settings/types/settings";
-import { isSendShortcutEvent } from "@/shared/lib/platform-shortcuts";
+import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import type { BillingDisplayCurrency } from "@/shared/lib/billing-display";
-import {
-  createPastedTextFile,
-  shouldConvertPasteToTextFile,
-} from "@/features/chat/model/paste-to-file";
+import { formatBytes, resolveFileExtension, resolveFileIcon } from "@/shared/lib/file-display";
+import { resolveFileProcessingBadge } from "@/shared/lib/file-processing";
+import type { ModelOptionPolicy } from "@/shared/lib/model-option-policy";
+import { isSendShortcutEvent } from "@/shared/lib/platform-shortcuts";
 
 const FilePreviewDialog = dynamic(
-  () => import("@/shared/components/file-preview/file-preview-dialog").then((module) => module.FilePreviewDialog),
+  () => import("@/shared/components/file-preview/preview-dialog").then((module) => module.FilePreviewDialog),
   { ssr: false },
 );
+
+const TEMPORARY_NOTICE_TRANSITION = {
+  duration: 0.22,
+  ease: [0.16, 1, 0.3, 1] as const,
+};
+const TEMPORARY_MENTION_KINDS = ["model", "tool", "skill", "prompt"] as const;
 
 type QueuedComposerMessage = {
   id: string;
@@ -87,8 +101,9 @@ type ChatInputProps = {
   sending: boolean;
   uploading: boolean;
   isConversationMode: boolean;
-  maxFilesPerMessage: number;
   fileMode?: "auto" | "full_context" | "rag";
+  ragAvailable: boolean | null;
+  ragAvailabilityReason: string;
   sendShortcut?: SendShortcut;
   inputHeight?: "compact" | "standard" | "loose";
   attachments: PendingAttachment[];
@@ -105,6 +120,7 @@ type ChatInputProps = {
   researchMaxLLMCalls: number;
   researchMaxToolCalls: number;
   selectedSkills: SkillSummaryDTO[];
+  selectedKnowledgeBaseIDs: string[];
   defaultToolIDs: number[];
   queuedMessages: QueuedComposerMessage[];
   htmlVisualPromptEnabled: boolean;
@@ -117,6 +133,7 @@ type ChatInputProps = {
   modelLoading: boolean;
   modelDisabled?: boolean;
   dropActive?: boolean;
+  temporaryMode?: boolean;
   onDraftChange: (value: string) => void;
   onModelChange: (platformModelName: string) => void;
   onModelCatalogRefresh?: () => void | Promise<void>;
@@ -127,6 +144,7 @@ type ChatInputProps = {
   onResearchMaxLLMCallsChange: (value: number) => void;
   onResearchMaxToolCallsChange: (value: number) => void;
   onSelectedSkillsChange: (skills: SkillSummaryDTO[]) => void;
+  onSelectedKnowledgeBasesChange: (ids: string[]) => void;
   onDefaultToolsChange: (toolIDs: number[]) => void | Promise<void>;
   onHTMLVisualPromptChange: (enabled: boolean) => void;
   onOptionsChange: React.Dispatch<React.SetStateAction<ConversationOptions>>;
@@ -155,7 +173,10 @@ function resolveComposerModeIndicator(
   decision: ChatSubmitDecision,
   t: (key: string) => string,
 ): ComposerModeIndicator | null {
-  if (decision.blockedReason === "image_task_rejects_non_image_attachments") {
+  if (
+    decision.blockedReason === "image_task_rejects_non_image_attachments" ||
+    decision.blockedReason === "video_task_rejects_non_image_attachments"
+  ) {
     return {
       label: t("mediaMode.invalidFile"),
       intro: t("mediaMode.invalidFileIntro"),
@@ -184,6 +205,28 @@ function resolveComposerModeIndicator(
         : t("mediaMode.imageEditDescription"),
       icon: ImagePlus,
       tone: "default",
+    };
+  }
+  if (decision.task === "video_generation") {
+    return {
+      label: t("mediaMode.videoGeneration"),
+      intro: t("mediaMode.videoGenerationIntro"),
+      description: decision.blockedReason
+        ? t(`mediaMode.blockedDescriptions.${decision.blockedReason}`)
+        : t("mediaMode.videoGenerationDescription"),
+      icon: Film,
+      tone: "default",
+    };
+  }
+  if (decision.task === "video_extension") {
+    return {
+      label: t("mediaMode.videoExtension"),
+      intro: t("mediaMode.videoExtensionIntro"),
+      description: decision.blockedReason
+        ? t(`mediaMode.blockedDescriptions.${decision.blockedReason}`)
+        : t("mediaMode.videoExtensionDescription"),
+      icon: Film,
+      tone: decision.blockedReason ? "warning" : "default",
     };
   }
   return null;
@@ -225,6 +268,8 @@ function ChatInputComponent({
   uploading,
   isConversationMode,
   fileMode,
+  ragAvailable,
+  ragAvailabilityReason,
   sendShortcut = "enter",
   inputHeight = "standard",
   attachments,
@@ -241,6 +286,7 @@ function ChatInputComponent({
   researchMaxLLMCalls,
   researchMaxToolCalls,
   selectedSkills,
+  selectedKnowledgeBaseIDs,
   defaultToolIDs,
   queuedMessages,
   htmlVisualPromptEnabled,
@@ -253,6 +299,7 @@ function ChatInputComponent({
   modelLoading,
   modelDisabled = false,
   dropActive = false,
+  temporaryMode = false,
   onDraftChange,
   onModelChange,
   onModelCatalogRefresh,
@@ -263,6 +310,7 @@ function ChatInputComponent({
   onResearchMaxLLMCallsChange,
   onResearchMaxToolCallsChange,
   onSelectedSkillsChange,
+  onSelectedKnowledgeBasesChange,
   onDefaultToolsChange,
   onHTMLVisualPromptChange,
   onOptionsChange,
@@ -281,32 +329,63 @@ function ChatInputComponent({
   const tChat = useTranslations("chat");
   const tComposer = useTranslations("chat.composer");
   const tFileStatus = useTranslations("files.status");
+  const locale = useLocale();
   const [isBlocksHovered, setIsBlocksHovered] = React.useState(false);
   const [isVoiceHovered, setIsVoiceHovered] = React.useState(false);
   const [toolsMenuHovered, setToolsMenuHovered] = React.useState(false);
   const [toolsMenuOpen, setToolsMenuOpen] = React.useState(false);
   const [editingQueuedMessageID, setEditingQueuedMessageID] = React.useState<string | null>(null);
   const [editingQueuedMessageContent, setEditingQueuedMessageContent] = React.useState("");
+  const handleSpeechInputError = React.useCallback((error: SpeechInputErrorCode) => {
+    toast.error(tComposer("voiceErrorTitle"), {
+      id: "chat-speech-input-error",
+      description: tComposer(`voiceErrors.${error}`),
+    });
+  }, [tComposer]);
   const speechInput = useChatSpeechInput({
     draft,
+    language: locale,
     listeningPlaceholder: tComposer("voiceListeningPlaceholder"),
     onDraftChange,
+    onError: handleSpeechInputError,
     placeholder: tComposer("inputPlaceholder"),
+    startingPlaceholder: tComposer("voiceStartingPlaceholder"),
   });
   const [hoveredTool, setHoveredTool] = React.useState<"upload" | "screenshot" | null>(null);
   const [ragWarnDismissed, setRagWarnDismissed] = React.useState(false);
   const [previewAttachment, setPreviewAttachment] = React.useState<PendingAttachment | null>(null);
+  const [markdownPreview, setMarkdownPreview] = React.useState(false);
+  const stablePreviewAttachment = useDialogSnapshot(previewAttachment);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const inputGroupRef = React.useRef<HTMLDivElement | null>(null);
   const inputGroupMeasureRef = React.useRef<HTMLDivElement | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const markdownPreviewRef = React.useRef<HTMLDivElement | null>(null);
   const composingRef = React.useRef(false);
   const [inputGroupHeight, setInputGroupHeight] = React.useState<number | null>(null);
   const hasDraftText = draft.trim().length > 0;
   const hasSubmitContent = hasDraftText || attachments.length > 0;
   const canSend = hasSubmitContent && !loading && !uploading;
+  const submitActionLabel = hasSubmitContent
+    ? sending
+      ? tComposer("queueMessage")
+      : tChat("send")
+    : sending
+      ? tComposer("pauseGeneration")
+      : speechInput.supported
+        ? speechInput.active
+          ? tComposer("cancelVoiceInput")
+          : tComposer("voiceInput")
+        : tComposer("voiceUnsupported");
+  const showMarkdownPreview = markdownPreview && hasDraftText;
   const inputHeightClassName =
     inputHeight === "compact" ? "max-h-32" : inputHeight === "loose" ? "max-h-64" : "max-h-44";
+  const { onPreviewScroll, onSourceScroll } = useMarkdownPreviewSync({
+    enabled: showMarkdownPreview,
+    previewRef: markdownPreviewRef,
+    source: draft,
+    textareaRef,
+  });
 
   // Only relevant in RAG mode: all document attachments opted out of RAG.
   const docAttachments = attachments.filter((a) => a.fileCategory !== "image");
@@ -321,6 +400,12 @@ function ChatInputComponent({
       setPreviewAttachment(null);
     }
   }, []);
+
+  React.useEffect(() => {
+    if (!hasDraftText) {
+      setMarkdownPreview(false);
+    }
+  }, [hasDraftText]);
 
   React.useLayoutEffect(() => {
     const node = inputGroupMeasureRef.current;
@@ -364,20 +449,29 @@ function ChatInputComponent({
     () => modelOptions.find((item) => item.platformModelName === selectedPlatformModelName) ?? null,
     [modelOptions, selectedPlatformModelName],
   );
-  const selectedProtocol = selectedModel?.protocols[0]?.trim() ?? "";
+  const selectedProtocols = React.useMemo(() => selectedModel?.protocols ?? [], [selectedModel]);
   const selectedModelName = selectedModel?.platformModelName || selectedPlatformModelName;
-  const submitDecision = resolveChatSubmitDecision(selectedModel, attachments);
+  const submitDecision = resolveChatSubmitDecision(selectedModel, attachments, options);
   const submitTask = submitDecision.task;
   const isMediaMode = isMediaSubmitTask(submitTask);
   const composerModeIndicator = resolveComposerModeIndicator(submitDecision, tComposer);
   const ComposerModeIcon = composerModeIndicator?.icon;
+  const taskOptionConfig = submitTask === "video_extension" ? selectedModel?.videoExtension : null;
+  const modelConfigOptions = React.useMemo(() => {
+    if (!taskOptionConfig) {
+      return options;
+    }
+    const duration = Number(options.duration);
+    return {
+      ...options,
+      duration: Number.isInteger(duration) && duration >= 2 && duration <= 10 ? duration : 6,
+    };
+  }, [options, taskOptionConfig]);
   const modelOptionPolicyDisabled = modelOptionPolicy?.mode?.trim() === "disabled";
   const showMCPToolsButton = !isMediaMode;
   const showHTMLVisualPromptButton = !isMediaMode;
   const hasComposerAttachments = attachments.length > 0 || uploadingAttachments.length > 0;
   const showSelectedSkills = selectedSkills.length > 0 && !isMediaMode;
-  const inlineSelectedSkills = showSelectedSkills && (hasComposerAttachments || queuedMessages.length > 0);
-  const overlaySelectedSkills = showSelectedSkills && !hasComposerAttachments && queuedMessages.length === 0;
   const {
     activeIndex: mentionActiveIndex,
     handleBlur: handleMentionBlur,
@@ -407,6 +501,7 @@ function ChatInputComponent({
     anchorRef: inputGroupRef,
     textareaRef,
     toolsDisabled: isMediaMode,
+    enabledKinds: temporaryMode ? TEMPORARY_MENTION_KINDS : undefined,
     onDraftChange,
     onFileSelect: onAttachExistingFile,
     onModelCatalogRefresh,
@@ -460,7 +555,7 @@ function ChatInputComponent({
   }, [editingQueuedMessageContent, editingQueuedMessageID, onDeleteQueuedMessage, onEditQueuedMessage, queuedMessages]);
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full text-left">
       <input
         ref={fileInputRef}
         type="file"
@@ -595,17 +690,38 @@ function ChatInputComponent({
         </div>
       ) : null}
 
+      <AnimatePresence initial={false}>
+        {showMarkdownPreview && inputGroupHeight !== null ? (
+          <motion.div
+            ref={markdownPreviewRef}
+            key="markdown-preview"
+            role="region"
+            aria-label={tComposer("markdownPreview")}
+            className="absolute inset-x-0 z-[60] max-h-[40dvh] min-h-16 overflow-y-auto rounded-xl border-[0.5px] border-border/70 bg-pure/85 px-5 py-4 text-[15px] text-foreground shadow-xs backdrop-blur-xl scroll-fade-12"
+            style={{ bottom: inputGroupHeight + 8 }}
+            initial={{ opacity: 0, scale: 0.99, y: 4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.99, y: 4 }}
+            transition={{ duration: 0.12, ease: "easeOut" }}
+            onScroll={onPreviewScroll}
+          >
+            <StreamdownRender content={draft} variant="user" sourcePositions />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
       <InputGroup
         ref={inputGroupRef}
         className={cn(
           "relative z-10 flex-col items-stretch overflow-hidden rounded-3xl border-[0.5px] border-border/70 bg-pure shadow-xs transition-[height,border-color,background-color,box-shadow] duration-150 ease-out motion-reduce:transition-none has-[[data-slot=input-group-control]:focus-visible]:border-border has-[[data-slot=input-group-control]:focus-visible]:ring-0",
           inputGroupHeight === null && "h-auto",
+          temporaryMode && "border-foreground/15 bg-muted/45 shadow-none",
           dropActive && "border-dashed border-foreground/30 bg-muted/20 shadow-none",
         )}
         style={inputGroupHeight === null ? undefined : { height: inputGroupHeight }}
       >
         <div ref={inputGroupMeasureRef} className="flex w-full flex-col">
-          {inlineSelectedSkills ? (
+          {showSelectedSkills ? (
             <div className="flex w-full max-h-14 flex-wrap items-center justify-start gap-x-3 gap-y-1 overflow-y-auto px-5 pt-3">
               {selectedSkills.map((skill) => (
                 <button
@@ -722,9 +838,9 @@ function ChatInputComponent({
                   </Attachment>
                 ))}
               </AttachmentGroup>
-              {previewAttachment ? (
+              {stablePreviewAttachment ? (
                 <FilePreviewDialog
-                  file={previewAttachment}
+                  file={stablePreviewAttachment}
                   open={previewAttachment !== null}
                   onOpenChange={closePreviewDialog}
                 />
@@ -745,29 +861,6 @@ function ChatInputComponent({
             onSelect={selectMentionItem}
           />
 
-          {overlaySelectedSkills ? (
-            <div className="absolute left-5 right-5 top-4 z-10 flex max-h-14 flex-wrap items-center gap-x-3 gap-y-1 overflow-y-auto">
-              {selectedSkills.map((skill) => (
-                <button
-                  key={skill.id}
-                  type="button"
-                  className="group inline-flex h-6 max-w-48 items-center gap-1.5 text-sm font-medium text-primary transition-colors hover:text-primary/85 disabled:opacity-60"
-                  disabled={loading || uploading}
-                  onClick={() => onSelectedSkillsChange(selectedSkills.filter((item) => item.id !== skill.id))}
-                  aria-label={skill.title}
-                >
-                  <Box className="size-4 shrink-0" strokeWidth={1.7} />
-                  <span className="min-w-0 truncate">{skill.trigger || skill.title}</span>
-                  <XIcon
-                    size={12}
-                    strokeWidth={1.7}
-                    className="shrink-0 opacity-45 transition-opacity group-hover:opacity-80"
-                  />
-                </button>
-              ))}
-            </div>
-          ) : null}
-
           <InputGroupTextarea
             ref={textareaRef}
             value={draft}
@@ -780,7 +873,7 @@ function ChatInputComponent({
             style={{ fontFamily: "var(--font-chat)", fontWeight: "var(--font-chat-weight)" }}
             className={cn(
               "rounded-3xl min-h-12 overflow-y-auto px-5 text-[15px] leading-6 placeholder:text-muted-foreground placeholder:font-[inherit] placeholder:leading-[inherit]",
-              overlaySelectedSkills ? "pt-12" : hasComposerAttachments ? "pt-2" : "pt-4",
+              showSelectedSkills || hasComposerAttachments ? "pt-2" : "pt-4",
               inputHeightClassName,
               speechInput.active ? "placeholder:font-normal placeholder:text-muted-foreground" : "",
             )}
@@ -790,6 +883,7 @@ function ChatInputComponent({
             onClick={handleMentionSelectionChange}
             onKeyUp={handleMentionSelectionChange}
             onSelect={handleMentionSelectionChange}
+            onScroll={onSourceScroll}
             onPaste={(event) => {
               const text = event.clipboardData.getData("text/plain");
               if (text && shouldConvertPasteToTextFile(text)) {
@@ -798,13 +892,28 @@ function ChatInputComponent({
                 return;
               }
               const files = clipboardFilesFromPaste(event);
-              if (files.length === 0) {
-                return;
-              }
-              if (!text) {
+              const markdownPaste = resolveClipboardMarkdownPaste(event.clipboardData);
+              if (markdownPaste) {
                 event.preventDefault();
+                const textarea = event.currentTarget;
+                const formatted = formatClipboardMarkdownPaste(
+                  textarea.value,
+                  textarea.selectionStart,
+                  textarea.selectionEnd,
+                  markdownPaste,
+                );
+                handleMentionChange(formatted.value);
+                window.requestAnimationFrame(() => {
+                  textareaRef.current?.setSelectionRange(formatted.caretIndex, formatted.caretIndex);
+                });
               }
-              void onUploadFiles(files);
+
+              if (!temporaryMode && files.length > 0) {
+                if (!event.clipboardData.getData("text/plain")) {
+                  event.preventDefault();
+                }
+                void onUploadFiles(files);
+              }
             }}
             onCompositionStart={() => {
               composingRef.current = true;
@@ -833,72 +942,81 @@ function ChatInputComponent({
 
           <InputGroupAddon align="block-end" className="items-center justify-between pt-2">
             <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
-              <DropdownMenu
-                modal={false}
-                open={toolsMenuOpen}
-                onOpenChange={(open) => {
-                  setToolsMenuOpen(open);
-                  if (!open) {
-                    setToolsMenuHovered(false);
-                  }
-                }}
-              >
-                <DropdownMenuTrigger asChild>
-                  <InputGroupButton
-                    id="chat-tools-menu-trigger"
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8"
-                    disabled={loading || uploading}
-                    aria-label={tComposer("openTools")}
-                    onMouseEnter={() => setToolsMenuHovered(true)}
-                    onMouseLeave={() => setToolsMenuHovered(false)}
-                  >
-                    <PlusIcon
-                      size={20}
-                      strokeWidth={1.4}
-                      animate={toolsMenuHovered || toolsMenuOpen ? "default" : undefined}
-                    />
-                  </InputGroupButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="bottom" align="start" sideOffset={8} className="w-36">
-                  <DropdownMenuItem
-                    onMouseEnter={() => setHoveredTool("upload")}
-                    onMouseLeave={() => setHoveredTool((prev) => (prev === "upload" ? null : prev))}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      onSelectUploadTool();
-                    }}
-                  >
-                    <LinkIcon size={12} strokeWidth={1.5} animate={hoveredTool === "upload" ? "default" : undefined} />
-                    {tComposer("uploadFile")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onMouseEnter={() => setHoveredTool("screenshot")}
-                    onMouseLeave={() => setHoveredTool((prev) => (prev === "screenshot" ? null : prev))}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      onSelectScreenshotTool();
-                    }}
-                  >
-                    <Crop size={12} strokeWidth={1.5} animate={hoveredTool === "screenshot" ? "default" : undefined} />
-                    {tComposer("screenshot")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {!temporaryMode ? (
+                <DropdownMenu
+                  modal={false}
+                  open={toolsMenuOpen}
+                  onOpenChange={(open) => {
+                    setToolsMenuOpen(open);
+                    if (!open) {
+                      setToolsMenuHovered(false);
+                    }
+                  }}
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                        <InputGroupButton
+                          id="chat-tools-menu-trigger"
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8"
+                          disabled={loading || uploading}
+                          aria-label={tComposer("openTools")}
+                          onMouseEnter={() => setToolsMenuHovered(true)}
+                          onMouseLeave={() => setToolsMenuHovered(false)}
+                        >
+                          <PlusIcon
+                            size={20}
+                            strokeWidth={1.4}
+                            animate={toolsMenuHovered || toolsMenuOpen ? "default" : undefined}
+                          />
+                        </InputGroupButton>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      {tComposer("openTools")}
+                    </TooltipContent>
+                  </Tooltip>
+                  <DropdownMenuContent side="bottom" align="start" sideOffset={8} className="w-36">
+                    <DropdownMenuItem
+                      onMouseEnter={() => setHoveredTool("upload")}
+                      onMouseLeave={() => setHoveredTool((prev) => (prev === "upload" ? null : prev))}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onSelectUploadTool();
+                      }}
+                    >
+                      <LinkIcon size={12} strokeWidth={1.5} animate={hoveredTool === "upload" ? "default" : undefined} />
+                      {tComposer("uploadFile")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onMouseEnter={() => setHoveredTool("screenshot")}
+                      onMouseLeave={() => setHoveredTool((prev) => (prev === "screenshot" ? null : prev))}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        onSelectScreenshotTool();
+                      }}
+                    >
+                      <Crop size={12} strokeWidth={1.5} animate={hoveredTool === "screenshot" ? "default" : undefined} />
+                      {tComposer("screenshot")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
 
               {!modelOptionPolicyDisabled ? (
                 <ChatModelConfig
                   disabled={loading || uploading || modelLoading}
-                  options={options}
-                  defaultOptions={defaultOptions}
-                  optionControls={selectedModel?.optionControls ?? []}
-                  lockedOptionPaths={selectedModel?.lockedOptionPaths ?? []}
+                  options={modelConfigOptions}
+                  defaultOptions={taskOptionConfig?.defaultOptions ?? defaultOptions}
+                  optionControls={taskOptionConfig?.optionControls ?? selectedModel?.optionControls ?? []}
+                  lockedOptionPaths={taskOptionConfig ? [] : selectedModel?.lockedOptionPaths ?? []}
                   nativeToolKeys={selectedModel?.nativeToolKeys ?? []}
                   nativeTools={selectedModel?.nativeTools ?? []}
                   modelOptionPolicy={modelOptionPolicy}
-                  selectedProtocol={selectedProtocol}
+                  selectedProtocols={selectedProtocols}
                   selectedModelName={selectedModelName}
                   onOptionsChange={onOptionsChange}
                   onOptionsReset={onOptionsReset}
@@ -928,6 +1046,16 @@ function ChatInputComponent({
                 />
               ) : null}
 
+              {!isMediaMode ? (
+                <ChatKnowledgeBases
+                  selectedIDs={selectedKnowledgeBaseIDs}
+                  disabled={loading || uploading}
+                  available={ragAvailable}
+                  unavailableReason={ragAvailabilityReason}
+                  onChange={onSelectedKnowledgeBasesChange}
+                />
+              ) : null}
+
               {showHTMLVisualPromptButton ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -953,10 +1081,37 @@ function ChatInputComponent({
                       />
                     </InputGroupButton>
                   </TooltipTrigger>
-                  <TooltipContent side="top" className="max-w-72 text-xs leading-5">
-                    {htmlVisualPromptEnabled
-                      ? tComposer("htmlVisualPromptEnabled")
-                      : tComposer("htmlVisualPromptDisabled")}
+                  <TooltipContent side="top" className="text-xs">
+                    {tComposer("htmlVisualPrompt")}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+
+              {hasDraftText ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <InputGroupButton
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className={cn(
+                        "size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8",
+                        showMarkdownPreview && "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
+                      )}
+                      disabled={speechInput.active}
+                      aria-label={showMarkdownPreview ? tComposer("hideMarkdownPreview") : tComposer("previewMarkdown")}
+                      aria-pressed={showMarkdownPreview}
+                      onClick={() => setMarkdownPreview((visible) => !visible)}
+                    >
+                      {showMarkdownPreview ? (
+                        <EyeOff className="size-4" strokeWidth={1.6} />
+                      ) : (
+                        <Eye className="size-4" strokeWidth={1.6} />
+                      )}
+                    </InputGroupButton>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    {showMarkdownPreview ? tComposer("hideMarkdownPreview") : tComposer("previewMarkdown")}
                   </TooltipContent>
                 </Tooltip>
               ) : null}
@@ -994,48 +1149,73 @@ function ChatInputComponent({
                 onModelChange={onModelChange}
               />
 
-              <InputGroupButton
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8"
-                disabled={loading || uploading || (!sending && !hasSubmitContent && !speechInput.supported)}
-                onClick={hasSubmitContent ? onSendMessage : sending ? onStopMessage : speechInput.toggle}
-                onMouseEnter={() => setIsVoiceHovered(true)}
-                onMouseLeave={() => setIsVoiceHovered(false)}
-                aria-label={hasSubmitContent ? (sending ? tComposer("queueMessage") : tChat("send")) : sending ? tComposer("pauseGeneration") : speechInput.active ? tComposer("cancelVoiceInput") : tComposer("voiceInput")}
-                title={hasSubmitContent ? (sending ? tComposer("queueMessage") : tChat("send")) : sending ? tComposer("pauseGeneration") : speechInput.supported ? (speechInput.active ? tComposer("cancelVoiceInput") : tComposer("voiceInput")) : tComposer("voiceUnsupported")}
-              >
-                {hasSubmitContent ? (
-                  <Send
-                    size={20}
-                    strokeWidth={1.4}
-                    animate={isVoiceHovered ? "default" : undefined}
-                  />
-                ) : sending ? (
-                  <Pause
-                    size={20}
-                    strokeWidth={1.4}
-                    animate="default-loop"
-                  />
-                ) : speechInput.active ? (
-                  <AudioLines
-                    size={20}
-                    strokeWidth={1.4}
-                    animate="default"
-                  />
-                ) : (
-                  <AudioLines
-                    size={20}
-                    strokeWidth={1.4}
-                    animate={isVoiceHovered ? "default" : undefined}
-                  />
-                )}
-              </InputGroupButton>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <InputGroupButton
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-7 rounded-md text-muted-foreground hover:text-foreground sm:size-8"
+                    disabled={loading || uploading || (!sending && !hasSubmitContent && !speechInput.supported)}
+                    onClick={hasSubmitContent ? onSendMessage : sending ? onStopMessage : speechInput.toggle}
+                    onMouseEnter={() => setIsVoiceHovered(true)}
+                    onMouseLeave={() => setIsVoiceHovered(false)}
+                    aria-label={submitActionLabel}
+                  >
+                    {hasSubmitContent ? (
+                      <Send
+                        size={20}
+                        strokeWidth={1.4}
+                        animate={isVoiceHovered ? "default" : undefined}
+                      />
+                    ) : sending ? (
+                      <Pause
+                        size={20}
+                        strokeWidth={1.4}
+                        animate="default-loop"
+                      />
+                    ) : speechInput.status === "starting" ? (
+                      <LoaderCircle className="size-5 animate-spin" strokeWidth={1.6} />
+                    ) : speechInput.active ? (
+                      <AudioLines
+                        size={20}
+                        strokeWidth={1.4}
+                        animate="default"
+                      />
+                    ) : (
+                      <AudioLines
+                        size={20}
+                        strokeWidth={1.4}
+                        animate={isVoiceHovered ? "default" : undefined}
+                      />
+                    )}
+                  </InputGroupButton>
+                </TooltipTrigger>
+                <TooltipContent side="top" align="end" className="text-xs">
+                  {submitActionLabel}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </InputGroupAddon>
         </div>
       </InputGroup>
+
+      <AnimatePresence initial={false}>
+        {temporaryMode ? (
+          <motion.div
+            key="temporary-chat-notice"
+            role="status"
+            className="mx-auto flex w-fit max-w-[calc(100%-1rem)] items-center gap-2 overflow-hidden px-2 text-xs leading-5 text-muted-foreground"
+            initial={{ height: 0, marginTop: 0, opacity: 0 }}
+            animate={{ height: "auto", marginTop: 8, opacity: 1 }}
+            exit={{ height: 0, marginTop: 0, opacity: 0 }}
+            transition={TEMPORARY_NOTICE_TRANSITION}
+          >
+            <HatGlasses aria-hidden className="size-4 shrink-0" strokeWidth={1.7} />
+            <span>{tChat("temporary.notice")}</span>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
     </div>
   );

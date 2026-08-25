@@ -1,21 +1,46 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import type {
-  AdminLLMCompatible,
-  AdminLLMStatus,
-  AdminLLMUpstreamAPIKey,
-  AdminLLMUpstreamView,
-  CreateAdminLLMUpstreamRequest,
-  UpdateAdminLLMUpstreamRequest,
-} from "@/features/admin/api/llm.types";
 import {
-  createAdminLLMUpstream,
-  updateAdminLLMUpstream,
-} from "@/features/admin/api";
-import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+  Braces,
+  ChevronDown,
+  Fingerprint,
+  KeyRound,
+  ListPlus,
+  Network,
+  RotateCcw,
+  ScanSearch,
+  Trash2,
+} from "lucide-react";
+import { useTranslations } from "next-intl";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -30,36 +55,30 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { SpinnerLabel } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { SpinnerLabel } from "@/components/ui/spinner";
-import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
-import { useTranslations } from "next-intl";
-import { RotateCcw, Trash2 } from "lucide-react";
+import {
+  createAdminLLMUpstream,
+  updateAdminLLMUpstream,
+} from "@/features/admin/api";
+import type {
+  AdminLLMCompatible,
+  AdminLLMStatus,
+  AdminLLMUpstreamAPIKey,
+  AdminLLMUpstreamView,
+  CreateAdminLLMUpstreamRequest,
+  UpdateAdminLLMUpstreamRequest,
+} from "@/features/admin/api/llm.types";
 import { COMPATIBLE_OPTIONS, resolveProtocolLabel } from "@/features/admin/utils/llm-display";
-import { JsonCodeEditor } from "@/shared/components/json-code-editor";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
+import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { JsonCodeEditor } from "@/shared/components/json-code-editor";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 
 const PROTOCOL_DEFAULT_KINDS = [
   "chat",
@@ -67,9 +86,25 @@ const PROTOCOL_DEFAULT_KINDS = [
   "image_gen",
   "image_edit",
   "video_gen",
+  "video_extension",
 ] as const;
 
 const NO_PROTOCOL_DEFAULT = "__system_default__";
+const CONVERSATION_ID_HEADER = [
+  "X-Conversation-Id",
+  `\${DEEIX_CONVERSATION_ID}`,
+] as const;
+const SESSION_ID_HEADER = ["X-Session-Id", `\${DEEIX_SESSION_ID}`] as const;
+const REQUEST_ID_HEADER = ["X-Request-Id", `\${DEEIX_REQUEST_ID}`] as const;
+const OPENAI_CLIENT_REQUEST_ID_HEADER = [
+  "X-Client-Request-Id",
+  `\${DEEIX_UPSTREAM_REQUEST_ID}`,
+] as const;
+const CODEX_COMPATIBLE_AFFINITY_HEADERS = [
+  ["session-id", `\${DEEIX_SESSION_ID}`],
+  ["thread-id", `\${DEEIX_CONVERSATION_ID}`],
+  ["x-client-request-id", `\${DEEIX_CONVERSATION_ID}`],
+] as const;
 
 const PROTOCOL_OPTIONS_BY_KIND: Record<(typeof PROTOCOL_DEFAULT_KINDS)[number], string[]> = {
   chat: [
@@ -79,6 +114,7 @@ const PROTOCOL_OPTIONS_BY_KIND: Record<(typeof PROTOCOL_DEFAULT_KINDS)[number], 
     "openai_chat_completions",
     "anthropic_messages",
     "google_generate_content",
+    "gemini_interactions",
     "xai_responses",
   ],
   audio: [
@@ -93,16 +129,21 @@ const PROTOCOL_OPTIONS_BY_KIND: Record<(typeof PROTOCOL_DEFAULT_KINDS)[number], 
   image_gen: [
     "openai_image_generations",
     "google_image_generation",
+    "gemini_interactions",
     "xai_image",
   ],
   image_edit: [
     "openai_image_edits",
     "google_image_generation",
+    "gemini_interactions",
     "xai_image_edits",
   ],
   video_gen: [
     "openai_video_generations",
+    "gemini_interactions",
+    "xai_video",
   ],
+  video_extension: ["xai_video_extensions"],
 };
 
 const CODE_TEXTAREA_CLASS = "font-mono text-xs placeholder:font-sans placeholder:text-xs";
@@ -133,6 +174,44 @@ function countMaskedApiKeys(json: string): number {
     return 0;
   }
   return 0;
+}
+
+function addHeaderPresets(
+  headersJson: string,
+  presets: ReadonlyArray<readonly [name: string, value: string]>,
+  rejectConflicts = false,
+): string | null | undefined {
+  const value = headersJson.trim();
+  let headers: Record<string, unknown> = {};
+  if (value) {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") return null;
+      headers = { ...(parsed as Record<string, unknown>) };
+    } catch {
+      return null;
+    }
+  }
+
+  const existingHeaders = new Map(
+    Object.entries(headers).map(([key, headerValue]) => [key.toLowerCase(), headerValue]),
+  );
+  if (rejectConflicts && presets.some(
+    ([name, template]) => existingHeaders.has(name.toLowerCase())
+      && existingHeaders.get(name.toLowerCase()) !== template,
+  )) {
+    return undefined;
+  }
+
+  let changed = false;
+  for (const [name, template] of presets) {
+    if (existingHeaders.has(name.toLowerCase())) continue;
+    headers[name] = template;
+    existingHeaders.set(name.toLowerCase(), template);
+    changed = true;
+  }
+
+  return changed ? JSON.stringify(headers, null, 2) : headersJson;
 }
 
 type MaskedAPIKeyItem = {
@@ -310,6 +389,7 @@ export function UpstreamSheet({
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [pendingDeleteAPIKeyIDs, setPendingDeleteAPIKeyIDs] = useState<Set<string>>(() => new Set());
   const [deleteAPIKeyTarget, setDeleteAPIKeyTarget] = useState<MaskedAPIKeyItem | null>(null);
+  const stableDeleteAPIKeyTarget = useDialogSnapshot(deleteAPIKeyTarget);
 
   useEffect(() => {
     if (open) {
@@ -330,6 +410,26 @@ export function UpstreamSheet({
       compatible: value,
       protocolDefaultsJson: "",
     }));
+  }
+
+  function fillHeaderPresets(
+    presets: ReadonlyArray<readonly [name: string, value: string]>,
+    rejectConflicts = false,
+  ) {
+    const nextHeadersJson = addHeaderPresets(form.headersJson, presets, rejectConflicts);
+    if (nextHeadersJson === null) {
+      toast.error(t("sheet.headersInvalidForFill"));
+      return;
+    }
+    if (nextHeadersJson === undefined) {
+      toast.error(t("sheet.headerPresetConflict"));
+      return;
+    }
+    if (nextHeadersJson === form.headersJson) {
+      toast.info(t("sheet.selectedHeadersExist"));
+      return;
+    }
+    setField("headersJson", nextHeadersJson);
   }
 
   function setProtocolDefault(kind: string, protocol: string) {
@@ -694,6 +794,7 @@ export function UpstreamSheet({
                   <span>{t("sheet.timeouts")}</span>
                 </AccordionTrigger>
                 <AccordionContent className="space-y-4 pb-4 pt-0">
+                  <p className="text-xs leading-5 text-muted-foreground">{t("sheet.circuitBreakDescription")}</p>
                   <div className="min-w-0 space-y-1">
                     <Label className="text-xs font-normal text-muted-foreground" htmlFor="connect-timeout">{t("sheet.connectTimeout")}</Label>
                     <Input
@@ -798,12 +899,68 @@ export function UpstreamSheet({
                 <AccordionTrigger className="h-11 items-center py-0 text-xs font-normal text-muted-foreground hover:text-foreground hover:no-underline data-[state=open]:font-medium data-[state=open]:text-foreground [&_.accordion-trigger-icon]:translate-y-0">
                   <span>{t("sheet.headers")}</span>
                 </AccordionTrigger>
-                <AccordionContent className="space-y-4 pb-4 pt-0">
+                <AccordionContent className="pb-4 pt-0">
                   <JsonCodeEditor
                     placeholder={`{"X-Custom-Header": "value"}`}
                     value={form.headersJson}
                     height={220}
                     onChange={(nextValue) => setField("headersJson", nextValue)}
+                    actions={(
+                      <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 gap-1 px-2 text-[11px]"
+                            disabled={pending}
+                          >
+                            <ListPlus className="size-3" />
+                            {t("sheet.quickFillHeaders")}
+                            <ChevronDown className="size-3" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="min-w-64">
+                          <DropdownMenuLabel className="text-[10px] text-muted-foreground">
+                            {t("sheet.commonHeaderPresets")}
+                          </DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onSelect={() => fillHeaderPresets([CONVERSATION_ID_HEADER])}
+                          >
+                            <Braces />
+                            {t("sheet.conversationIDHeader")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => fillHeaderPresets([SESSION_ID_HEADER])}
+                          >
+                            <KeyRound />
+                            {t("sheet.sessionIDHeader")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => fillHeaderPresets([REQUEST_ID_HEADER])}
+                          >
+                            <Fingerprint />
+                            {t("sheet.requestIDHeader")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel className="text-[10px] text-muted-foreground">
+                            {t("sheet.providerHeaderPresets")}
+                          </DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onSelect={() => fillHeaderPresets([OPENAI_CLIENT_REQUEST_ID_HEADER])}
+                          >
+                            <ScanSearch />
+                            {t("sheet.openAIClientRequestIDHeader")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => fillHeaderPresets(CODEX_COMPATIBLE_AFFINITY_HEADERS, true)}
+                          >
+                            <Network />
+                            {t("sheet.codexCompatibleAffinityHeaders")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   />
                 </AccordionContent>
               </AccordionItem>
@@ -844,7 +1001,7 @@ export function UpstreamSheet({
               <AlertDialogTitle>{t("sheet.apiKeyDeleteTitle")}</AlertDialogTitle>
               <AlertDialogDescription>
                 {t("sheet.apiKeyDeleteDescription", {
-                  key: deleteAPIKeyTarget?.keyMasked ?? "",
+                  key: stableDeleteAPIKeyTarget?.keyMasked ?? "",
                 })}
               </AlertDialogDescription>
             </AlertDialogHeader>

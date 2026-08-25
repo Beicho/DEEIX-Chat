@@ -3,6 +3,7 @@ import { apiRequest, ApiError, ApiNetworkError, resolveApiBaseURL, type ApiReque
 import type { ApiEnvelope } from "@/shared/api/common.types";
 import type { LoginData } from "@/shared/api/auth.types";
 import { attachBrowserProof, prepareProofBody } from "@/shared/security/browser-proof";
+import { invalidateBrowserKey } from "@/shared/security/browser-key-store";
 
 type AuthedRequestOptions = Omit<ApiRequestOptions, "accessToken"> & {
   accessToken: string;
@@ -33,6 +34,14 @@ function isSessionTerminatingAuthError(error: unknown): boolean {
     error.status === 401 &&
     typeof error.errorCode === "string" &&
     SESSION_TERMINATING_ERROR_CODES.has(error.errorCode);
+}
+
+function isRecoverableBrowserProofError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403 && error.errorCode === "browser_proof.invalid";
+}
+
+async function resetBrowserProofKey(): Promise<void> {
+  await invalidateBrowserKey(readSessionID());
 }
 
 async function requestAccessTokenRefresh(): Promise<string> {
@@ -102,10 +111,15 @@ export async function authedRequest<T>(
   path: string,
   options: AuthedRequestOptions,
   allowRefresh = true,
+  allowProofRecovery = true,
 ): Promise<T> {
   try {
     return await apiRequest<T>(path, await prepareAuthedRequestOptions(path, options));
   } catch (error) {
+    if (allowProofRecovery && isRecoverableBrowserProofError(error)) {
+      await resetBrowserProofKey();
+      return authedRequest<T>(path, options, allowRefresh, false);
+    }
     const isUnauthorized = error instanceof ApiError && error.status === 401;
     if (!allowRefresh || !isUnauthorized) {
       throw error;
@@ -223,6 +237,7 @@ export async function authedFetch(
   path: string,
   options: AuthedFetchOptions,
   allowRefresh = true,
+  allowProofRecovery = true,
 ): Promise<Response> {
   const endpoint = `${resolveApiBaseURL()}${path}`;
   let response: Response;
@@ -233,6 +248,15 @@ export async function authedFetch(
   }
   if (response.ok) {
     return response;
+  }
+
+  if (response.status === 403) {
+    const proofError = await toApiError(response);
+    if (allowProofRecovery && isRecoverableBrowserProofError(proofError)) {
+      await resetBrowserProofKey();
+      return authedFetch(path, options, allowRefresh, false);
+    }
+    throw proofError;
   }
 
   const isUnauthorized = response.status === 401;

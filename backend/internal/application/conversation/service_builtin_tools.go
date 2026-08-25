@@ -220,7 +220,7 @@ func (s *Service) searchBocha(ctx context.Context, cfg config.Config, query stri
 func (s *Service) doSearchRequest(req *http.Request, cfg config.Config) ([]byte, error) {
 	client := &http.Client{
 		Timeout:   time.Duration(maxInt(cfg.WebSearchTimeoutSeconds, 1)) * time.Second,
-		Transport: security.NewOutboundHTTPTransport(cfg.Env, cfg.SSRFProtectionEnabled, 10*time.Second),
+		Transport: security.NewOutboundHTTPTransport(security.NewStrictOutboundPolicy(cfg.SSRFProtectionEnabled), 10*time.Second),
 	}
 	if key := strings.TrimSpace(cfg.WebSearchAPIKey); key != "" && req.Header.Get("Authorization") == "" {
 		req.Header.Set("Authorization", "Bearer "+key)

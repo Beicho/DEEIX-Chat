@@ -2,14 +2,26 @@ package conversation
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	appcompact "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/compact"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/traceid"
 	"go.uber.org/zap"
 )
+
+const estimatedConversationImageTokens int64 = 1024
+
+const (
+	defaultBranchPreviewDepth = 2000
+	defaultBranchPreviewLimit = 32
+	contextAncestorPageSize   = 256
+	contextAncestorMaxCount   = 10000
+	contextAncestorMaxBytes   = 64 << 20
+)
+
+var errContextAncestorSafetyLimit = errors.New("context ancestor safety limit exceeded")
 
 type messageBranchState struct {
 	ExistingMessages []model.Message
@@ -84,42 +96,25 @@ func (s *Service) resolveMessageBranch(
 	// 当没有指定 parent 和 source 时，从最近成功上下文里选择默认续聊锚点。
 	// 不直接使用最新 DB 行，避免 pending/error 消息或分支 sibling 把上下文带偏。
 	if parentMessage == nil && sourceMessage == nil {
-		recent, recentTotal, latestErr := s.repo.ListRecentMessages(ctx, conversationID, s.compactSvc.ResolveContextMessageLimit())
+		recent, latestErr := s.repo.ListLatestBranchPreviewMessages(
+			ctx,
+			conversationID,
+			defaultBranchPreviewDepth,
+			defaultBranchPreviewLimit,
+		)
 		if latestErr == nil {
 			parentMessage = selectLatestDefaultParentCandidate(recent)
 		} else {
-			s.logger.Warn("list_recent_messages_for_default_branch_failed",
+			s.logger.Warn("list_branch_preview_for_default_branch_failed",
 				zap.String("trace_id", traceid.FromContext(ctx)),
 				zap.Uint("conversation_id", conversationID),
-				zap.Int64("conversation_message_total", recentTotal),
 				zap.Error(latestErr),
 			)
 		}
 	}
 
-	var ancestorMessages []model.Message
-	if parentMessage != nil {
-		ancestors, ancestorErr := s.repo.ListMessageAncestors(ctx, conversationID, parentMessage.ID, s.compactSvc.ResolveContextMessageLimit())
-		if ancestorErr != nil {
-			s.logger.Warn("list_message_ancestors_failed",
-				zap.String("trace_id", traceid.FromContext(ctx)),
-				zap.Error(ancestorErr),
-			)
-			ancestorMessages = []model.Message{}
-		} else {
-			ancestorMessages = ancestors
-		}
-	}
-	if branchReason == "default" {
-		normalizedAncestors, contextParent := normalizeDefaultBranchContext(ancestorMessages, parentMessage)
-		ancestorMessages = normalizedAncestors
-		if strings.TrimSpace(parentPublicID) == "" {
-			parentMessage = contextParent
-		}
-	}
-
 	state := &messageBranchState{
-		ExistingMessages: ancestorMessages,
+		ExistingMessages: nil,
 	}
 	if parentMessage != nil {
 		state.ParentMessageID = &parentMessage.ID
@@ -136,6 +131,88 @@ func (s *Service) resolveMessageBranch(
 	return state, nil
 }
 
+// loadMessageBranchContext hydrates one active ancestor path in bounded pages.
+// Branch selection is deliberately kept lightweight; full messages are loaded
+// only after the route and latest rolling snapshot are known. A verified
+// snapshot boundary stops the scan early, while conversations without a
+// snapshot are read to their root so the first compaction never summarizes a
+// silently truncated suffix.
+func (s *Service) loadMessageBranchContext(
+	ctx context.Context,
+	conversationID uint,
+	branch *messageBranchState,
+	snapshot *model.ContextSnapshot,
+	branchReason string,
+) error {
+	if branch == nil || branch.ParentMessageID == nil || *branch.ParentMessageID == 0 {
+		return nil
+	}
+
+	leafID := *branch.ParentMessageID
+	path := make([]model.Message, 0, contextAncestorPageSize)
+	loadedCount := 0
+	loadedBytes := 0
+	boundaryFound := false
+	for leafID > 0 {
+		page, err := s.repo.ListMessageAncestors(ctx, conversationID, leafID, contextAncestorPageSize)
+		if err != nil {
+			return err
+		}
+		if len(page) == 0 {
+			break
+		}
+
+		pageStart := 0
+		if appcompact.SnapshotHasCoverage(snapshot) {
+			for index := range page {
+				if page[index].ID == snapshot.CoveredUntilMessageID &&
+					strings.TrimSpace(page[index].PublicID) == strings.TrimSpace(snapshot.CoveredUntilPublicID) {
+					pageStart = index
+					boundaryFound = true
+					break
+				}
+			}
+		}
+
+		segment := page[pageStart:]
+		loadedCount += len(segment)
+		loadedBytes += contextMessagesPayloadBytes(segment)
+		if loadedCount > contextAncestorMaxCount || loadedBytes > contextAncestorMaxBytes {
+			return errContextAncestorSafetyLimit
+		}
+		path = append(append(make([]model.Message, 0, len(segment)+len(path)), segment...), path...)
+		if boundaryFound || len(page) < contextAncestorPageSize || page[0].ParentMessageID == nil {
+			break
+		}
+		leafID = *page[0].ParentMessageID
+	}
+
+	if appcompact.SnapshotHasCoverage(snapshot) && !boundaryFound && s.logger != nil {
+		s.logger.Warn("context_snapshot_not_on_active_branch",
+			zap.String("trace_id", traceid.FromContext(ctx)),
+			zap.Uint("conversation_id", conversationID),
+			zap.Uint("snapshot_boundary_message_id", snapshot.CoveredUntilMessageID),
+		)
+	}
+	path = recoverAssistantRetryUserStates(path)
+	if branchReason == "default" {
+		path, _ = normalizeDefaultBranchContext(path, nil)
+	}
+	branch.ExistingMessages = path
+	return nil
+}
+
+func contextMessagesPayloadBytes(messages []model.Message) int {
+	total := 0
+	for _, message := range messages {
+		total += len(message.Content)
+		total += len(message.ReasoningContent)
+		total += len(message.Attachments)
+		total += len(message.ErrorMessage)
+	}
+	return total
+}
+
 func normalizeDefaultBranchContext(
 	ancestors []model.Message,
 	parent *model.Message,
@@ -147,8 +224,10 @@ func normalizeDefaultBranchContext(
 		return nil, nil
 	}
 
-	end := len(ancestors)
-	for end > 0 && !isContextMessage(&ancestors[end-1]) {
+	contextMessages := recoverAssistantRetryUserStates(ancestors)
+
+	end := len(contextMessages)
+	for end > 0 && !isContextMessage(&contextMessages[end-1]) {
 		end--
 	}
 	if end == 0 {
@@ -157,18 +236,58 @@ func normalizeDefaultBranchContext(
 
 	start := 0
 	for index := end - 1; index >= 0; index-- {
-		if !isContextMessage(&ancestors[index]) {
+		if !isContextMessage(&contextMessages[index]) {
 			start = index + 1
 			break
 		}
 	}
 
-	normalized := append([]model.Message(nil), ancestors[start:end]...)
+	normalized := append([]model.Message(nil), contextMessages[start:end]...)
 	if len(normalized) == 0 {
 		return nil, nil
 	}
 	nextParent := normalized[len(normalized)-1]
 	return normalized, &nextParent
+}
+
+// recoverAssistantRetryUserStates makes a reused user message valid context
+// after its assistant retry produced usable output. Persisted history remains
+// unchanged so the original failed run can still be diagnosed.
+func recoverAssistantRetryUserStates(messages []model.Message) []model.Message {
+	var recovered []model.Message
+	for index := range messages {
+		if !isRecoveredAssistantRetryUser(messages, index) {
+			continue
+		}
+		if recovered == nil {
+			recovered = append([]model.Message(nil), messages...)
+		}
+		recovered[index].Status = "success"
+		recovered[index].ErrorCode = ""
+		recovered[index].ErrorMessage = ""
+	}
+	if recovered == nil {
+		return messages
+	}
+	return recovered
+}
+
+func isRecoveredAssistantRetryUser(messages []model.Message, index int) bool {
+	if index < 0 || index+1 >= len(messages) {
+		return false
+	}
+	userMessage := &messages[index]
+	retryAssistant := &messages[index+1]
+	if userMessage.Role != "user" || !strings.EqualFold(strings.TrimSpace(userMessage.Status), "error") {
+		return false
+	}
+	if retryAssistant.Role != "assistant" ||
+		!strings.EqualFold(strings.TrimSpace(retryAssistant.BranchReason), "retry") ||
+		retryAssistant.SourceMessageID == nil ||
+		!isContextMessage(retryAssistant) {
+		return false
+	}
+	return retryAssistant.ParentMessageID != nil && *retryAssistant.ParentMessageID == userMessage.ID
 }
 
 func isContextMessage(item *model.Message) bool {
@@ -212,72 +331,34 @@ func buildBranchMessagePath(branch *messageBranchState, userMessage *model.Messa
 	return buildMessagePath(allMessages, userMessage.ID)
 }
 
-func (s *Service) expandContextMessagesToSnapshotBoundary(
-	ctx context.Context,
-	conversationID uint,
-	userMessageID uint,
-	messages []model.Message,
-	snapshot *model.ContextSnapshot,
-	policy contextCompactionPolicy,
-) []model.Message {
-	if !policy.EffectiveEnabled() || snapshot == nil || userMessageID == 0 {
-		return messages
-	}
-	if _, ok := appcompact.SnapshotBoundaryIndex(messages, snapshot); ok {
-		return messages
-	}
-	if _, ok := appcompact.SnapshotBoundaryAncestorIndex(messages, snapshot); ok {
-		return messages
-	}
-
-	expanded, found, err := s.repo.ListMessageAncestorsUntil(
-		ctx,
-		conversationID,
-		userMessageID,
-		snapshot.CoveredUntilMessageID,
-		s.compactSvc.ResolveSnapshotBoundaryLookupLimit(),
-	)
-	if err != nil || !found || len(expanded) == 0 {
-		if err != nil && s.logger != nil {
-			s.logger.Warn("expand_context_to_snapshot_boundary_failed",
-				zap.String("trace_id", traceid.FromContext(ctx)),
-				zap.Uint("conversation_id", conversationID),
-				zap.Uint("snapshot_boundary_message_id", snapshot.CoveredUntilMessageID),
-				zap.Error(err),
-			)
+func conversationImageTokenReserveByMessage(messages []model.Message) map[int]int64 {
+	reserve := make(map[int]int64)
+	remaining := maxConversationImageContextCount
+	for messageIndex := len(messages) - 1; messageIndex >= 0 && remaining > 0; messageIndex-- {
+		message := messages[messageIndex]
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "user") {
+			continue
 		}
-		return messages
+		refs := parseAttachmentSnapshotRefs(message.Attachments)
+		for attachmentIndex := len(refs) - 1; attachmentIndex >= 0 && remaining > 0; attachmentIndex-- {
+			ref := refs[attachmentIndex]
+			mimeType := firstNonEmptyString(ref.DetectedMIME, ref.MimeType)
+			if normalizeAttachmentKind(ref.Kind, mimeType) != "image" {
+				continue
+			}
+			reserve[messageIndex] += estimatedConversationImageTokens
+			remaining--
+		}
 	}
-	return expanded
+	return reserve
 }
 
-// applyContextTokenBudget 按模型 Token 预算截断，保留最近消息。
-func (s *Service) applyContextTokenBudget(messages []model.Message, capabilityModelName string, capabilitiesJSON string) []model.Message {
-	cfg := s.cfg.Snapshot()
-	if !cfg.ContextTokenBudgetEnabled || len(messages) <= 1 {
-		return messages
+func estimateDomainMessageTokens(message model.Message, includeReasoningContent bool) int64 {
+	tokens := estimateTokens(message.Content)
+	if includeReasoningContent && message.Role == "assistant" {
+		tokens += estimateTokens(message.ReasoningContent)
 	}
-	budget := llm.EffectiveContextBudgetFromCapabilities(capabilityModelName, capabilitiesJSON)
-	return truncateContextByTokenBudget(messages, budget)
-}
-
-// truncateContextByTokenBudget 从最近消息开始，保留在 budgetTokens 以内的消息。
-// 始终保留最后一条消息（当前用户输入）。
-func truncateContextByTokenBudget(messages []model.Message, budgetTokens int) []model.Message {
-	if budgetTokens <= 0 || len(messages) == 0 {
-		return messages
-	}
-	total := 0
-	cutFrom := len(messages)
-	for i := len(messages) - 1; i >= 0; i-- {
-		msgTokens := int(estimateTokens(messages[i].Content))
-		if total+msgTokens > budgetTokens && cutFrom < len(messages) {
-			break
-		}
-		total += msgTokens
-		cutFrom = i
-	}
-	return messages[cutFrom:]
+	return tokens
 }
 
 func buildRAGQuery(contextMessages []model.Message, currentContent string, historyTurns int) string {

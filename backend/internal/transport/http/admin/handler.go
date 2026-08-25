@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	appadmin "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/admin"
@@ -17,7 +18,7 @@ import (
 	systemeventapp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/systemevent"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/user"
 	domainconversation "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+	domainknowledgebase "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/knowledgebase"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
 	conversationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
@@ -89,14 +90,18 @@ func (h *Handler) SetConversationExporter(exporter conversationExporter) {
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
 // @Param q query string false "搜索用户名、昵称、邮箱或公开ID"
+// @Param subscription_status query string false "订阅状态过滤(active/free)"
+// @Param identity_provider query string false "身份源 slug 过滤"
 // @Success 200 {object} UserListResponseDoc
 // @Failure 500 {object} ErrorDoc
 // @Router /admin/users [get]
 // ListUsers 列出用户。
 func (h *Handler) ListUsers(c *gin.Context) {
 	page, pageSize := pageParams(c)
-	items, total, err := h.service.ListUsers(c.Request.Context(), page, pageSize, repository.UserListFilter{
-		Query: c.Query("q"),
+	items, total, err := h.service.ListUsers(c.Request.Context(), page, pageSize, appadmin.UserListFilter{
+		Query:              c.Query("q"),
+		SubscriptionStatus: c.Query("subscription_status"),
+		IdentityProvider:   c.Query("identity_provider"),
 	})
 	if err != nil {
 		response.Error(c, http.StatusInternalServerError, "list users failed")
@@ -446,6 +451,46 @@ func (h *Handler) CleanupLogs(c *gin.Context) {
 	})
 }
 
+// CleanupConversationRuns godoc
+// @Summary 管理员按运行清理对话事件
+// @Description 物理删除指定运行的全部对话事件；保留消息、附件、调用与计费记录
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param body body CleanupConversationRunsRequest true "运行轨迹清理参数"
+// @Success 200 {object} CleanupConversationRunsResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /admin/conversation-events/cleanup [post]
+// CleanupConversationRuns 清理指定运行的全部对话事件。
+func (h *Handler) CleanupConversationRuns(c *gin.Context) {
+	var req CleanupConversationRunsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.InvalidRequestBody(c, err)
+		return
+	}
+	result, err := h.service.CleanupConversationRuns(c.Request.Context(), applogcleanup.ConversationRunInput{
+		RunIDs:      req.RunIDs,
+		RequestID:   middleware.MustRequestID(c),
+		ActorUserID: middleware.MustUserID(c),
+		IP:          c.ClientIP(),
+		UserAgent:   c.Request.UserAgent(),
+	})
+	if err != nil {
+		if errors.Is(err, applogcleanup.ErrInvalidRunIDs) {
+			response.ErrorFrom(c, http.StatusBadRequest, err)
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "cleanup conversation runs failed")
+		return
+	}
+	response.Success(c, CleanupConversationRunsResponse{
+		RunCount:     result.RunCount,
+		DeletedCount: result.DeletedCount,
+	})
+}
+
 // ListUsageLogs godoc
 // @Summary 管理员查询模型调用日志
 // @Description 管理员分页查看全量模型调用与计费用量账本
@@ -504,6 +549,125 @@ func (h *Handler) ListUsageLogs(c *gin.Context) {
 		logs = append(logs, toUsageLogResponse(item, userLabels[item.UserID]))
 	}
 	response.SuccessPage(c, total, logs)
+}
+
+// GetUsageStatistics godoc
+// @Summary 管理员查询全局用量统计
+// @Description 管理员按日期、统计对象、平台模型和计费范围查看全局费用、Token、调用次数及排名；用户与权限组筛选互斥
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param start_date query string false "开始日期(YYYY-MM-DD)，默认近30天"
+// @Param end_date query string false "结束日期(YYYY-MM-DD，包含当日)"
+// @Param user_id query int false "用户ID"
+// @Param permission_group_id query int false "权限组ID，与 user_id 互斥"
+// @Param platform_model_name query string false "平台模型名"
+// @Param billing_scope query string false "计费范围：all/free/billable"
+// @Param section query string false "返回范围：all/models/users"
+// @Param model_rank_by query string false "模型排名指标：cost/tokens/calls"
+// @Param user_rank_by query string false "用户排名指标：cost/tokens/calls"
+// @Success 200 {object} UsageStatisticsResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /admin/usage-statistics [get]
+// GetUsageStatistics 查询管理员全局用量统计。
+func (h *Handler) GetUsageStatistics(c *gin.Context) {
+	userID, ok := parseOptionalUintQuery(c, "user_id")
+	if !ok {
+		return
+	}
+	permissionGroupID, ok := parseOptionalUintQuery(c, "permission_group_id")
+	if !ok {
+		return
+	}
+
+	startDateText := strings.TrimSpace(c.Query("start_date"))
+	endDateText := strings.TrimSpace(c.Query("end_date"))
+	now := time.Now()
+	endDate := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	startDate := endDate.AddDate(0, 0, -29)
+	if startDateText != "" || endDateText != "" {
+		if startDateText == "" || endDateText == "" {
+			response.ErrorWithCode(c, http.StatusBadRequest, "usage_statistics.invalid_date_range", "start_date and end_date must be provided together")
+			return
+		}
+		parsedStartDate, startErr := time.Parse("2006-01-02", startDateText)
+		parsedEndDate, endErr := time.Parse("2006-01-02", endDateText)
+		if startErr != nil || endErr != nil {
+			response.ErrorWithCode(c, http.StatusBadRequest, "usage_statistics.invalid_date_range", "invalid usage statistics date range")
+			return
+		}
+		startDate = parsedStartDate
+		endDate = parsedEndDate
+	}
+	if endDate.Before(startDate) || int(endDate.Sub(startDate).Hours()/24)+1 > 366 {
+		response.ErrorWithCode(c, http.StatusBadRequest, "usage_statistics.invalid_date_range", "invalid usage statistics date range")
+		return
+	}
+
+	billingScope := strings.TrimSpace(c.Query("billing_scope"))
+	if billingScope == "" {
+		billingScope = "all"
+	}
+	if billingScope != "all" && billingScope != "free" && billingScope != "billable" {
+		response.ErrorWithCode(c, http.StatusBadRequest, "usage_statistics.invalid_billing_scope", "invalid billing_scope")
+		return
+	}
+	section := strings.TrimSpace(c.Query("section"))
+	if section == "" {
+		section = "all"
+	}
+	if section != "all" && section != "models" && section != "users" {
+		response.ErrorWithCode(c, http.StatusBadRequest, "usage_statistics.invalid_section", "invalid section")
+		return
+	}
+	modelRankBy := strings.TrimSpace(c.Query("model_rank_by"))
+	if modelRankBy == "" {
+		modelRankBy = "cost"
+	}
+	if modelRankBy != "cost" && modelRankBy != "tokens" && modelRankBy != "calls" {
+		response.ErrorWithCode(c, http.StatusBadRequest, "usage_statistics.invalid_rank_by", "invalid model_rank_by")
+		return
+	}
+	userRankBy := strings.TrimSpace(c.Query("user_rank_by"))
+	if userRankBy == "" {
+		userRankBy = "cost"
+	}
+	if userRankBy != "cost" && userRankBy != "tokens" && userRankBy != "calls" {
+		response.ErrorWithCode(c, http.StatusBadRequest, "usage_statistics.invalid_rank_by", "invalid user_rank_by")
+		return
+	}
+
+	statistics, err := h.service.GetUsageStatistics(c.Request.Context(), appbilling.UsageStatisticsFilter{
+		StartDate:         startDate,
+		EndDate:           endDate,
+		UserID:            userID,
+		PermissionGroupID: permissionGroupID,
+		PlatformModelName: c.Query("platform_model_name"),
+		BillingScope:      billingScope,
+		Section:           section,
+		ModelRankBy:       modelRankBy,
+		UserRankBy:        userRankBy,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, appbilling.ErrInvalidUsageStatisticsSubject):
+			response.ErrorWithCode(c, http.StatusBadRequest, "usage_statistics.subject_conflict", err.Error())
+		case errors.Is(err, appadmin.ErrPermissionGroupNotFound):
+			response.ErrorFrom(c, http.StatusNotFound, err)
+		default:
+			response.Error(c, http.StatusInternalServerError, "get usage statistics failed")
+		}
+		return
+	}
+	userIDs := make([]uint, 0, len(statistics.TopUsers))
+	for _, rankedUser := range statistics.TopUsers {
+		userIDs = append(userIDs, rankedUser.UserID)
+	}
+	userLabels := h.service.ResolveUserLabels(c.Request.Context(), userIDs)
+	response.Success(c, toUsageStatisticsResponse(statistics, startDate, endDate, section, userLabels))
 }
 
 // ListPaymentOrders godoc
@@ -634,6 +798,39 @@ func (h *Handler) ListConversationEvents(c *gin.Context) {
 		events = append(events, toConversationEventResponse(item, userLabels[item.UserID]))
 	}
 	response.SuccessPage(c, total, events)
+}
+
+// GetConversationEvent godoc
+// @Summary 管理员查询对话事件详情
+// @Description 管理员按事件 ID 查看单条对话运行事件详情；超大历史负载会被安全省略
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "事件 ID"
+// @Success 200 {object} ConversationEventDetailResponseDoc
+// @Failure 400 {object} ErrorDoc
+// @Failure 404 {object} ErrorDoc
+// @Failure 500 {object} ErrorDoc
+// @Router /admin/conversation-events/{id} [get]
+// GetConversationEvent 查询单条对话事件详情。
+func (h *Handler) GetConversationEvent(c *gin.Context) {
+	parsedID, err := strconv.ParseUint(c.Param("id"), 10, strconv.IntSize)
+	if err != nil || parsedID == 0 {
+		response.Error(c, http.StatusBadRequest, "invalid conversation event id")
+		return
+	}
+	item, err := h.service.GetConversationEventLog(c.Request.Context(), uint(parsedID))
+	if err != nil {
+		if errors.Is(err, appconversation.ErrConversationEventNotFound) {
+			response.ErrorFrom(c, http.StatusNotFound, err)
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "get conversation event failed")
+		return
+	}
+	label := h.service.ResolveUserLabels(c.Request.Context(), []uint{item.UserID})[item.UserID]
+	response.Success(c, toConversationEventResponse(*item, label))
 }
 
 // ListSystemEvents godoc
@@ -976,6 +1173,9 @@ func (h *Handler) DeleteUser(c *gin.Context) {
 			errors.Is(err, appadmin.ErrSelfDeleteNotAllowed):
 			response.ErrorFrom(c, http.StatusConflict, err)
 			return
+		case errors.Is(err, domainknowledgebase.ErrBuiltinFileOwnerDeleteBlocked):
+			response.ErrorWithCode(c, http.StatusConflict, "knowledge_base.owner_file_reference", "user owns files referenced by builtin knowledge bases")
+			return
 		default:
 			response.Error(c, http.StatusInternalServerError, "delete user failed")
 			return
@@ -1102,7 +1302,7 @@ func (h *Handler) ExportConversations(c *gin.Context) {
 				failedIDs = append(failedIDs, conversations[i].ID)
 				continue
 			}
-			if err := encoder.Encode(conversationhttp.ToConversationExportResponse(result)); err != nil {
+			if err := encoder.Encode(conversationhttp.ToAdminConversationExportResponse(result)); err != nil {
 				return
 			}
 			exported++

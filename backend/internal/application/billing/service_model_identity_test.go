@@ -3,6 +3,7 @@ package billing
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -12,6 +13,20 @@ import (
 
 type modelIdentityResolverStub struct {
 	identity PlatformModelIdentity
+}
+
+type modelPricingCatalogStub struct {
+	names      map[string]struct{}
+	videoNames map[string]struct{}
+}
+
+func (s modelPricingCatalogStub) ListActivePlatformModelNames(context.Context) (map[string]struct{}, error) {
+	return s.names, nil
+}
+
+func (s modelPricingCatalogStub) SupportsVideoGeneration(_ context.Context, platformModelName string) (bool, error) {
+	_, ok := s.videoNames[platformModelName]
+	return ok, nil
 }
 
 func (s modelIdentityResolverStub) ResolvePlatformModelIdentity(context.Context, string) (PlatformModelIdentity, error) {
@@ -28,6 +43,177 @@ func TestUpstreamUsageSnapshotReturnsEmptyObjectWhenRawUsageIsMissing(t *testing
 	}
 }
 
+func TestUpsertModelPricingRestrictsDurationModeToVideoModels(t *testing.T) {
+	repo := &billingRepositoryStub{}
+	service := NewService(repo)
+	service.SetModelPricingCatalogProvider(modelPricingCatalogStub{
+		names: map[string]struct{}{"chat-model": {}, "video-model": {}},
+		videoNames: map[string]struct{}{
+			"video-model": {},
+		},
+	})
+
+	_, err := service.UpsertModelPricing(t.Context(), ModelPricingInput{
+		PlatformModelName:        "chat-model",
+		PricingMode:              domainbilling.PricingModeDuration,
+		DurationNanousdPerSecond: 1,
+	})
+	if !errors.Is(err, ErrInvalidModelPricing) {
+		t.Fatalf("expected duration pricing to reject chat model, got %v", err)
+	}
+
+	view, err := service.UpsertModelPricing(t.Context(), ModelPricingInput{
+		PlatformModelName:        "video-model",
+		PricingMode:              domainbilling.PricingModeDuration,
+		DurationNanousdPerSecond: 2,
+	})
+	if err != nil {
+		t.Fatalf("expected duration pricing for video model: %v", err)
+	}
+	if view.PricingMode != domainbilling.PricingModeDuration || view.DurationNanousdPerSecond != 2 {
+		t.Fatalf("unexpected duration pricing: %#v", view)
+	}
+}
+
+func TestBuildUsageLedgerBillsDurationOnlyWhenExplicitlyBillable(t *testing.T) {
+	repo := &billingRepositoryStub{
+		mode: "usage",
+		pricing: &domainbilling.ModelPricing{
+			PlatformModelName:        "video-model",
+			Currency:                 "USD",
+			PricingMode:              domainbilling.PricingModeDuration,
+			DurationNanousdPerSecond: 3,
+		},
+	}
+	service := NewService(repo)
+
+	_, err := service.BuildUsageLedger(t.Context(), UsagePricingInput{
+		UserID:            1,
+		PlatformModelName: "video-model",
+		DurationSeconds:   6,
+	})
+	if !errors.Is(err, ErrModelPricingRequired) {
+		t.Fatalf("build non-video duration ledger error = %v, want ErrModelPricingRequired", err)
+	}
+
+	video, err := service.BuildUsageLedger(t.Context(), UsagePricingInput{
+		UserID:            1,
+		PlatformModelName: "video-model",
+		DurationBillable:  true,
+		DurationSeconds:   6,
+		MediaType:         "video",
+		InputImageCount:   1,
+	})
+	if err != nil {
+		t.Fatalf("build video duration ledger: %v", err)
+	}
+	if video.DurationSeconds != 6 || video.BilledNanousd != 18 {
+		t.Fatalf("unexpected video duration billing: %#v", video)
+	}
+	var snapshot map[string]interface{}
+	if err := json.Unmarshal([]byte(video.PricingSnapshotJSON), &snapshot); err != nil {
+		t.Fatalf("unmarshal video pricing snapshot: %v", err)
+	}
+	if snapshot["media_type"] != "video" || snapshot["input_image_count"] != float64(1) {
+		t.Fatalf("unexpected video media snapshot: %#v", snapshot)
+	}
+}
+
+func TestAuthorizeUsageRejectsLegacyDurationPricingForNonVideoModel(t *testing.T) {
+	repo := &billingRepositoryStub{
+		mode: "usage",
+		pricing: &domainbilling.ModelPricing{
+			PlatformModelName:        "legacy-chat-model",
+			PricingMode:              domainbilling.PricingModeDuration,
+			DurationNanousdPerSecond: 3,
+		},
+	}
+	service := NewService(repo)
+	service.SetModelPricingCatalogProvider(modelPricingCatalogStub{
+		names:      map[string]struct{}{"legacy-chat-model": {}},
+		videoNames: map[string]struct{}{},
+	})
+
+	_, err := service.AuthorizeUsage(t.Context(), 1, "legacy-chat-model", "run_legacy_duration")
+	if !errors.Is(err, ErrModelPricingRequired) {
+		t.Fatalf("AuthorizeUsage() error = %v, want ErrModelPricingRequired", err)
+	}
+	if repo.reservationRequest != nil {
+		t.Fatalf("legacy duration pricing reserved usage before rejection: %#v", repo.reservationRequest)
+	}
+}
+
+func TestUpdatePlanRejectsUnknownPermissionGroup(t *testing.T) {
+	repo := &billingRepositoryStub{
+		plans: []domainbilling.Plan{{ID: 1, Code: "pro", Name: "Pro"}},
+	}
+	service := NewService(repo)
+	groupID := uint(99)
+	service.SetPermissionGroupLookup(permissionGroupLookupStub{})
+
+	_, err := service.UpdatePlan(context.Background(), 1, PlanUpdateInput{
+		Name:              "Pro",
+		PermissionGroupID: &groupID,
+	})
+	if !errors.Is(err, ErrInvalidPermissionGroup) {
+		t.Fatalf("expected invalid permission group error, got %v", err)
+	}
+}
+
+func TestUpdatePlanDefaultsPermissionGroup(t *testing.T) {
+	defaultGroupID := uint(7)
+	repo := &billingRepositoryStub{
+		plans: []domainbilling.Plan{{ID: 1, Code: "pro", Name: "Pro"}},
+	}
+	service := NewService(repo)
+	service.SetPermissionGroupLookup(permissionGroupLookupStub{
+		validIDs:   map[uint]struct{}{defaultGroupID: {}},
+		defaultIDs: []uint{defaultGroupID},
+	})
+
+	view, err := service.UpdatePlan(context.Background(), 1, PlanUpdateInput{
+		Name: "Pro",
+	})
+	if err != nil {
+		t.Fatalf("UpdatePlan() error = %v", err)
+	}
+	if view.PermissionGroupID == nil || *view.PermissionGroupID != defaultGroupID {
+		t.Fatalf("PermissionGroupID = %v, want %d", view.PermissionGroupID, defaultGroupID)
+	}
+	if repo.updatedPlan == nil || repo.updatedPlan.PermissionGroupID == nil || *repo.updatedPlan.PermissionGroupID != defaultGroupID {
+		t.Fatalf("updated plan PermissionGroupID = %v, want %d", repo.updatedPlan, defaultGroupID)
+	}
+}
+
+func TestUpdatePlanRejectsMissingDefaultPermissionGroup(t *testing.T) {
+	repo := &billingRepositoryStub{
+		plans: []domainbilling.Plan{{ID: 1, Code: "pro", Name: "Pro"}},
+	}
+	service := NewService(repo)
+	service.SetPermissionGroupLookup(permissionGroupLookupStub{})
+
+	_, err := service.UpdatePlan(context.Background(), 1, PlanUpdateInput{
+		Name: "Pro",
+	})
+	if !errors.Is(err, ErrInvalidPermissionGroup) {
+		t.Fatalf("expected invalid permission group error, got %v", err)
+	}
+}
+
+type permissionGroupLookupStub struct {
+	validIDs   map[uint]struct{}
+	defaultIDs []uint
+}
+
+func (s permissionGroupLookupStub) PermissionGroupExists(_ context.Context, id uint) (bool, error) {
+	_, ok := s.validIDs[id]
+	return ok, nil
+}
+
+func (s permissionGroupLookupStub) ListDefaultGroupIDs(context.Context) ([]uint, error) {
+	return s.defaultIDs, nil
+}
+
 type billingRepositoryStub struct {
 	mode                       string
 	pricing                    *domainbilling.ModelPricing
@@ -35,21 +221,21 @@ type billingRepositoryStub struct {
 	plans                      []domainbilling.Plan
 	prices                     []domainbilling.Price
 	subscriptions              []domainbilling.Subscription
-	account                    *domainbilling.BillingAccount
 	prepaidNanousd             int64
-	billableNanousd            int64
 	nativeToolBillingEnabled   bool
 	nativeToolPricingJSON      string
 	requestedPlatformModelName string
 	replacedSubscription       *domainbilling.Subscription
-	plan                       *domainbilling.Plan
-	checkInRewardNanousd       int64
-	checkInRewardErr           error
-	reservedNanousd            int64
+	reservationRequest         *domainbilling.UsageBalanceReservationRequest
+	reservationErr             error
 	periodUsageSettled         bool
+	usageSettled               bool
+	usageAdded                 bool
 	periodStartAt              time.Time
 	periodEndAt                time.Time
 	periodCreditNanousd        int64
+	updatedPlan                *domainbilling.Plan
+	updatedPrice               *domainbilling.Price
 }
 
 func (r *billingRepositoryStub) GetBillingMode(context.Context) (string, error) {
@@ -138,8 +324,10 @@ func (r *billingRepositoryStub) GetActivePlanByCode(_ context.Context, code stri
 func (r *billingRepositoryStub) CreatePlanWithDefaultPrice(context.Context, *domainbilling.Plan, *domainbilling.Price) (*domainbilling.Plan, *domainbilling.Price, error) {
 	panic("not used")
 }
-func (r *billingRepositoryStub) UpdatePlanWithDefaultPrice(context.Context, *domainbilling.Plan, *domainbilling.Price) error {
-	panic("not used")
+func (r *billingRepositoryStub) UpdatePlanWithDefaultPrice(_ context.Context, plan *domainbilling.Plan, price *domainbilling.Price) error {
+	r.updatedPlan = plan
+	r.updatedPrice = price
+	return nil
 }
 func (r *billingRepositoryStub) DeletePlan(context.Context, uint) error {
 	panic("not used")
@@ -206,13 +394,12 @@ func (r *billingRepositoryStub) MarkPaymentOrderPaidAndGrantSubscription(context
 	panic("not used")
 }
 func (r *billingRepositoryStub) AddUsage(context.Context, *domainbilling.UsageLedger) error {
-	panic("not used")
-}
-func (r *billingRepositoryStub) AddUsageAndDebitBalance(context.Context, *domainbilling.UsageLedger) error {
-	panic("not used")
+	r.usageAdded = true
+	return nil
 }
 func (r *billingRepositoryStub) AddUsageAndSettleBalance(context.Context, *domainbilling.UsageLedger, *domainbilling.UsageBalanceReservation) error {
-	panic("not used")
+	r.usageSettled = true
+	return nil
 }
 func (r *billingRepositoryStub) AddPeriodUsageAndSettleOverage(_ context.Context, _ *domainbilling.UsageLedger, periodStart time.Time, periodEnd time.Time, periodCreditNanousd int64, _ *domainbilling.UsageBalanceReservation) error {
 	r.periodUsageSettled = true
@@ -221,17 +408,27 @@ func (r *billingRepositoryStub) AddPeriodUsageAndSettleOverage(_ context.Context
 	r.periodCreditNanousd = periodCreditNanousd
 	return nil
 }
-func (r *billingRepositoryStub) ReserveUsageBalance(_ context.Context, userID uint, amountNanousd int64, refNo string) (*domainbilling.UsageBalanceReservation, error) {
-	r.reservedNanousd = amountNanousd
-	return &domainbilling.UsageBalanceReservation{UserID: userID, AmountNanousd: amountNanousd, RefNo: refNo}, nil
+func (r *billingRepositoryStub) ReserveUsageBalance(_ context.Context, input domainbilling.UsageBalanceReservationRequest) (*domainbilling.UsageBalanceReservation, error) {
+	r.reservationRequest = &input
+	if r.reservationErr != nil {
+		return nil, r.reservationErr
+	}
+	return &domainbilling.UsageBalanceReservation{
+		UserID: input.UserID,
+		RefNo:  input.RefNo,
+		Mode:   input.Mode,
+	}, nil
 }
-func (r *billingRepositoryStub) ReleaseUsageBalanceReservation(context.Context, uint, string, string) error {
+func (r *billingRepositoryStub) RenewUsageBalanceReservation(context.Context, uint, string) error {
+	panic("not used")
+}
+func (r *billingRepositoryStub) ReleaseUsageBalanceReservation(context.Context, uint, string) error {
+	panic("not used")
+}
+func (r *billingRepositoryStub) MarkUsageReservationReconciliationRequired(context.Context, uint, string, string) error {
 	panic("not used")
 }
 func (r *billingRepositoryStub) GetOrCreateBillingAccount(_ context.Context, userID uint) (*domainbilling.BillingAccount, error) {
-	if r.account != nil {
-		return r.account, nil
-	}
 	return &domainbilling.BillingAccount{UserID: userID, Currency: "USD", Status: "active"}, nil
 }
 func (r *billingRepositoryStub) ListBillingAccountsByUserIDs(context.Context, []uint) ([]domainbilling.BillingAccount, error) {
@@ -334,48 +531,10 @@ func (r *billingRepositoryStub) ListDailyUsageByUser(context.Context, uint, time
 	panic("not used")
 }
 func (r *billingRepositoryStub) SumBillableNanousd(context.Context, uint, time.Time, time.Time) (int64, error) {
-	return r.billableNanousd, nil
+	return 0, nil
 }
 
-func (r *billingRepositoryStub) GetAdminDashboardStats(context.Context, time.Time, time.Time, int) (*domainbilling.AdminDashboardStats, error) {
-	panic("not used")
-}
-func TestCheckInRewardNanousdFallsBackForMissingOrInvalidConfig(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name string
-		repo *billingRepositoryStub
-	}{
-		{
-			name: "missing config",
-			repo: &billingRepositoryStub{checkInRewardErr: repository.ErrNotFound},
-		},
-		{
-			name: "invalid config",
-			repo: &billingRepositoryStub{checkInRewardErr: repository.ErrInvalidInput},
-		},
-		{
-			name: "non-positive config",
-			repo: &billingRepositoryStub{checkInRewardNanousd: -1},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			service := NewService(tc.repo)
-			reward, err := service.checkInRewardNanousd(context.Background())
-			if err != nil {
-				t.Fatalf("checkInRewardNanousd() error = %v", err)
-			}
-			if reward != defaultCheckInRewardNanousd {
-				t.Fatalf("reward = %d, want %d", reward, defaultCheckInRewardNanousd)
-			}
-		})
-	}
-}
-
-func TestRecordUsageWithReservationUsesBillingAtForPeriod(t *testing.T) {
+func TestRecordUsageWithAuthorizationUsesBillingAtForPeriod(t *testing.T) {
 	billingAt := time.Date(2026, 6, 30, 23, 59, 58, 0, time.UTC)
 	usageDate := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	endAt := billingAt.Add(24 * time.Hour)
@@ -398,7 +557,7 @@ func TestRecordUsageWithReservationUsesBillingAtForPeriod(t *testing.T) {
 	}
 	service := NewService(repo)
 
-	err := service.RecordUsageWithReservation(context.Background(), &domainbilling.UsageLedger{
+	err := service.RecordUsageWithAuthorization(context.Background(), &domainbilling.UsageLedger{
 		UserID:              1,
 		PlatformModelName:   "gpt-test",
 		BillingAt:           billingAt,
@@ -408,7 +567,7 @@ func TestRecordUsageWithReservationUsesBillingAtForPeriod(t *testing.T) {
 		PricingSnapshotJSON: `{}`,
 	}, nil)
 	if err != nil {
-		t.Fatalf("RecordUsageWithReservation() error = %v", err)
+		t.Fatalf("RecordUsageWithAuthorization() error = %v", err)
 	}
 	if !repo.periodUsageSettled {
 		t.Fatalf("period usage was not settled")
@@ -418,6 +577,102 @@ func TestRecordUsageWithReservationUsesBillingAtForPeriod(t *testing.T) {
 	}
 	if repo.periodCreditNanousd != 1000 {
 		t.Fatalf("period credit = %d, want 1000", repo.periodCreditNanousd)
+	}
+}
+
+func TestUsageAuthorizationKeepsSelfModeAfterAdminModeChange(t *testing.T) {
+	repo := &billingRepositoryStub{
+		mode: "self",
+		pricing: &domainbilling.ModelPricing{
+			PlatformModelName:       "gpt-test",
+			Currency:                "USD",
+			InputNanousdPerMTokens:  1_000_000_000,
+			OutputNanousdPerMTokens: 1_000_000_000,
+		},
+	}
+	service := NewService(repo)
+	authorization, err := service.AuthorizeUsage(context.Background(), 1, "gpt-test", "run_self_snapshot")
+	if err != nil {
+		t.Fatalf("AuthorizeUsage() error = %v", err)
+	}
+	if authorization == nil || authorization.Mode != "self" || authorization.Reservation != nil {
+		t.Fatalf("authorization = %+v, want self mode without reservation", authorization)
+	}
+
+	repo.mode = "usage"
+	ledger, err := service.BuildUsageLedger(context.Background(), UsagePricingInput{
+		Authorization:     authorization,
+		UserID:            1,
+		PlatformModelName: "gpt-test",
+		InputTokens:       100,
+		OutputTokens:      100,
+		BillingAt:         time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("BuildUsageLedger() error = %v", err)
+	}
+	if ledger.BilledNanousd != 0 {
+		t.Fatalf("ledger billed nanousd = %d, want 0 from self-mode snapshot", ledger.BilledNanousd)
+	}
+	if err = service.RecordUsageWithAuthorization(context.Background(), ledger, authorization); err != nil {
+		t.Fatalf("RecordUsageWithAuthorization() error = %v", err)
+	}
+	if !repo.usageAdded || repo.usageSettled || repo.periodUsageSettled {
+		t.Fatalf("usage persistence state = %+v", repo)
+	}
+}
+
+func TestAuthorizeUsageMapsConcurrentReservationLimit(t *testing.T) {
+	repo := &billingRepositoryStub{
+		mode:           "usage",
+		reservationErr: repository.ErrUsageReservationLimitExceeded,
+		pricing: &domainbilling.ModelPricing{
+			PlatformModelName:       "gpt-test",
+			InputNanousdPerMTokens:  1,
+			OutputNanousdPerMTokens: 1,
+		},
+	}
+	service := NewService(repo)
+
+	_, err := service.AuthorizeUsage(context.Background(), 1, "gpt-test", "run_limit")
+	if !errors.Is(err, ErrUsageConcurrencyLimitExceeded) {
+		t.Fatalf("AuthorizeUsage() error = %v, want ErrUsageConcurrencyLimitExceeded", err)
+	}
+}
+
+func TestBuildUsageLedgerRejectsMissingPaidModelPricing(t *testing.T) {
+	service := NewService(&billingRepositoryStub{mode: "usage"})
+
+	_, err := service.BuildUsageLedger(context.Background(), UsagePricingInput{
+		Authorization:     &domainbilling.UsageAuthorization{Mode: "usage"},
+		UserID:            1,
+		PlatformModelName: "deleted-model",
+		InputTokens:       100,
+		BillingAt:         time.Now(),
+	})
+	if !errors.Is(err, ErrModelPricingRequired) {
+		t.Fatalf("BuildUsageLedger() error = %v, want ErrModelPricingRequired", err)
+	}
+}
+
+func TestBuildUsageLedgerRejectsMissingBasicServiceModelPricing(t *testing.T) {
+	service := NewService(&billingRepositoryStub{mode: "usage"})
+
+	_, err := service.BuildUsageLedger(context.Background(), UsagePricingInput{
+		Authorization:     &domainbilling.UsageAuthorization{Mode: "usage"},
+		UserID:            1,
+		ConversationID:    2,
+		PlatformModelName: "deleted-model",
+		ServiceOnly:       true,
+		ServiceItems: []ServiceUsageInput{{
+			ServiceCode:       "title",
+			PlatformModelName: "deleted-model",
+			InputTokens:       100,
+		}},
+		BillingAt: time.Now(),
+	})
+	if !errors.Is(err, ErrModelPricingRequired) {
+		t.Fatalf("BuildUsageLedger() error = %v, want ErrModelPricingRequired", err)
 	}
 }
 
@@ -448,6 +703,7 @@ func TestBuildUsageLedgerSnapshotsModelIdentity(t *testing.T) {
 		UpstreamModelName: "gpt-5.5-upstream",
 		InputTokens:       1_000_000,
 		OutputTokens:      1_000_000,
+		UsageSource:       "estimated",
 		RawUsageJSON:      `{"input_tokens":1000000,"output_tokens":1000000,"vendor_extra":"kept"}`,
 		ServerSideToolUsage: map[string]int64{
 			"web_search": 2,
@@ -480,6 +736,9 @@ func TestBuildUsageLedgerSnapshotsModelIdentity(t *testing.T) {
 	}
 	if snapshot["upstream_name"] != "premium-channel" {
 		t.Fatalf("expected upstream name snapshot, got %#v", snapshot["upstream_name"])
+	}
+	if snapshot["usage_source"] != "estimated" {
+		t.Fatalf("expected usage source snapshot, got %#v", snapshot["usage_source"])
 	}
 	if snapshot["routed_binding_code"] != "upm_gpt55_20260514" || snapshot["upstream_model_name"] != "gpt-5.5-upstream" {
 		t.Fatalf("expected routed binding/upstream snapshot, got routed=%#v upstream_model=%#v", snapshot["routed_binding_code"], snapshot["upstream_model_name"])

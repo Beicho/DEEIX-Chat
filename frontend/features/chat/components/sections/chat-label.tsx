@@ -27,6 +27,7 @@ import { Spinner, SpinnerLabel } from "@/components/ui/spinner";
 import { AnimatedText } from "@/components/ui/animated-text";
 import { ConversationProjectSubmenu } from "@/shared/components/conversation-project-submenu";
 import { ConversationShareExportSubmenu } from "@/shared/components/conversation-share-export-menu";
+import { ConversationLabelsDialog, ConversationLabelsMenuItem } from "@/entities/conversation";
 import { cn } from "@/lib/utils";
 
 type ChatLabelProps = {
@@ -36,6 +37,8 @@ type ChatLabelProps = {
   onToggleStar?: () => void | Promise<void>;
   onRename?: (title: string) => void | Promise<void>;
   onAutoRename?: () => void | Promise<void>;
+  labels?: string[];
+  onUpdateLabels?: (labels: string[]) => void | Promise<void>;
   projectMenu?: {
     label: string;
     unassignedLabel: string;
@@ -53,9 +56,9 @@ type ChatLabelProps = {
   onExportImage?: () => void | Promise<void>;
   onCopyMarkdown?: () => void | Promise<void>;
   onDelete?: () => void | Promise<void>;
-  screenshotFullLabel?: string;
+  screenshotLatestLabel?: string;
   screenshotSelectLabel?: string;
-  onScreenshotFull?: () => void;
+  onScreenshotLatest?: () => void;
   onScreenshotSelect?: () => void;
 };
 
@@ -66,6 +69,8 @@ export function ChatLabel({
   onToggleStar,
   onRename,
   onAutoRename,
+  labels = [],
+  onUpdateLabels,
   projectMenu,
   onShare,
   shareActive = false,
@@ -74,15 +79,16 @@ export function ChatLabel({
   onExportImage,
   onCopyMarkdown,
   onDelete,
-  screenshotFullLabel,
+  screenshotLatestLabel,
   screenshotSelectLabel,
-  onScreenshotFull,
+  onScreenshotLatest,
   onScreenshotSelect,
 }: ChatLabelProps) {
   const t = useTranslations("chat.labelMenu");
   const common = useTranslations("common.actions");
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [renameDialogOpen, setRenameDialogOpen] = React.useState(false);
+  const [labelsDialogOpen, setLabelsDialogOpen] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState(title);
   const [renaming, setRenaming] = React.useState(false);
   const [autoRenaming, setAutoRenaming] = React.useState(false);
@@ -188,6 +194,16 @@ export function ChatLabel({
             <DropdownMenuItemIcon icon={PencilLine} />
             {t("rename")}
           </DropdownMenuItem>
+          <ConversationLabelsMenuItem
+            labels={labels}
+            disabled={!onUpdateLabels}
+            onSelect={() => {
+              setMenuOpen(false);
+              requestAnimationFrame(() => {
+                setLabelsDialogOpen(true);
+              });
+            }}
+          />
           {projectMenu ? (
             <ConversationProjectSubmenu
               label={projectMenu.label}
@@ -206,12 +222,9 @@ export function ChatLabel({
             copyMarkdownLabel={t("copyMarkdown")}
             onShare={onShare}
             onExport={onExport}
-            onExportMarkdown={onExportMarkdown}
-            onExportImage={onExportImage}
-            onCopyMarkdown={onCopyMarkdown}
-            screenshotFullLabel={screenshotFullLabel}
+            screenshotLatestLabel={screenshotLatestLabel}
             screenshotSelectLabel={screenshotSelectLabel}
-            onScreenshotFull={onScreenshotFull}
+            onScreenshotLatest={onScreenshotLatest}
             onScreenshotSelect={onScreenshotSelect}
             onCloseMenu={() => setMenuOpen(false)}
           />
@@ -291,6 +304,14 @@ export function ChatLabel({
           </form>
         </DialogContent>
       </Dialog>
+      {onUpdateLabels ? (
+        <ConversationLabelsDialog
+          open={labelsDialogOpen}
+          labels={labels}
+          onOpenChange={setLabelsDialogOpen}
+          onSave={onUpdateLabels}
+        />
+      ) : null}
     </div>
   );
 }

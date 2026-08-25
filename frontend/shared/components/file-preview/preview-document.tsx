@@ -4,14 +4,15 @@ import * as React from "react";
 import { FileText } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import { LoadingReveal } from "@/shared/components/loading-reveal";
-import { PreviewStageSkeleton } from "@/shared/components/file-preview/preview-skeleton";
+import { PreviewLoading } from "@/shared/components/file-preview/preview-loading";
 
 type PreviewDocumentProps = {
   source: string;
   contentType?: string;
   title?: string;
   description?: string;
+  showLoading?: boolean;
+  onLoadingChange?: (loading: boolean) => void;
 };
 
 function DocumentPreviewFallback({
@@ -28,7 +29,7 @@ function DocumentPreviewFallback({
   return (
     <div className="flex h-full min-h-[360px] w-full items-center justify-center px-8 py-10">
       <div className="flex max-w-[420px] flex-col items-center text-center">
-        <div className="flex size-20 items-center justify-center rounded-[24px] bg-background">
+        <div className="flex size-20 items-center justify-center rounded-md bg-background">
           <FileText className="size-8 text-muted-foreground" />
         </div>
         <p className="mt-5 text-base font-medium text-foreground">{resolvedTitle}</p>
@@ -43,8 +44,14 @@ export function PreviewDocument({
   contentType,
   title,
   description,
+  showLoading = true,
+  onLoadingChange,
 }: PreviewDocumentProps) {
   const [status, setStatus] = React.useState<"checking" | "ready" | "fallback">("checking");
+
+  React.useEffect(() => {
+    onLoadingChange?.(status === "checking");
+  }, [onLoadingChange, status]);
 
   React.useEffect(() => {
     setStatus("checking");
@@ -69,6 +76,7 @@ export function PreviewDocument({
                   key={`${source}:${contentType ?? ""}`}
                   data={source}
                   type={contentType}
+                  title={title ?? "Document preview"}
                   className="block h-[min(70vh,720px)] w-full border-0 bg-transparent outline-none shadow-none"
                   onLoad={() => setStatus("ready")}
                 />
@@ -79,15 +87,9 @@ export function PreviewDocument({
           <DocumentPreviewFallback title={title} description={description} />
         ) : null}
 
-        <LoadingReveal
-          loading={status === "checking"}
-          className="pointer-events-none absolute inset-0 z-10"
-          contentClassName="h-full"
-          skeletonClassName="h-full"
-          skeleton={<PreviewStageSkeleton className="h-full" />}
-        >
-          <div className="h-full" />
-        </LoadingReveal>
+        {showLoading && status === "checking" ? (
+          <PreviewLoading className="pointer-events-none absolute inset-0 z-10" />
+        ) : null}
       </div>
 
       {status !== "ready" ? (
@@ -95,6 +97,7 @@ export function PreviewDocument({
           key={`preload:${source}:${contentType ?? ""}`}
           data={source}
           type={contentType}
+          title={title ?? "Document preview"}
           className="pointer-events-none absolute inset-0 h-0 w-0 opacity-0"
           onLoad={() => setStatus("ready")}
         />

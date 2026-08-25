@@ -11,6 +11,11 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 )
 
+const (
+	defaultMCPToolTimeoutSeconds = 10
+	maxMCPToolTimeoutSeconds     = 1800
+)
+
 // RuntimeSettings 负责把数据库中的动态配置应用到运行时配置，并维护配置缓存。
 type RuntimeSettings struct {
 	repo              repository.SettingsRepository
@@ -136,14 +141,16 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.MaxContextMessages = toInt(item.Value, cfg.MaxContextMessages)
 	case "chat:context_max_turns":
 		cfg.ContextMaxTurns = toInt(item.Value, cfg.ContextMaxTurns)
-	case "chat:context_max_input_tokens":
-		cfg.ContextMaxInputTokens = toInt(item.Value, cfg.ContextMaxInputTokens)
 	case "chat:context_compact_enabled":
 		cfg.ContextCompactEnabled = toBool(item.Value, cfg.ContextCompactEnabled)
-	case "chat:context_compact_trigger_tokens":
-		cfg.ContextCompactTrigger = toInt(item.Value, cfg.ContextCompactTrigger)
+	case "chat:context_window_fallback_tokens":
+		cfg.ContextWindowFallbackTokens = toInt(item.Value, cfg.ContextWindowFallbackTokens)
+	case "chat:context_compact_trigger_percent":
+		cfg.ContextCompactTriggerPercent = toInt(item.Value, cfg.ContextCompactTriggerPercent)
 	case "chat:context_compact_preserve_recent_turns":
 		cfg.ContextCompactPreserve = toInt(item.Value, cfg.ContextCompactPreserve)
+	case "chat:conversation_default_model":
+		cfg.ConversationDefaultModel = strings.TrimSpace(item.Value)
 	case "chat:conversation_task_model":
 		cfg.ConversationTaskModel = item.Value
 	case "chat:conversation_title_prompt":
@@ -252,10 +259,20 @@ func (r *RuntimeSettings) applyItem(cfg *config.Config, item domainsettings.Syst
 		cfg.ExtractMinerUSource = item.Value
 	case "extract:mineru_base_url":
 		cfg.ExtractMinerUBaseURL = item.Value
+	case "extract:mineru_file_types":
+		cfg.ExtractMinerUFileTypes = item.Value
 	case "extract:mineru_timeout_seconds":
 		cfg.ExtractMinerUTimeoutSeconds = toInt(item.Value, cfg.ExtractMinerUTimeoutSeconds)
 	case "extract:mineru_auth_token":
 		cfg.ExtractMinerUAuthToken = item.Value
+	case "extract:mistral_ocr_base_url":
+		cfg.ExtractMistralOCRBaseURL = item.Value
+	case "extract:mistral_ocr_auth_token":
+		cfg.ExtractMistralOCRAuthToken = item.Value
+	case "extract:mistral_ocr_model":
+		cfg.ExtractMistralOCRModel = item.Value
+	case "extract:mistral_ocr_timeout_seconds":
+		cfg.ExtractMistralOCRTimeoutSeconds = toInt(item.Value, cfg.ExtractMistralOCRTimeoutSeconds)
 	case "extract:llm_ocr_base_url":
 		cfg.ExtractLLMOCRBaseURL = item.Value
 	case "extract:llm_ocr_model":
@@ -495,6 +512,14 @@ func (r *RuntimeSettings) normalizeConfig(cfg *config.Config) {
 	if strings.TrimSpace(cfg.ModelOptionDeniedPaths) == "" {
 		cfg.ModelOptionDeniedPaths = config.DefaultModelOptionDeniedPathsJSON()
 	}
+	if cfg.ContextWindowFallbackTokens < config.MinContextWindowFallbackTokens || cfg.ContextWindowFallbackTokens > config.MaxContextWindowFallbackTokens {
+		cfg.ContextWindowFallbackTokens = config.DefaultContextWindowFallbackTokens
+	}
+	if cfg.ContextCompactTriggerPercent < 0 ||
+		cfg.ContextCompactTriggerPercent > config.MaxContextCompactTriggerPercent ||
+		(cfg.ContextCompactTriggerPercent > 0 && cfg.ContextCompactTriggerPercent < config.MinContextCompactTriggerPercent) {
+		cfg.ContextCompactTriggerPercent = config.DefaultContextCompactTriggerPercent
+	}
 	if cfg.MCPMaxSelectedToolsPerMessage <= 0 {
 		cfg.MCPMaxSelectedToolsPerMessage = config.DefaultMCPMaxSelectedToolsPerMessage
 	}
@@ -502,71 +527,10 @@ func (r *RuntimeSettings) normalizeConfig(cfg *config.Config) {
 		cfg.MCPMaxSelectedToolsPerMessage = config.MaxMCPSelectedToolsPerMessage
 	}
 	if cfg.MCPToolTimeoutSeconds <= 0 {
-		cfg.MCPToolTimeoutSeconds = 60
+		cfg.MCPToolTimeoutSeconds = defaultMCPToolTimeoutSeconds
 	}
-	if cfg.WebSearchProvider == "" {
-		cfg.WebSearchProvider = "disabled"
-	}
-	if cfg.WebSearchTimeoutSeconds <= 0 {
-		cfg.WebSearchTimeoutSeconds = 10
-	}
-	if cfg.WebSearchMaxResults <= 0 {
-		cfg.WebSearchMaxResults = 5
-	}
-	if cfg.WebSearchMaxResults > 10 {
-		cfg.WebSearchMaxResults = 10
-	}
-	if cfg.CodeSandboxTimeoutSeconds <= 0 {
-		cfg.CodeSandboxTimeoutSeconds = 5
-	}
-	if cfg.CodeSandboxMaxCodeChars <= 0 {
-		cfg.CodeSandboxMaxCodeChars = 12000
-	}
-	if cfg.CodeSandboxMaxOutputChars <= 0 {
-		cfg.CodeSandboxMaxOutputChars = 12000
-	}
-	if cfg.ModerationThreshold <= 0 || cfg.ModerationThreshold > 1 {
-		cfg.ModerationThreshold = 0.5
-	}
-	if strings.TrimSpace(cfg.ModerationAction) != "block" {
-		cfg.ModerationAction = "block"
-	}
-	if cfg.ModerationTimeoutSeconds <= 0 {
-		cfg.ModerationTimeoutSeconds = 10
-	}
-	switch strings.TrimSpace(cfg.ModerationMode) {
-	case "moderations", "chat_classifier":
-	default:
-		cfg.ModerationMode = "moderations"
-	}
-	switch strings.TrimSpace(cfg.ModerationFailStrategy) {
-	case "fail_open", "fail_close":
-	default:
-		cfg.ModerationFailStrategy = "fail_open"
-	}
-	if cfg.ModerationAutoWindowHours <= 0 {
-		cfg.ModerationAutoWindowHours = 24
-	}
-	if cfg.ModerationAutoLimitThreshold < 0 {
-		cfg.ModerationAutoLimitThreshold = 0
-	}
-	if cfg.ModerationAutoSuspendThreshold < 0 {
-		cfg.ModerationAutoSuspendThreshold = 0
-	}
-	if cfg.ModerationAutoLimitRPM <= 0 {
-		cfg.ModerationAutoLimitRPM = 5
-	}
-	if cfg.ModerationAutoLimitDurationMinutes <= 0 {
-		cfg.ModerationAutoLimitDurationMinutes = 60
-	}
-	if cfg.ModerationOutputWindowChars <= 0 {
-		cfg.ModerationOutputWindowChars = 800
-	}
-	if cfg.VoiceASRProvider == "" {
-		cfg.VoiceASRProvider = "disabled"
-	}
-	if cfg.VoiceTTSProvider == "" {
-		cfg.VoiceTTSProvider = "disabled"
+	if cfg.MCPToolTimeoutSeconds > maxMCPToolTimeoutSeconds {
+		cfg.MCPToolTimeoutSeconds = maxMCPToolTimeoutSeconds
 	}
 	if !cfg.FileFullContextLimitEnabled {
 		cfg.FileFullContextMaxBytes = 0

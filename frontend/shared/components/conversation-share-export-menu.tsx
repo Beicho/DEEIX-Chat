@@ -20,17 +20,11 @@ import { cn } from "@/lib/utils";
 type ConversationShareExportActionsProps = {
   shareLabel: string;
   exportLabel: string;
-  exportMarkdownLabel?: string;
-  exportImageLabel?: string;
-  copyMarkdownLabel?: string;
-  screenshotFullLabel?: string;
-  screenshotSelectLabel?: string;
   onShare?: () => void;
   onExport?: () => void | Promise<void>;
-  onExportMarkdown?: () => void | Promise<void>;
-  onExportImage?: () => void | Promise<void>;
-  onCopyMarkdown?: () => void | Promise<void>;
-  onScreenshotFull?: () => void;
+  screenshotLatestLabel?: string;
+  screenshotSelectLabel?: string;
+  onScreenshotLatest?: () => void;
   onScreenshotSelect?: () => void;
 };
 
@@ -61,21 +55,15 @@ function hasConversationShareExportAction({
 export function ConversationShareExportMenuItems({
   shareLabel,
   exportLabel,
-  exportMarkdownLabel,
-  exportImageLabel,
-  copyMarkdownLabel,
-  screenshotFullLabel,
-  screenshotSelectLabel,
   onShare,
   onExport,
-  onExportMarkdown,
-  onExportImage,
-  onCopyMarkdown,
-  onScreenshotFull,
+  screenshotLatestLabel,
+  screenshotSelectLabel,
+  onScreenshotLatest,
   onScreenshotSelect,
   onCloseMenu,
 }: ConversationShareExportMenuItemsProps) {
-  const hasScreenshot = Boolean(onScreenshotFull || onScreenshotSelect);
+  const hasScreenshot = Boolean(onScreenshotLatest || onScreenshotSelect);
   return (
     <>
       <DropdownMenuItem
@@ -87,7 +75,7 @@ export function ConversationShareExportMenuItems({
           onShare();
         }}
       >
-        <DropdownMenuItemIcon icon={Share2} />
+        <DropdownMenuItemIcon icon={Share2} className="text-current" />
         {shareLabel}
       </DropdownMenuItem>
       <DropdownMenuItem
@@ -99,7 +87,7 @@ export function ConversationShareExportMenuItems({
           void onExport();
         }}
       >
-        <DropdownMenuItemIcon icon={Download} />
+        <DropdownMenuItemIcon icon={Download} className="text-current" />
         {exportLabel}
       </DropdownMenuItem>
       {exportMarkdownLabel ? (
@@ -156,20 +144,22 @@ export function ConversationShareExportMenuItems({
               onScreenshotSelect();
             }}
           >
-            <DropdownMenuItemIcon icon={MousePointerClick} />
+            <DropdownMenuItemIcon icon={MousePointerClick} className="text-current" />
             {screenshotSelectLabel}
           </DropdownMenuItem>
           <DropdownMenuItem
-            disabled={!onScreenshotFull}
+            disabled={!onScreenshotLatest}
             onSelect={(event) => {
               event.preventDefault();
-              if (!onScreenshotFull) return;
+              if (!onScreenshotLatest) {
+                return;
+              }
               onCloseMenu?.();
-              onScreenshotFull();
+              onScreenshotLatest();
             }}
           >
-            <DropdownMenuItemIcon icon={Camera} />
-            {screenshotFullLabel}
+            <DropdownMenuItemIcon icon={Camera} className="text-current" />
+            {screenshotLatestLabel}
           </DropdownMenuItem>
         </>
       ) : null}
@@ -196,22 +186,13 @@ export function ConversationShareExportIconDropdown({
   className,
   onShare,
   onExport,
-  onExportMarkdown,
-  onExportImage,
-  onCopyMarkdown,
-  onScreenshotFull,
+  screenshotLatestLabel,
+  screenshotSelectLabel,
+  onScreenshotLatest,
   onScreenshotSelect,
 }: ConversationShareExportIconDropdownProps) {
   const [open, setOpen] = React.useState(false);
-  const hasAction = hasConversationShareExportAction({
-    onShare,
-    onExport,
-    onExportMarkdown,
-    onExportImage,
-    onCopyMarkdown,
-    onScreenshotFull,
-    onScreenshotSelect,
-  });
+  const hasAction = Boolean(onShare || onExport || onScreenshotLatest || onScreenshotSelect);
 
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
@@ -236,17 +217,11 @@ export function ConversationShareExportIconDropdown({
         <ConversationShareExportMenuItems
           shareLabel={shareLabel}
           exportLabel={exportLabel}
-          exportMarkdownLabel={exportMarkdownLabel}
-          exportImageLabel={exportImageLabel}
-          copyMarkdownLabel={copyMarkdownLabel}
-          screenshotFullLabel={screenshotFullLabel}
-          screenshotSelectLabel={screenshotSelectLabel}
           onShare={onShare}
           onExport={onExport}
-          onExportMarkdown={onExportMarkdown}
-          onExportImage={onExportImage}
-          onCopyMarkdown={onCopyMarkdown}
-          onScreenshotFull={onScreenshotFull}
+          screenshotLatestLabel={screenshotLatestLabel}
+          screenshotSelectLabel={screenshotSelectLabel}
+          onScreenshotLatest={onScreenshotLatest}
           onScreenshotSelect={onScreenshotSelect}
           onCloseMenu={() => setOpen(false)}
         />
@@ -259,51 +234,30 @@ export function ConversationShareExportSubmenu({
   label,
   shareLabel,
   exportLabel,
-  exportMarkdownLabel,
-  exportImageLabel,
-  copyMarkdownLabel,
-  screenshotFullLabel,
-  screenshotSelectLabel,
   onShare,
   onExport,
-  onExportMarkdown,
-  onExportImage,
-  onCopyMarkdown,
-  onScreenshotFull,
+  screenshotLatestLabel,
+  screenshotSelectLabel,
+  onScreenshotLatest,
   onScreenshotSelect,
   onCloseMenu,
 }: { label: string } & ConversationShareExportMenuItemsProps) {
-  const hasAction = hasConversationShareExportAction({
-    onShare,
-    onExport,
-    onExportMarkdown,
-    onExportImage,
-    onCopyMarkdown,
-    onScreenshotFull,
-    onScreenshotSelect,
-  });
-
+  const hasAction = Boolean(onShare || onExport || onScreenshotLatest || onScreenshotSelect);
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger disabled={!hasAction}>
-        <DropdownMenuItemIcon icon={Share2} />
+        <DropdownMenuItemIcon icon={Share2} className="text-current" />
         {label}
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="min-w-40 p-1.5">
         <ConversationShareExportMenuItems
           shareLabel={shareLabel}
           exportLabel={exportLabel}
-          exportMarkdownLabel={exportMarkdownLabel}
-          exportImageLabel={exportImageLabel}
-          copyMarkdownLabel={copyMarkdownLabel}
-          screenshotFullLabel={screenshotFullLabel}
-          screenshotSelectLabel={screenshotSelectLabel}
           onShare={onShare}
           onExport={onExport}
-          onExportMarkdown={onExportMarkdown}
-          onExportImage={onExportImage}
-          onCopyMarkdown={onCopyMarkdown}
-          onScreenshotFull={onScreenshotFull}
+          screenshotLatestLabel={screenshotLatestLabel}
+          screenshotSelectLabel={screenshotSelectLabel}
+          onScreenshotLatest={onScreenshotLatest}
           onScreenshotSelect={onScreenshotSelect}
           onCloseMenu={onCloseMenu}
         />

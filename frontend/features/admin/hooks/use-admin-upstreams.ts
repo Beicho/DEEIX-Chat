@@ -61,7 +61,6 @@ type UseAdminUpstreamsState = {
   circuitState: UpstreamCircuitState;
   modelsTarget: AdminLLMUpstreamView | null;
   modelsOpen: boolean;
-  setModelsOpen: (open: boolean) => void;
   load: () => Promise<void>;
   handleSelectAll: (checked: boolean) => void;
   handleSelectOne: (id: number, checked: boolean) => void;
@@ -403,7 +402,9 @@ export function useAdminUpstreams(): UseAdminUpstreamsState {
     setTotal((prev) => Math.max(0, prev - removedIDs.size));
     setSelected((prev) => {
       const next = new Set(prev);
-      removedIDs.forEach((id) => next.delete(id));
+      removedIDs.forEach((id) => {
+        next.delete(id);
+      });
       return next;
     });
     setBulkDeleteTargets([]);
@@ -457,7 +458,6 @@ export function useAdminUpstreams(): UseAdminUpstreamsState {
     circuitState,
     modelsTarget,
     modelsOpen,
-    setModelsOpen,
     load,
     handleSelectAll,
     handleSelectOne,

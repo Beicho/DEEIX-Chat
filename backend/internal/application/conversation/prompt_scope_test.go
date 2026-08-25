@@ -55,22 +55,68 @@ func TestBuildPromptScopeReplacesCoveredPrefix(t *testing.T) {
 	}
 }
 
-func TestPromptScopeFilterRecallChunksDropsCoveredMessages(t *testing.T) {
+func TestPromptScopeHistoricalMessageScopeUsesSnapshotBoundary(t *testing.T) {
 	messages := promptScopeMessages()
 	scope := buildPromptScope(messages, promptScopeSnapshot(messages[:2]), contextCompactionPolicy{AdminEnabled: true, UserEnabled: true})
 
-	chunks := []model.MessageChunk{
-		{MessageID: 1, Content: "covered"},
-		{MessageID: 3, Content: "retained"},
-		{MessageID: 99, Content: "sibling branch"},
+	historicalScope := scope.historicalMessageScope(7, 11, 4)
+	if !historicalScope.Valid() {
+		t.Fatal("expected valid historical scope")
 	}
-	filtered := scope.filterRecallChunks(chunks)
+	if historicalScope.ConversationID != 7 || historicalScope.UserID != 11 || historicalScope.LeafMessageID != 4 || historicalScope.ExcludeThroughMessageID != 2 {
+		t.Fatalf("unexpected historical scope: %#v", historicalScope)
+	}
+}
 
-	if len(filtered) != 1 {
-		t.Fatalf("expected one retained recall chunk, got %d", len(filtered))
+func TestPromptScopeHistoricalMessageScopeUsesFullBranchWithoutSnapshot(t *testing.T) {
+	messages := promptScopeMessages()
+	scope := buildPromptScope(messages, nil, contextCompactionPolicy{})
+
+	historicalScope := scope.historicalMessageScope(7, 11, 4)
+	if !historicalScope.Valid() || historicalScope.ExcludeThroughMessageID != 0 {
+		t.Fatalf("unexpected historical scope: %#v", historicalScope)
 	}
-	if filtered[0].MessageID != 3 {
-		t.Fatalf("expected retained chunk from message 3, got %d", filtered[0].MessageID)
+}
+
+func TestPromptScopeHistoricalMessageScopeFailsClosedOnFirstTurn(t *testing.T) {
+	scope := buildPromptScope([]model.Message{{ID: 9, Role: "user"}}, nil, contextCompactionPolicy{})
+
+	if historicalScope := scope.historicalMessageScope(7, 11, 9); historicalScope.Valid() {
+		t.Fatalf("expected no historical scope, got %#v", historicalScope)
+	}
+}
+
+func TestHistoryMessagesFromDomainPassesBackAssistantReasoningWhenEnabled(t *testing.T) {
+	messages := []model.Message{
+		{Role: "user", Content: "question", ReasoningContent: "ignored"},
+		{Role: "assistant", Content: "answer", ReasoningContent: "thinking"},
+	}
+
+	got := historyMessagesFromDomain(messages, historyMessageOptions{ReasoningContentPassback: true})
+
+	if len(got) != 2 {
+		t.Fatalf("expected 2 history messages, got %d", len(got))
+	}
+	if got[0].ReasoningContent != "" {
+		t.Fatalf("expected user reasoning to be ignored, got %q", got[0].ReasoningContent)
+	}
+	if got[1].ReasoningContent != "thinking" {
+		t.Fatalf("expected assistant reasoning passback, got %q", got[1].ReasoningContent)
+	}
+}
+
+func TestHistoryMessagesFromDomainOmitsAssistantReasoningWhenDisabled(t *testing.T) {
+	messages := []model.Message{
+		{Role: "assistant", Content: "answer", ReasoningContent: "thinking"},
+	}
+
+	got := historyMessagesFromDomain(messages, historyMessageOptions{ReasoningContentPassback: false})
+
+	if len(got) != 1 {
+		t.Fatalf("expected 1 history message, got %d", len(got))
+	}
+	if got[0].ReasoningContent != "" {
+		t.Fatalf("expected reasoning content to be omitted, got %q", got[0].ReasoningContent)
 	}
 }
 

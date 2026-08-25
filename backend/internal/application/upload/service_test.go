@@ -50,6 +50,36 @@ func TestUploadFileReturnsExistingActiveDuplicate(t *testing.T) {
 	}
 }
 
+func TestUploadFileStoresSystemAssetOutsideUploaderOwnership(t *testing.T) {
+	ctx := context.Background()
+	repo := newUploadTestRepo()
+	store := newUploadTestStore()
+	service := newUploadTestService(repo, store)
+	input := uploadTestInput("policy.md", "platform knowledge")
+	input.Ownership = FileOwnershipSystem
+
+	result, err := service.UploadFile(ctx, input)
+	if err != nil {
+		t.Fatalf("system upload failed: %v", err)
+	}
+	if result.File.UserID != 0 {
+		t.Fatalf("system asset owner = %d, want platform owner 0", result.File.UserID)
+	}
+	if result.Quota.QuotaBytes != 0 {
+		t.Fatalf("system quota limit = %d, want unlimited platform quota", result.Quota.QuotaBytes)
+	}
+	if !strings.HasPrefix(result.File.StoragePath, "system/") {
+		t.Fatalf("system storage path = %q, want system namespace", result.File.StoragePath)
+	}
+	deleted, ok, err := service.DeleteFileIfUnreferenced(ctx, 0, result.File.FileID)
+	if err != nil || !ok || deleted == nil {
+		t.Fatalf("system delete = %#v deleted=%v error=%v, want deleted platform asset", deleted, ok, err)
+	}
+	if deleted.Quota.QuotaBytes != 0 {
+		t.Fatalf("system quota limit after delete = %d, want unlimited platform quota", deleted.Quota.QuotaBytes)
+	}
+}
+
 func TestUploadFileAllowsReuploadAfterDelete(t *testing.T) {
 	ctx := context.Background()
 	repo := newUploadTestRepo()
@@ -261,6 +291,92 @@ func TestNormalizeDetectedMIMEDowngradesActiveContent(t *testing.T) {
 	}
 }
 
+func TestNormalizeDetectedMIMERecognizesVideoExtensions(t *testing.T) {
+	tests := []struct {
+		detected string
+		fileName string
+		want     string
+	}{
+		{detected: "application/octet-stream", fileName: "clip.mp4", want: "video/mp4"},
+		{detected: "application/octet-stream", fileName: "clip.webm", want: "video/webm"},
+	}
+	for _, tt := range tests {
+		if got := normalizeDetectedMIME(tt.detected, tt.fileName); got != tt.want {
+			t.Fatalf("normalizeDetectedMIME(%q, %q) = %q, want %q", tt.detected, tt.fileName, got, tt.want)
+		}
+	}
+}
+
+func TestNormalizeDetectedMIMERecognizesPresentations(t *testing.T) {
+	tests := []struct {
+		detected string
+		fileName string
+		wantMIME string
+	}{
+		{
+			detected: "application/octet-stream",
+			fileName: "slides.ppt",
+			wantMIME: "application/vnd.ms-powerpoint",
+		},
+		{
+			detected: "application/zip",
+			fileName: "slides.pptx",
+			wantMIME: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		},
+	}
+
+	for _, tt := range tests {
+		if got := normalizeDetectedMIME(tt.detected, tt.fileName); got != tt.wantMIME {
+			t.Fatalf("normalizeDetectedMIME(%q, %q) = %q, want %q", tt.detected, tt.fileName, got, tt.wantMIME)
+		}
+		if got := inferFileCategory(tt.wantMIME, tt.fileName); got != fileCategoryPresentation {
+			t.Fatalf("inferFileCategory(%q, %q) = %q, want %q", tt.wantMIME, tt.fileName, got, fileCategoryPresentation)
+		}
+	}
+}
+
+func TestUploadFileAllowsMP4WhenVideoMP4IsAllowed(t *testing.T) {
+	ctx := context.Background()
+	repo := newUploadTestRepo()
+	store := newUploadTestStore()
+	cfg := config.Config{
+		MaxUploadFileBytes:    1024 * 1024,
+		UserStorageQuotaBytes: 10 * 1024 * 1024,
+		FileAllowedMIMETypes:  "video/mp4",
+	}
+	service := NewServiceWithRuntime(config.NewRuntime(cfg), repo, nil, Hooks{}, ErrorSet{
+		InvalidFileReference: repository.ErrInvalidInput,
+		InvalidFileName:      repository.ErrInvalidInput,
+		StorageQuotaExceeded: repository.ErrConflict,
+		FileTooLarge:         repository.ErrInvalidInput,
+		MIMEBlocked:          repository.ErrInvalidInput,
+		DangerousMIMEType:    repository.ErrInvalidInput,
+	}, "test")
+	service.SetObjectStoreProvider(uploadTestStoreProvider{store: store})
+
+	content := []byte("not a real mp4 but uploaded with a .mp4 extension")
+	result, err := service.UploadFile(ctx, UploadFileInput{
+		UserID:       1,
+		Purpose:      "chat",
+		FileName:     "clip.mp4",
+		MimeType:     "video/mp4",
+		DeclaredSize: int64(len(content)),
+		Reader:       bytes.NewReader(content),
+	})
+	if err != nil {
+		t.Fatalf("mp4 upload should be allowed: %v", err)
+	}
+	if result.File.DetectedMIME != "video/mp4" {
+		t.Fatalf("DetectedMIME = %q, want video/mp4", result.File.DetectedMIME)
+	}
+	if result.File.FileCategory != fileCategoryVideo {
+		t.Fatalf("FileCategory = %q, want %q", result.File.FileCategory, fileCategoryVideo)
+	}
+	if result.File.ProcessingStatus != "uploaded" || !result.File.ProcessingReady {
+		t.Fatalf("video processing state = %q ready=%v, want uploaded ready=true", result.File.ProcessingStatus, result.File.ProcessingReady)
+	}
+}
+
 func TestValidateImageFile(t *testing.T) {
 	repo := newUploadTestRepo()
 	store := newUploadTestStore()
@@ -439,6 +555,41 @@ func (r *uploadTestRepo) TouchFileObjectLastAccessedAt(_ context.Context, userID
 		}
 	}
 	return repository.ErrNotFound
+}
+
+func (r *uploadTestRepo) RevokeGeneratedFileForModeration(_ context.Context, fileID string) error {
+	for i := range r.files {
+		if r.files[i].FileID == fileID {
+			r.files[i].Status = "moderation_blocked"
+			r.files[i].UserID = 0
+			return nil
+		}
+	}
+	return repository.ErrNotFound
+}
+
+func (r *uploadTestRepo) DeleteGeneratedFileArtifactsForModeration(context.Context, string) error {
+	return nil
+}
+
+func (r *uploadTestRepo) ClearGeneratedFileStoragePath(_ context.Context, fileID string) error {
+	for i := range r.files {
+		if r.files[i].FileID == fileID {
+			r.files[i].StoragePath = ""
+			return nil
+		}
+	}
+	return repository.ErrNotFound
+}
+
+func (r *uploadTestRepo) GetFileObjectByFileIDAnyStatus(_ context.Context, fileID string) (*domainconversation.FileObject, error) {
+	for i := range r.files {
+		if r.files[i].FileID == fileID {
+			result := r.files[i]
+			return &result, nil
+		}
+	}
+	return nil, repository.ErrNotFound
 }
 
 func (r *uploadTestRepo) GetUserByID(context.Context, uint) (*domainuser.User, error) {

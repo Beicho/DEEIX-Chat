@@ -4,17 +4,36 @@ type StoredBrowserKey = {
   sessionID: string;
   keyID: string;
   keyPair: CryptoKeyPair;
+  createdAt: number;
 };
 
 const DB_NAME = "deeix-browser-proof";
 const STORE_NAME = "browser-keys";
+// 服务端密钥默认保存 7 天；提前轮换，避免本地仍缓存着 Redis 已过期的密钥。
+const BROWSER_KEY_MAX_AGE_MS = 6 * 24 * 60 * 60 * 1000;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
+const ensurePromises = new Map<string, Promise<StoredBrowserKey>>();
 
-export async function ensureBrowserKey(accessToken: string, sessionID: string): Promise<StoredBrowserKey> {
+export function ensureBrowserKey(accessToken: string, sessionID: string): Promise<StoredBrowserKey> {
+  const existingPromise = ensurePromises.get(sessionID);
+  if (existingPromise) {
+    return existingPromise;
+  }
+  const promise = ensureBrowserKeyInternal(accessToken, sessionID).finally(() => {
+    ensurePromises.delete(sessionID);
+  });
+  ensurePromises.set(sessionID, promise);
+  return promise;
+}
+
+async function ensureBrowserKeyInternal(accessToken: string, sessionID: string): Promise<StoredBrowserKey> {
   const existing = await loadBrowserKey(sessionID);
-  if (existing) {
+  if (existing && isBrowserKeyFresh(existing)) {
     return existing;
+  }
+  if (existing) {
+    await deleteBrowserKey(sessionID);
   }
 
   const keyPair = await crypto.subtle.generateKey(
@@ -24,9 +43,20 @@ export async function ensureBrowserKey(accessToken: string, sessionID: string): 
   );
   const publicKeyJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
   const keyID = await bootstrapBrowserKey(accessToken, sessionID, publicKeyJwk);
-  const stored = { sessionID, keyID, keyPair };
+  const stored = { sessionID, keyID, keyPair, createdAt: Date.now() };
   await saveBrowserKey(stored);
   return stored;
+}
+
+export async function invalidateBrowserKey(sessionID: string): Promise<void> {
+  if (!sessionID) {
+    return;
+  }
+  await deleteBrowserKey(sessionID);
+}
+
+function isBrowserKeyFresh(item: StoredBrowserKey): boolean {
+  return Number.isFinite(item.createdAt) && item.createdAt > 0 && Date.now() - item.createdAt < BROWSER_KEY_MAX_AGE_MS;
 }
 
 async function bootstrapBrowserKey(accessToken: string, sessionID: string, publicKeyJwk: JsonWebKey): Promise<string> {
@@ -91,5 +121,18 @@ async function saveBrowserKey(item: StoredBrowserKey): Promise<void> {
     tx.objectStore(STORE_NAME).put(item);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error || new Error("indexeddb write failed"));
+  });
+}
+
+async function deleteBrowserKey(sessionID: string): Promise<void> {
+  if (typeof indexedDB === "undefined" || !sessionID) {
+    return;
+  }
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).delete(sessionID);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("indexeddb delete failed"));
   });
 }

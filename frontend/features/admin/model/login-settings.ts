@@ -1,13 +1,17 @@
+import type { UpsertIdentityProviderRequest } from "@deeix/api-contract";
 import type { IdentityProviderDTO } from "@/shared/api/auth.types";
-import type { IdentityProviderPayload } from "@/features/admin/api/auth";
 import type { SettingsGrouped } from "@/shared/api/settings.types";
+
+export type IdentityProviderForm = Omit<UpsertIdentityProviderRequest, "loginEnabled" | "registrationEnabled"> & {
+  loginEnabled: boolean;
+  registrationEnabled: boolean;
+};
 
 export type LoginFieldType = "int" | "bool" | "string" | "password" | "textarea" | "select" | "tabs" | "button";
 
 export type LoginSettingsField = {
   namespace: "auth";
   key:
-    | "login_page_title"
     | "login_default_next_path"
     | "username_login_enabled"
     | "email_login_enabled"
@@ -47,7 +51,7 @@ export type LoginSettingsGroup = {
 
 export type ProviderTemplate = {
   label: string;
-  form: Partial<IdentityProviderPayload> & Pick<IdentityProviderPayload, "type" | "name">;
+  form: Partial<IdentityProviderForm> & Pick<IdentityProviderForm, "type" | "name">;
 };
 
 type LoginSettingsTranslator = (key: string) => string;
@@ -58,7 +62,6 @@ export function buildLoginSettingsGroups(t: LoginSettingsTranslator): LoginSetti
     title: t("groups.loginPage.title"),
     description: t("groups.loginPage.description"),
     fields: [
-      { namespace: "auth", key: "login_page_title", label: t("fields.loginPageTitle.label"), description: t("fields.loginPageTitle.description"), type: "string", placeholder: t("fields.loginPageTitle.placeholder") },
       { namespace: "auth", key: "login_default_next_path", label: t("fields.loginDefaultNextPath.label"), description: t("fields.loginDefaultNextPath.description"), type: "string", placeholder: "/chat" },
     ],
   },
@@ -113,7 +116,7 @@ export function buildLoginSettingsGroups(t: LoginSettingsTranslator): LoginSetti
   ];
 }
 
-export const DEFAULT_PROVIDER_FORM: IdentityProviderPayload = {
+export const DEFAULT_PROVIDER_FORM: IdentityProviderForm = {
   type: "oidc",
   name: "",
   slug: "",
@@ -280,7 +283,6 @@ export function flattenLoginSettings(grouped: SettingsGrouped): Record<string, s
 export function applyLoginDefaults(settings: Record<string, string>): Record<string, string> {
   const result = {
     ...settings,
-    "auth.login_page_title": settings["auth.login_page_title"]?.trim() || "Sign in to DEEIX Chat",
     "auth.login_default_next_path": settings["auth.login_default_next_path"]?.trim() || "/chat",
     "auth.username_login_enabled": settings["auth.username_login_enabled"] || "true",
     "auth.email_login_enabled": settings["auth.email_login_enabled"] || "true",
@@ -442,7 +444,7 @@ export function validatePasswordLoginSettings(
   return undefined;
 }
 
-export function createProviderForm(overrides: Partial<IdentityProviderPayload>): IdentityProviderPayload {
+export function createProviderForm(overrides: Partial<IdentityProviderForm>): IdentityProviderForm {
   const form = {
     ...DEFAULT_PROVIDER_FORM,
     ...overrides,
@@ -455,7 +457,7 @@ export function createProviderForm(overrides: Partial<IdentityProviderPayload>):
   };
 }
 
-export function providerToForm(provider: IdentityProviderDTO): IdentityProviderPayload {
+export function providerToForm(provider: IdentityProviderDTO): IdentityProviderForm {
   return {
     type: provider.type,
     name: provider.name,
@@ -488,14 +490,4 @@ export function normalizeProviderSlugPreview(value: string): string {
     .replaceAll(" ", "-")
     .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/^[-_]+|[-_]+$/g, "");
-}
-
-export function reorderProviders(items: IdentityProviderDTO[], draggedID: string, targetID: string) {
-  const fromIndex = items.findIndex((item) => item.publicID === draggedID);
-  const toIndex = items.findIndex((item) => item.publicID === targetID);
-  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return items;
-  const next = [...items];
-  const [moved] = next.splice(fromIndex, 1);
-  next.splice(toIndex, 0, moved);
-  return next;
 }

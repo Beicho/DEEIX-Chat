@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import dynamic from "next/dynamic";
-import { Database, DollarSign, Globe, Plus, Settings, ShieldCheck, ShieldX, Trash2, Upload, UserCheck } from "lucide-react";
+import { Database, Globe, Plus, Settings, ShieldCheck, ShieldX, Trash2, Upload, UserCheck, WalletCards } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -47,10 +47,11 @@ import type { ImportOpenWebUIUsersData, ImportOpenWebUIUsersRequest } from "@/fe
 import { resolveAvatarImageSrc } from "@/shared/lib/avatar";
 import { useAuthSession } from "@/shared/auth/auth-session-context";
 import { resolveAccessToken } from "@/shared/auth/resolve-access-token";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
 import { TimeZoneSelect } from "@/shared/components/time-zone-select";
-import type { AdminUserRole, AdminUserStatus } from "@/features/admin/api/admin.types";
+import type { AdminUserDTO, AdminUserRole, AdminUserStatus } from "@/features/admin/api/admin.types";
 import type { AdminBillingMode } from "@/features/admin/api/billing.types";
-import type { UserDTO } from "@/shared/api/auth.types";
+import type { BillingDisplayOptions } from "@/shared/lib/billing-display";
 
 import { AccountAvatarEditorDialog } from "./accounts-avatar-dialog";
 import { AccountConfirmationDialog } from "./accounts-confirm-dialog";
@@ -197,7 +198,7 @@ function BulkActionControlRow({
 }
 
 type AccountsUsersProps = {
-  items: UserDTO[];
+  items: AdminUserDTO[];
   total: number;
   page: number;
   setPage: (value: number) => void;
@@ -208,14 +209,15 @@ type AccountsUsersProps = {
   setQuery: (value: string) => void;
   loading: boolean;
   onLoadUsers: () => Promise<void>;
-  onSetUsers: React.Dispatch<React.SetStateAction<UserDTO[]>>;
+  onSetUsers: React.Dispatch<React.SetStateAction<AdminUserDTO[]>>;
   onSetTotal: React.Dispatch<React.SetStateAction<number>>;
 };
 
 type UserTableRowProps = {
-  item: UserDTO;
+  item: AdminUserDTO;
   checked: boolean;
   billingMode: AdminBillingMode;
+  billingDisplay: BillingDisplayOptions;
   inlineRolePending: boolean;
   inlineStatusPending: boolean;
   pendingAction: string;
@@ -224,18 +226,19 @@ type UserTableRowProps = {
   canManage: boolean;
   onToggleSelectedUser: (userID: number, checked: boolean) => void;
   onInlinePatch: (
-    item: UserDTO,
+    item: AdminUserDTO,
     field: "role" | "status",
-    payload: Partial<Pick<UserDTO, "role" | "status">>,
+    payload: Partial<Pick<AdminUserDTO, "role" | "status">>,
   ) => Promise<void>;
-  onOpenAvatar: (user: UserDTO) => void;
-  onOpenEdit: (user: UserDTO) => void;
+  onOpenAvatar: (user: AdminUserDTO) => void;
+  onOpenEdit: (user: AdminUserDTO) => void;
 };
 
 const UserTableRow = React.memo(function UserTableRow({
   item,
   checked,
   billingMode,
+  billingDisplay,
   inlineRolePending,
   inlineStatusPending,
   pendingAction,
@@ -301,7 +304,7 @@ const UserTableRow = React.memo(function UserTableRow({
           <Combobox
             items={rowRoleOptions}
             value={item.role}
-            onValueChange={(value) => void onInlinePatch(item, "role", { role: value as UserDTO["role"] })}
+            onValueChange={(value) => void onInlinePatch(item, "role", { role: value as AdminUserDTO["role"] })}
             disabled={disabled || inlineRolePending}
           >
             <ComboboxInput
@@ -329,7 +332,7 @@ const UserTableRow = React.memo(function UserTableRow({
             items={USER_STATUS_OPTIONS}
             value={item.status}
             itemToStringLabel={resolveUserStatusLabel}
-            onValueChange={(value) => void onInlinePatch(item, "status", { status: value as UserDTO["status"] })}
+            onValueChange={(value) => void onInlinePatch(item, "status", { status: value as AdminUserDTO["status"] })}
             disabled={disabled || inlineStatusPending}
           >
             <ComboboxInput
@@ -368,7 +371,7 @@ const UserTableRow = React.memo(function UserTableRow({
       {billingMode !== "self" ? (
         <TableCell className="whitespace-nowrap text-foreground">
           <span title={resolveBillingAccountStatusLabel(item.billingAccountStatus || "active")}>
-            {formatBillingBalance(item.billingBalanceUSD)}
+            {formatBillingBalance(item.billingBalanceUSD, billingDisplay)}
           </span>
         </TableCell>
       ) : null}
@@ -473,6 +476,7 @@ export function AccountsUsers({
     resetPasswordDraft,
     setResetPasswordDraft,
     billingMode,
+    billingDisplay,
     billingPlans,
     createAvatarSource,
     avatarDialogPreviewSrc,
@@ -514,6 +518,8 @@ export function AccountsUsers({
     onSetUsers,
     onSetTotal,
   });
+  const stableEditDialogTarget = useDialogSnapshot(editDialogTarget);
+  const stableResetPasswordDraft = useDialogSnapshot(resetDialogTarget ? resetPasswordDraft : null) ?? "";
   const virtualRows = useVirtualTableRows(filteredItems, {
     enabled: filteredItems.length > 100,
     estimateSize: 40,
@@ -726,7 +732,7 @@ export function AccountsUsers({
 
               {showBalanceColumn ? (
                 <BulkActionControlRow
-                  icon={<DollarSign className="size-3 stroke-1" />}
+                  icon={<WalletCards className="size-3 stroke-1" />}
                   label={t("actions.apply")}
                   onApply={() => setBulkConfirmAction("balance")}
                   disabled={loading || Boolean(pendingAction) || selectedUserIDs.size === 0 || !batchBalance.trim()}
@@ -736,7 +742,7 @@ export function AccountsUsers({
                     min="0"
                     step="0.000001"
                     value={batchBalance}
-                    placeholder={t("fields.balance")}
+                    placeholder={t("fields.balanceUSDInput")}
                     onChange={(event) => setBatchBalance(event.target.value)}
                     disabled={loading || Boolean(pendingAction) || selectedUserIDs.size === 0}
                     className="h-7 px-2 text-[11px]"
@@ -835,6 +841,7 @@ export function AccountsUsers({
                       item={item}
                       checked={selectedUserIDs.has(item.id)}
                       billingMode={billingMode}
+                      billingDisplay={billingDisplay}
                       inlineRolePending={Boolean(inlinePending[resolveInlineKey(item.id, "role")])}
                       inlineStatusPending={Boolean(inlinePending[resolveInlineKey(item.id, "status")])}
                       pendingAction={pendingAction}
@@ -954,19 +961,20 @@ export function AccountsUsers({
         onSubmit={handleImportOpenWebUI}
       />
 
-      {editDialogTarget ? (
+      {stableEditDialogTarget ? (
         <EditUserSheet
-          open
+          open={Boolean(editDialogTarget)}
           onOpenChange={(open) => {
             if (!open && pendingAction !== "edit") {
               setEditDialogTarget(null);
             }
           }}
           pending={pendingAction === "edit"}
-          editDialogTarget={editDialogTarget}
+          editDialogTarget={stableEditDialogTarget}
           editPayload={editPayload}
           setEditPayload={setEditPayload}
           billingMode={billingMode}
+          billingDisplay={billingDisplay}
           billingPlans={billingPlans}
           statusChanged={editStatusChanged}
           timeZoneOptions={timeZoneOptions}
@@ -975,27 +983,27 @@ export function AccountsUsers({
           onOpenEditAvatarDialog={() => {
             setAvatarDialog({
               mode: "edit",
-              target: editDialogTarget,
-              value: editPayload.avatarURL.trim() || editDialogTarget.avatarURL.trim(),
+              target: stableEditDialogTarget,
+              value: editPayload.avatarURL.trim() || stableEditDialogTarget.avatarURL.trim(),
             });
           }}
           onOpenResetPasswordDialog={() => {
-            setResetDialogTarget(editDialogTarget);
+            setResetDialogTarget(stableEditDialogTarget);
             setResetPasswordDraft("");
           }}
           onOpenResetTwoFactorDialog={() => {
-            setResetTwoFactorDialogTarget(editDialogTarget);
+            setResetTwoFactorDialogTarget(stableEditDialogTarget);
           }}
           onOpenRevokeDialog={() => {
-            setRevokeDialogTarget(editDialogTarget);
+            setRevokeDialogTarget(stableEditDialogTarget);
           }}
           onOpenDeleteDialog={() => {
-            setDeleteDialogTarget(editDialogTarget);
+            setDeleteDialogTarget(stableEditDialogTarget);
           }}
-          resetPasswordPending={pendingAction === "reset-password" && actionUserID === editDialogTarget.id}
-          resetTwoFactorPending={pendingAction === "reset-2fa" && actionUserID === editDialogTarget.id}
-          revokePending={pendingAction === "revoke-sessions" && actionUserID === editDialogTarget.id}
-          deletePending={pendingAction === "delete" && actionUserID === editDialogTarget.id}
+          resetPasswordPending={pendingAction === "reset-password" && actionUserID === stableEditDialogTarget.id}
+          resetTwoFactorPending={pendingAction === "reset-2fa" && actionUserID === stableEditDialogTarget.id}
+          revokePending={pendingAction === "revoke-sessions" && actionUserID === stableEditDialogTarget.id}
+          deletePending={pendingAction === "delete" && actionUserID === stableEditDialogTarget.id}
           resolveUserInitial={resolveUserInitial}
         />
       ) : null}
@@ -1009,7 +1017,7 @@ export function AccountsUsers({
           }
         }}
         pending={pendingAction === "reset-password"}
-        password={resetPasswordDraft}
+        password={stableResetPasswordDraft}
         onPasswordChange={setResetPasswordDraft}
         onConfirm={() => void onResetPassword()}
         onCancel={() => {

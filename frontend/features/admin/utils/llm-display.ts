@@ -1,11 +1,12 @@
+import type { LucideIcon } from "lucide-react";
 import {
   AudioLines,
   Bot,
+  Clapperboard,
   ImageIcon,
   Paintbrush,
   Video,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import type { AdminLLMAdapter } from "@/features/admin/api/llm.types";
 
 export const MODEL_KIND_META: Record<
@@ -17,6 +18,7 @@ export const MODEL_KIND_META: Record<
   image_gen: { label: "Image generation", shortLabel: "Image generation", icon: ImageIcon },
   image_edit: { label: "Image editing", shortLabel: "Image editing", icon: Paintbrush },
   video_gen: { label: "Video generation", shortLabel: "Video generation", icon: Video },
+  video_extension: { label: "Video extension", shortLabel: "Video extension", icon: Clapperboard },
 };
 
 export const COMPATIBLE_OPTIONS = [
@@ -43,9 +45,12 @@ export const PROTOCOL_OPTIONS: ReadonlyArray<ProtocolOption> = [
   { value: "anthropic_messages", label: "Messages (Anthropic)", kinds: ["chat"] },
   { value: "google_generate_content", label: "Generate Content (Google)", kinds: ["chat"] },
   { value: "google_image_generation", label: "Image Generation (Google)", kinds: ["image_gen", "image_edit"] },
+  { value: "gemini_interactions", label: "Interactions (Google)", kinds: ["chat", "image_gen", "image_edit", "video_gen"] },
   { value: "xai_responses", label: "Responses (xAI)", kinds: ["chat"] },
   { value: "xai_image", label: "Images Generations (xAI)", kinds: ["image_gen"] },
   { value: "xai_image_edits", label: "Images Edits (xAI)", kinds: ["image_edit"] },
+  { value: "xai_video", label: "Video Generations (xAI)", kinds: ["video_gen"] },
+  { value: "xai_video_extensions", label: "Video Extensions (xAI)", kinds: ["video_extension"] },
   { value: "openrouter_chat_completions", label: "Chat Completions (OpenRouter)", kinds: ["chat"] },
   { value: "openrouter_responses", label: "Responses (OpenRouter)", kinds: ["chat"] },
 ] as const;
@@ -65,6 +70,10 @@ const PROTOCOL_DISPLAY_ORDER = new Map<string, number>(
 const IMAGE_ROUTE_PROTOCOL_PAIRS: ReadonlyArray<readonly [AdminLLMAdapter, AdminLLMAdapter]> = [
   ["openai_image_generations", "openai_image_edits"],
   ["xai_image", "xai_image_edits"],
+];
+
+const VIDEO_ROUTE_PROTOCOL_PAIRS: ReadonlyArray<readonly [AdminLLMAdapter, AdminLLMAdapter]> = [
+  ["xai_video", "xai_video_extensions"],
 ];
 
 const LLM_STATUS_LABELS: Record<string, string> = {
@@ -122,8 +131,9 @@ export function isSupportedRouteProtocolSelection(protocols: readonly AdminLLMAd
   if (uniqueProtocols.length <= 1) {
     return true;
   }
-  return uniqueProtocols.length === 2 && IMAGE_ROUTE_PROTOCOL_PAIRS.some(([generationProtocol, editProtocol]) =>
-    uniqueProtocols.includes(generationProtocol) && uniqueProtocols.includes(editProtocol),
+  return uniqueProtocols.length === 2 && [...IMAGE_ROUTE_PROTOCOL_PAIRS, ...VIDEO_ROUTE_PROTOCOL_PAIRS].some(
+    ([primaryProtocol, secondaryProtocol]) =>
+      uniqueProtocols.includes(primaryProtocol) && uniqueProtocols.includes(secondaryProtocol),
   );
 }
 

@@ -2,6 +2,11 @@ package conversation
 
 import "time"
 
+const (
+	ConversationProjectMCPDefaultModeInherit = "inherit"
+	ConversationProjectMCPDefaultModeCustom  = "custom"
+)
+
 // Conversation 表示会话元信息。
 type Conversation struct {
 	ID                    uint
@@ -13,6 +18,7 @@ type Conversation struct {
 	PublicID              string
 	Title                 string
 	LabelsJSON            string
+	LabelsManuallyManaged bool
 	Model                 string
 	Provider              string
 	SessionKey            string
@@ -44,18 +50,22 @@ type ConversationSearchResult struct {
 
 // ConversationProject 表示用户会话项目分组。
 type ConversationProject struct {
-	ID           uint
-	UserID       uint
-	PublicID     string
-	Name         string
-	Description  string
-	SystemPrompt string
-	Color        string
-	Icon         string
-	SortOrder    int
-	Status       string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                      uint
+	UserID                  uint
+	PublicID                string
+	Name                    string
+	Description             string
+	SystemPrompt            string
+	MCPDefaultMode          string
+	DefaultMCPToolIDs       []uint
+	DefaultSkillIDs         []uint
+	DefaultKnowledgeBaseIDs []string
+	Color                   string
+	Icon                    string
+	SortOrder               int
+	Status                  string
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 // ProjectDocument 表示项目级资料库文档引用。
@@ -78,12 +88,16 @@ type ProjectDocument struct {
 
 // ConversationProjectPatch 表示项目分组的局部更新。
 type ConversationProjectPatch struct {
-	Name         *string
-	Description  *string
-	SystemPrompt *string
-	Color        *string
-	Icon         *string
-	Status       *string
+	Name                    *string
+	Description             *string
+	SystemPrompt            *string
+	MCPDefaultMode          *string
+	DefaultMCPToolIDs       *[]uint
+	DefaultSkillIDs         *[]uint
+	DefaultKnowledgeBaseIDs *[]string
+	Color                   *string
+	Icon                    *string
+	Status                  *string
 }
 
 // ConversationShare 表示会话公开分享快照。
@@ -117,6 +131,7 @@ type MessageTraceBlock struct {
 	Stage           string
 	RoundID         string
 	ParentEventID   string
+	StartedAt       time.Time
 	UpdatedAt       time.Time
 	PayloadJSON     string
 }
@@ -184,44 +199,55 @@ type MessagePromptTrace struct {
 	Blocks                 []MessagePromptTraceBlock
 }
 
+// MessageKnowledgeSource 表示消息生成时实际使用的知识来源。
+type MessageKnowledgeSource struct {
+	FileName   string
+	FileID     string
+	ChunkIndex int
+	Score      float32
+	Preview    string
+}
+
 // Message 表示会话消息。
 type Message struct {
-	ID               uint
-	ConversationID   uint
-	UserID           uint
-	PublicID         string
-	ParentMessageID  *uint
-	RunID            string
-	Role             string
-	ContentType      string
-	Content          string
-	BranchReason     string
-	MessageGroupID   string
-	SourceMessageID  *uint
-	TokenUsage       int64
-	InputTokens      int64
-	OutputTokens     int64
-	CacheReadTokens  int64
-	CacheWriteTokens int64
-	ReasoningTokens  int64
-	LatencyMS        int64
-	BilledCurrency   string
-	BilledNanousd    int64
-	PricingSnapshot  string
-	Status           string
-	ErrorCode        string
-	ErrorMessage     string
-	Attachments      string
-	ParentPublicID   string
-	SourcePublicID   string
-	MyFeedback       string
-	ThumbsUpCount    int64
-	ThumbsDownCount  int64
-	Bookmarked       bool
-	ProcessTrace     *MessageProcessTrace
-	EditedAt         *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                       uint
+	ConversationID           uint
+	UserID                   uint
+	PublicID                 string
+	ParentMessageID          *uint
+	RunID                    string
+	Role                     string
+	ContentType              string
+	Content                  string
+	ReasoningContent         string
+	BranchReason             string
+	SourceMessageID          *uint
+	TokenUsage               int64
+	InputTokens              int64
+	OutputTokens             int64
+	CacheReadTokens          int64
+	CacheWriteTokens         int64
+	ReasoningTokens          int64
+	LatencyMS                int64
+	BilledCurrency           string
+	BilledNanousd            int64
+	PricingSnapshot          string
+	Status                   string
+	ErrorCode                string
+	ErrorMessage             string
+	ModerationEventID        string
+	ModerationCategoriesJSON string
+	KnowledgeSources         []MessageKnowledgeSource
+	Attachments              string
+	ParentPublicID           string
+	SourcePublicID           string
+	MyFeedback               string
+	ThumbsUpCount            int64
+	ThumbsDownCount          int64
+	ProcessTrace             *MessageProcessTrace
+	EditedAt                 *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 // MessageBookmark 表示用户收藏的一条消息。
@@ -315,6 +341,7 @@ type FileObject struct {
 	RAGReady               bool
 	RAGReason              string
 	EmbedStatus            string
+	EmbedSignature         string
 	EmbedError             string
 	PageCount              int
 	ChunkCount             int
@@ -357,21 +384,23 @@ type FileObjectProcessing struct {
 
 // FileChunk 表示文件分片。
 type FileChunk struct {
-	ID         uint
-	FileObjID  uint
-	UserID     uint
-	ChunkIndex int
-	PageNum    int
-	CharOffset int
-	Content    string
-	TokenCount int
-	CreatedAt  time.Time
+	ID                 uint
+	FileObjID          uint
+	UserID             uint
+	ChunkIndex         int
+	PageNum            int
+	CharOffset         int
+	Content            string
+	TokenCount         int
+	EmbeddingSignature string
+	CreatedAt          time.Time
 }
 
 // FileChunkSearchResult 表示分片检索结果。
 type FileChunkSearchResult struct {
 	FileChunk
 	Similarity float32
+	RankScore  float32
 }
 
 // StorageQuota 表示用户文件配额。
@@ -387,39 +416,42 @@ type StorageQuota struct {
 
 // Run 表示对话运行日志。
 type Run struct {
-	ID                  uint
-	RunID               string
-	RequestID           string
-	UserID              uint
-	ConversationID      uint
-	TaskType            string
-	Endpoint            string
-	Provider            string
-	ProviderProtocol    string
-	UpstreamID          uint
-	UpstreamModelID     uint
-	UpstreamName        string
-	RequestedModelName  string
-	PlatformModelName   string
-	RoutedBindingCode   string
-	ModelVendor         string
-	ModelIcon           string
-	UpstreamModelName   string
-	InputTokens         int64
-	OutputTokens        int64
-	CacheReadTokens     int64
-	CacheWriteTokens    int64
-	ReasoningTokens     int64
-	ToolCallsCount      int
-	FirstTokenLatencyMS int64
-	TotalLatencyMS      int64
-	Status              string
-	ErrorCode           string
-	ErrorMessage        string
-	StartedAt           time.Time
-	EndedAt             *time.Time
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                       uint
+	RunID                    string
+	RequestID                string
+	UserID                   uint
+	ConversationID           uint
+	TaskType                 string
+	Endpoint                 string
+	Provider                 string
+	ProviderProtocol         string
+	UpstreamID               uint
+	UpstreamModelID          uint
+	UpstreamName             string
+	RequestedModelName       string
+	PlatformModelName        string
+	RoutedBindingCode        string
+	ModelVendor              string
+	ModelIcon                string
+	UpstreamModelName        string
+	InputTokens              int64
+	OutputTokens             int64
+	CacheReadTokens          int64
+	CacheWriteTokens         int64
+	ReasoningTokens          int64
+	ToolCallsCount           int
+	FirstTokenLatencyMS      int64
+	TotalLatencyMS           int64
+	Status                   string
+	ErrorCode                string
+	ErrorMessage             string
+	ModerationState          string
+	ModerationEventID        string
+	ModerationCategoriesJSON string
+	StartedAt                time.Time
+	EndedAt                  *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 // ModelAvailability 表示公开状态页可展示的模型可用性聚合。
@@ -523,34 +555,41 @@ type MessageTraceEventRow struct {
 
 // EventLog 表示后台日志中心展示的对话运行事件。
 type EventLog struct {
-	ID              uint
-	MessageID       uint
-	ConversationID  uint
-	UserID          uint
-	RunID           string
-	EventScope      string
-	EventID         string
-	EventType       string
-	Phase           string
-	Stage           string
-	RoundID         string
-	ParentEventID   string
-	Status          string
-	Title           string
-	Summary         string
-	ContentMarkdown string
-	PayloadJSON     string
-	Seq             int
-	ToolCallID      string
-	ToolName        string
-	LatencyMS       int64
-	InputJSON       string
-	OutputJSON      string
-	ErrorJSON       string
-	StartedAt       time.Time
-	EndedAt         *time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                uint
+	MessageID         uint
+	ConversationID    uint
+	UserID            uint
+	RunID             string
+	ProviderProtocol  string
+	UpstreamName      string
+	PlatformModelName string
+	RoutedBindingCode string
+	UpstreamModelName string
+	EventScope        string
+	EventID           string
+	EventType         string
+	Phase             string
+	Stage             string
+	RoundID           string
+	ParentEventID     string
+	Status            string
+	Title             string
+	Summary           string
+	ContentMarkdown   string
+	PayloadJSON       string
+	PayloadSizeBytes  int64
+	PayloadOmitted    bool
+	Seq               int
+	ToolCallID        string
+	ToolName          string
+	LatencyMS         int64
+	InputJSON         string
+	OutputJSON        string
+	ErrorJSON         string
+	StartedAt         time.Time
+	EndedAt           *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // ToolCall 表示工具调用记录。
@@ -604,16 +643,17 @@ type RAGChunk struct {
 
 // MessageChunk 表示消息向量分片，用于历史对话语义检索。
 type MessageChunk struct {
-	ID             uint
-	ConversationID uint
-	MessageID      uint
-	UserID         uint
-	Role           string
-	ChunkIndex     int
-	Content        string
-	TokenCount     int
-	Similarity     float64 // 检索时附加的相似度分数（写入时为 0）
-	CreatedAt      time.Time
+	ID                 uint
+	ConversationID     uint
+	MessageID          uint
+	UserID             uint
+	Role               string
+	ChunkIndex         int
+	Content            string
+	TokenCount         int
+	EmbeddingSignature string
+	Similarity         float64 // 检索时附加的相似度分数（写入时为 0）
+	CreatedAt          time.Time
 }
 
 // ArenaVote 表示用户对一组竞技场分支的偏好投票。

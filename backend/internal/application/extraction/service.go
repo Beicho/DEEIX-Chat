@@ -42,9 +42,12 @@ const (
 	OCREnginePaddle    = "paddle"
 	OCREngineTencent   = "tencent"
 	OCREngineAliyun    = "aliyun"
+	OCREngineMistral   = "mistral"
 	OCREngineLLM       = "llm"
 	defaultOCREngine   = OCREngineRapidOCR
 )
+
+const defaultMinerUFileTypes = "pdf,word,presentation"
 
 // Service 封装文件提取与文本产物读写能力。
 type Service struct {
@@ -268,7 +271,8 @@ func (s *Service) resolvePrimaryEngine() engine {
 		return nil
 	case EngineDocling:
 		return documentParserEngine{
-			name: EngineDocling,
+			name:     EngineDocling,
+			supports: supportsPDFDocumentParser,
 			extract: func(ctx context.Context, input ExtractInput) (string, error) {
 				client := doclingextract.New(doclingextract.ClientConfig{
 					BaseURL:        strings.TrimSpace(snapshot.ExtractDoclingBaseURL),
@@ -288,14 +292,16 @@ func (s *Service) resolvePrimaryEngine() engine {
 	case EngineMinerU:
 		return documentParserEngine{
 			name: EngineMinerU,
+			supports: func(file domainconversation.FileObject) bool {
+				return supportsMinerUFile(file, snapshot.ExtractMinerUSource, snapshot.ExtractMinerUFileTypes)
+			},
 			extract: func(ctx context.Context, input ExtractInput) (string, error) {
 				client := mineruextract.New(mineruextract.ClientConfig{
-					Source:                strings.TrimSpace(snapshot.ExtractMinerUSource),
-					BaseURL:               strings.TrimSpace(snapshot.ExtractMinerUBaseURL),
-					AuthToken:             snapshot.ExtractMinerUAuthToken,
-					TimeoutSeconds:        snapshot.ExtractMinerUTimeoutSeconds,
-					Env:                   snapshot.Env,
-					SSRFProtectionEnabled: snapshot.SSRFProtectionEnabled,
+					Source:         strings.TrimSpace(snapshot.ExtractMinerUSource),
+					BaseURL:        strings.TrimSpace(snapshot.ExtractMinerUBaseURL),
+					AuthToken:      snapshot.ExtractMinerUAuthToken,
+					TimeoutSeconds: snapshot.ExtractMinerUTimeoutSeconds,
+					OutboundPolicy: snapshot.StrictOutboundPolicy(),
 				})
 				if client == nil {
 					return "", fmt.Errorf("mineru_unavailable")
@@ -342,6 +348,93 @@ func NormalizeTikaSourceForRuntime(raw string) string {
 	return normalizeTikaSource(raw)
 }
 
+func supportsPDFDocumentParser(file domainconversation.FileObject) bool {
+	return file.FileCategory == "pdf"
+}
+
+func supportsMinerUFile(file domainconversation.FileObject, source string, selectedTypes string) bool {
+	selected := parseMinerUFileTypes(selectedTypes)
+	switch file.FileCategory {
+	case "pdf":
+		return selected["pdf"]
+	case "word":
+		if !selected["word"] {
+			return false
+		}
+		format := documentOfficeFormat(file)
+		return format == "docx" || (format == "doc" && normalizeMinerUSource(source) == mineruextract.SourceCloud)
+	case "presentation":
+		if !selected["presentation"] {
+			return false
+		}
+		format := documentOfficeFormat(file)
+		return format == "pptx" || (format == "ppt" && normalizeMinerUSource(source) == mineruextract.SourceCloud)
+	case "excel":
+		if !selected["excel"] {
+			return false
+		}
+		format := documentOfficeFormat(file)
+		return format == "xlsx" || (format == "xls" && normalizeMinerUSource(source) == mineruextract.SourceCloud)
+	default:
+		return false
+	}
+}
+
+func parseMinerUFileTypes(raw string) map[string]bool {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		value = defaultMinerUFileTypes
+	}
+	result := make(map[string]bool, 4)
+	for _, item := range strings.Split(value, ",") {
+		switch strings.ToLower(strings.TrimSpace(item)) {
+		case "pdf":
+			result["pdf"] = true
+		case "word":
+			result["word"] = true
+		case "presentation":
+			result["presentation"] = true
+		case "excel":
+			result["excel"] = true
+		}
+	}
+	return result
+}
+
+func normalizeMinerUSource(raw string) string {
+	if strings.EqualFold(strings.TrimSpace(raw), mineruextract.SourceSelfHosted) {
+		return mineruextract.SourceSelfHosted
+	}
+	return mineruextract.SourceCloud
+}
+
+func documentExtension(file domainconversation.FileObject) string {
+	return strings.ToLower(strings.TrimPrefix(filepath.Ext(strings.TrimSpace(file.FileName)), "."))
+}
+
+func documentOfficeFormat(file domainconversation.FileObject) string {
+	if ext := documentExtension(file); ext != "" {
+		return ext
+	}
+	mime := strings.ToLower(strings.TrimSpace(file.DetectedMIME))
+	switch {
+	case strings.Contains(mime, "wordprocessingml"):
+		return "docx"
+	case strings.Contains(mime, "msword"):
+		return "doc"
+	case strings.Contains(mime, "presentationml"):
+		return "pptx"
+	case strings.Contains(mime, "ms-powerpoint"):
+		return "ppt"
+	case strings.Contains(mime, "spreadsheetml"):
+		return "xlsx"
+	case strings.Contains(mime, "ms-excel"):
+		return "xls"
+	default:
+		return ""
+	}
+}
+
 func normalizeOCREngine(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case OCREngineTesseract:
@@ -352,6 +445,8 @@ func normalizeOCREngine(raw string) string {
 		return OCREngineTencent
 	case OCREngineAliyun:
 		return OCREngineAliyun
+	case OCREngineMistral:
+		return OCREngineMistral
 	case OCREngineLLM:
 		return OCREngineLLM
 	case OCREngineRapidOCR:
@@ -511,7 +606,7 @@ func (e tikaEngine) Supports(file domainconversation.FileObject) bool {
 		return false
 	}
 	switch file.FileCategory {
-	case "text", "word", "excel", "pdf":
+	case "text", "word", "presentation", "excel", "pdf":
 		return true
 	default:
 		return false
@@ -538,8 +633,9 @@ func (e tikaEngine) Extract(ctx context.Context, input ExtractInput) (Result, er
 }
 
 type documentParserEngine struct {
-	name    string
-	extract func(ctx context.Context, input ExtractInput) (string, error)
+	name     string
+	supports func(file domainconversation.FileObject) bool
+	extract  func(ctx context.Context, input ExtractInput) (string, error)
 }
 
 func (e documentParserEngine) Name() string {
@@ -547,7 +643,13 @@ func (e documentParserEngine) Name() string {
 }
 
 func (e documentParserEngine) Supports(file domainconversation.FileObject) bool {
-	return e.extract != nil && file.FileCategory == "pdf"
+	if e.extract == nil {
+		return false
+	}
+	if e.supports == nil {
+		return supportsPDFDocumentParser(file)
+	}
+	return e.supports(file)
 }
 
 func (e documentParserEngine) Extract(ctx context.Context, input ExtractInput) (Result, error) {
@@ -610,11 +712,9 @@ func resolveOCREngine(snapshot config.Config, mode string) ocrEngine {
 		return ocrEngine{
 			provider: mode,
 			client: ocr.NewTesseract(ocr.ClientConfig{
-				BaseURL:               strings.TrimSpace(snapshot.ExtractTesseractOCRBaseURL),
-				AuthToken:             snapshot.ExtractTesseractOCRAuthToken,
-				TimeoutSeconds:        snapshot.ExtractTesseractOCRTimeoutSeconds,
-				Env:                   snapshot.Env,
-				SSRFProtectionEnabled: snapshot.SSRFProtectionEnabled,
+				BaseURL:        strings.TrimSpace(snapshot.ExtractTesseractOCRBaseURL),
+				AuthToken:      snapshot.ExtractTesseractOCRAuthToken,
+				TimeoutSeconds: snapshot.ExtractTesseractOCRTimeoutSeconds,
 			}),
 		}
 	case OCREngineRapidOCR:
@@ -630,24 +730,32 @@ func resolveOCREngine(snapshot config.Config, mode string) ocrEngine {
 		return ocrEngine{
 			provider: mode,
 			client: ocr.NewPaddle(ocr.ClientConfig{
-				BaseURL:               strings.TrimSpace(snapshot.ExtractPaddleOCRBaseURL),
-				AuthToken:             snapshot.ExtractPaddleOCRAuthToken,
-				TimeoutSeconds:        snapshot.ExtractPaddleOCRTimeoutSeconds,
-				Env:                   snapshot.Env,
-				SSRFProtectionEnabled: snapshot.SSRFProtectionEnabled,
+				BaseURL:        strings.TrimSpace(snapshot.ExtractPaddleOCRBaseURL),
+				AuthToken:      snapshot.ExtractPaddleOCRAuthToken,
+				TimeoutSeconds: snapshot.ExtractPaddleOCRTimeoutSeconds,
+			}),
+		}
+	case OCREngineMistral:
+		return ocrEngine{
+			provider: mode,
+			client: ocr.NewMistral(ocr.ClientConfig{
+				BaseURL:        snapshot.ExtractMistralOCRBaseURL,
+				AuthToken:      snapshot.ExtractMistralOCRAuthToken,
+				Model:          snapshot.ExtractMistralOCRModel,
+				TimeoutSeconds: snapshot.ExtractMistralOCRTimeoutSeconds,
+				OutboundPolicy: snapshot.TrustedOutboundPolicy(),
 			}),
 		}
 	case OCREngineLLM:
 		return ocrEngine{
 			provider: mode,
 			client: ocr.NewLLM(ocr.ClientConfig{
-				BaseURL:               snapshot.ExtractLLMOCRBaseURL,
-				AuthToken:             snapshot.ExtractLLMOCRAuthToken,
-				Model:                 snapshot.ExtractLLMOCRModel,
-				TimeoutSeconds:        snapshot.ExtractLLMOCRTimeoutSeconds,
-				Prompt:                snapshot.ExtractLLMOCRPrompt,
-				Env:                   snapshot.Env,
-				SSRFProtectionEnabled: snapshot.SSRFProtectionEnabled,
+				BaseURL:        snapshot.ExtractLLMOCRBaseURL,
+				AuthToken:      snapshot.ExtractLLMOCRAuthToken,
+				Model:          snapshot.ExtractLLMOCRModel,
+				TimeoutSeconds: snapshot.ExtractLLMOCRTimeoutSeconds,
+				Prompt:         snapshot.ExtractLLMOCRPrompt,
+				OutboundPolicy: snapshot.TrustedOutboundPolicy(),
 			}),
 		}
 	default:
@@ -665,6 +773,8 @@ func ocrEngineName(engine string) string {
 		return "ocr_tencent"
 	case OCREngineAliyun:
 		return "ocr_aliyun"
+	case OCREngineMistral:
+		return "ocr_mistral"
 	case OCREngineLLM:
 		return "ocr_llm"
 	case OCREngineRapidOCR:
@@ -734,6 +844,15 @@ func (s *Service) extractPDFWithSelectiveOCR(
 
 	ocrResult, err := s.extractWithOCRPageRanges(ctx, input, pageCount, compactPageNumbersToRanges(candidatePages))
 	if err != nil {
+		// OCR 是原生 PDF 文本的增强路径，外部 OCR 限流、鉴权失败或渲染器异常时，
+		// 不应把已经提取到可用文本的整个文件标记为处理失败。
+		if strings.TrimSpace(nativeText) != "" {
+			return Result{
+				Text:      nativeText,
+				PageCount: pageCount,
+				Engine:    nativeEngineName,
+			}, nil
+		}
 		return ocrResult, err
 	}
 
@@ -745,6 +864,13 @@ func (s *Service) extractPDFWithSelectiveOCR(
 				PageCount: pageCount,
 				Engine:    ocrResult.Engine,
 				OCRUsed:   true,
+			}, nil
+		}
+		if strings.TrimSpace(nativeText) != "" {
+			return Result{
+				Text:      nativeText,
+				PageCount: pageCount,
+				Engine:    nativeEngineName,
 			}, nil
 		}
 		return Result{

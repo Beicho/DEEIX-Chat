@@ -4,9 +4,7 @@ import * as React from "react";
 import { useTranslations } from "next-intl";
 
 import type { RecentBulkConfirmAction, RecentDeleteTarget } from "@/features/recent/types/recent";
-import {
-  ConversationShareDialog,
-} from "@/features/chat/components/sections/chat-share-dialog";
+import { ConversationLabelsDialog, ConversationShareDialog } from "@/entities/conversation";
 import { DeleteFilesOption } from "@/shared/components/delete-files-option";
 import type { ConversationDTO, ConversationShareDTO } from "@/shared/api/conversation.types";
 import { Sparkles } from "@/components/animate-ui/icons/sparkles";
@@ -31,11 +29,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { useDialogSnapshot } from "@/shared/hooks/use-dialog-snapshot";
+import { parseConversationLabelsJSON } from "@/shared/lib/conversation-labels";
 
 type RecentDialogsProps = {
   renameTarget: ConversationDTO | null;
   renameValue: string;
   renamingAutomatically: boolean;
+  labelsTarget: ConversationDTO | null;
   deleteTarget: RecentDeleteTarget;
   deleteFiles: boolean;
   shareTarget: ConversationDTO | null;
@@ -46,6 +47,8 @@ type RecentDialogsProps = {
   onRenameCommit: () => void | Promise<void>;
   onAutoRename: () => void | Promise<void>;
   onCloseRenameDialog: () => void;
+  onUpdateLabels: (labels: string[]) => void | Promise<void>;
+  onCloseLabelsDialog: () => void;
   onDeleteFilesChange: (checked: boolean) => void;
   onConfirmDelete: () => void | Promise<void>;
   onCloseDeleteDialog: () => void;
@@ -60,6 +63,7 @@ export function RecentDialogs({
   renameTarget,
   renameValue,
   renamingAutomatically,
+  labelsTarget,
   deleteTarget,
   deleteFiles,
   shareTarget,
@@ -70,6 +74,8 @@ export function RecentDialogs({
   onRenameCommit,
   onAutoRename,
   onCloseRenameDialog,
+  onUpdateLabels,
+  onCloseLabelsDialog,
   onDeleteFilesChange,
   onConfirmDelete,
   onCloseDeleteDialog,
@@ -81,30 +87,39 @@ export function RecentDialogs({
 }: RecentDialogsProps) {
   const t = useTranslations("recent.dialogs");
   const deleteFilesID = React.useId();
+  const stableRenameValue = useDialogSnapshot(renameTarget ? renameValue : null) ?? "";
+  const stableLabelsTarget = useDialogSnapshot(labelsTarget);
+  const stableDeleteTarget = useDialogSnapshot(deleteTarget);
+  const stableShareTarget = useDialogSnapshot(shareTarget);
+  const bulkConfirmSnapshot = React.useMemo(
+    () => bulkConfirmAction ? { action: bulkConfirmAction, count: bulkConfirmCount } : null,
+    [bulkConfirmAction, bulkConfirmCount],
+  );
+  const stableBulkConfirm = useDialogSnapshot(bulkConfirmSnapshot);
   const bulkConfirmCopy = React.useMemo(() => {
-    switch (bulkConfirmAction) {
+    switch (stableBulkConfirm?.action) {
       case "archive":
         return {
           title: t("bulk.archive.title"),
-          description: t("bulk.archive.description", { count: bulkConfirmCount }),
+          description: t("bulk.archive.description", { count: stableBulkConfirm.count }),
           confirm: t("bulk.archive.confirm"),
         };
       case "unarchive":
         return {
           title: t("bulk.unarchive.title"),
-          description: t("bulk.unarchive.description", { count: bulkConfirmCount }),
+          description: t("bulk.unarchive.description", { count: stableBulkConfirm.count }),
           confirm: t("bulk.unarchive.confirm"),
         };
       case "revokeShares":
         return {
           title: t("bulk.revokeShares.title"),
-          description: t("bulk.revokeShares.description", { count: bulkConfirmCount }),
+          description: t("bulk.revokeShares.description", { count: stableBulkConfirm.count }),
           confirm: t("bulk.revokeShares.confirm"),
         };
       default:
         return { title: "", description: "", confirm: "" };
     }
-  }, [bulkConfirmAction, bulkConfirmCount, t]);
+  }, [stableBulkConfirm, t]);
 
   return (
     <>
@@ -124,7 +139,7 @@ export function RecentDialogs({
             <div className="relative">
               <Input
                 autoFocus
-                value={renameValue}
+                value={stableRenameValue}
                 className="pr-10"
                 onChange={(event) => onRenameValueChange(event.target.value)}
                 placeholder={t("renamePlaceholder")}
@@ -157,12 +172,21 @@ export function RecentDialogs({
         </DialogContent>
       </Dialog>
 
+      {stableLabelsTarget ? (
+        <ConversationLabelsDialog
+          open={Boolean(labelsTarget)}
+          labels={parseConversationLabelsJSON(stableLabelsTarget.labelsJSON)}
+          onOpenChange={(open) => !open && onCloseLabelsDialog()}
+          onSave={onUpdateLabels}
+        />
+      ) : null}
+
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && onCloseDeleteDialog()}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("deleteTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("deleteDescription", { label: deleteTarget?.label || t("thisConversation") })}
+              {t("deleteDescription", { label: stableDeleteTarget?.label || t("thisConversation") })}
             </AlertDialogDescription>
             <DeleteFilesOption
               id={deleteFilesID}
@@ -203,13 +227,12 @@ export function RecentDialogs({
         </AlertDialogContent>
       </AlertDialog>
 
-      {shareTarget ? (
+      {stableShareTarget ? (
         <ConversationShareDialog
           open={Boolean(shareTarget)}
           onOpenChange={(open) => !open && onCloseShareDialog()}
-          conversationPublicID={shareTarget.publicID}
-          conversationTitle={shareTarget.title || t("untitled")}
-          onExportImage={() => onExportImage(shareTarget)}
+          conversationPublicID={stableShareTarget.publicID}
+          conversationTitle={stableShareTarget.title || t("untitled")}
           onShareChange={onShareChange}
         />
       ) : null}

@@ -67,12 +67,22 @@ type Service struct {
 // UploadFileInput 定义文件上传请求。
 type UploadFileInput struct {
 	UserID       uint
+	Ownership    FileOwnership
 	Purpose      string
 	FileName     string
 	MimeType     string
 	DeclaredSize int64
 	Reader       io.Reader
 }
+
+// FileOwnership 定义文件所属的存储账户。
+// 用户文件计入上传者额度；平台文件使用保留的 owner ID 0 和独立的无限额平台账户。
+type FileOwnership string
+
+const (
+	FileOwnershipUser   FileOwnership = "user"
+	FileOwnershipSystem FileOwnership = "system"
+)
 
 // UploadFileResult 定义文件上传结果。
 type UploadFileResult struct {
@@ -224,9 +234,18 @@ func (s *Service) UploadFile(ctx context.Context, input UploadFileInput) (*Uploa
 	}
 
 	fileID := "file_" + conv.NormalizePublicID(uuid.NewString())
-	storageUserID := strings.TrimSpace(userItem.PublicID)
-	if storageUserID == "" {
-		storageUserID = fmt.Sprintf("uid_%d", userItem.ID)
+	ownerUserID := input.UserID
+	quotaBytes := cfg.UserStorageQuotaBytes
+	storageOwner := strings.TrimSpace(userItem.PublicID)
+	if input.Ownership == FileOwnershipSystem {
+		ownerUserID = 0
+		quotaBytes = 0
+		storageOwner = "system"
+	} else if input.Ownership != "" && input.Ownership != FileOwnershipUser {
+		return nil, s.errInvalidFileReference()
+	}
+	if storageOwner == "" {
+		storageOwner = fmt.Sprintf("uid_%d", userItem.ID)
 	}
 	store, err := s.openObjectStore(ctx)
 	if err != nil {
@@ -236,7 +255,7 @@ func (s *Service) UploadFile(ctx context.Context, input UploadFileInput) (*Uploa
 		ctx,
 		store,
 		input.Reader,
-		storageUserID,
+		storageOwner,
 		fileID,
 		normalizedName,
 		maxUploadBytes,
@@ -268,7 +287,7 @@ func (s *Service) UploadFile(ctx context.Context, input UploadFileInput) (*Uploa
 		return nil, s.errFileTooLarge()
 	}
 
-	if result, reused, reuseErr := s.tryReuseExistingFile(ctx, store, input.UserID, shaValue, sizeBytes, cfg.UserStorageQuotaBytes); reuseErr != nil {
+	if result, reused, reuseErr := s.tryReuseExistingFile(ctx, store, ownerUserID, shaValue, sizeBytes, quotaBytes); reuseErr != nil {
 		logRemoveErr(relativePath, store.Delete(ctx, relativePath))
 		return nil, reuseErr
 	} else if reused {
@@ -278,7 +297,7 @@ func (s *Service) UploadFile(ctx context.Context, input UploadFileInput) (*Uploa
 
 	fileItem := &domainconversation.FileObject{
 		FileID:           fileID,
-		UserID:           input.UserID,
+		UserID:           ownerUserID,
 		Purpose:          normalizePurpose(input.Purpose),
 		FileName:         normalizedName,
 		MimeType:         normalizedMIME,
@@ -289,23 +308,23 @@ func (s *Service) UploadFile(ctx context.Context, input UploadFileInput) (*Uploa
 		StoragePath:      relativePath,
 		Status:           "active",
 		ProcessingStatus: "uploaded",
-		ProcessingReady:  category == fileCategoryImage && !cfg.ExtractImageOCREnabled,
+		ProcessingReady:  category == fileCategoryVideo || (category == fileCategoryImage && !cfg.ExtractImageOCREnabled),
 		ExtractStatus:    "none",
 		EmbedStatus:      "none",
 		ExtractorVersion: s.resolveExtractorVersion(),
 		ExpiresAt:        nil,
 	}
 
-	quota, err := s.repo.CreateFileObjectAndConsumeQuota(ctx, fileItem, cfg.UserStorageQuotaBytes)
+	quota, err := s.repo.CreateFileObjectAndConsumeQuota(ctx, fileItem, quotaBytes)
 	if err != nil && errors.Is(err, repository.ErrDuplicate) {
-		if result, reused, reuseErr := s.tryReuseExistingFile(ctx, store, input.UserID, shaValue, sizeBytes, cfg.UserStorageQuotaBytes); reuseErr != nil {
+		if result, reused, reuseErr := s.tryReuseExistingFile(ctx, store, ownerUserID, shaValue, sizeBytes, quotaBytes); reuseErr != nil {
 			logRemoveErr(relativePath, store.Delete(ctx, relativePath))
 			return nil, reuseErr
 		} else if reused {
 			logRemoveErr(relativePath, store.Delete(ctx, relativePath))
 			return result, nil
 		}
-		quota, err = s.repo.CreateFileObjectAndConsumeQuota(ctx, fileItem, cfg.UserStorageQuotaBytes)
+		quota, err = s.repo.CreateFileObjectAndConsumeQuota(ctx, fileItem, quotaBytes)
 	}
 	if err != nil {
 		if errors.Is(err, repository.ErrDuplicate) {
@@ -325,7 +344,7 @@ func (s *Service) UploadFile(ctx context.Context, input UploadFileInput) (*Uploa
 				zap.Error(initErr),
 			)
 		}
-	} else if category != fileCategoryImage {
+	} else if fileCategoryRequiresProcessing(category) {
 		fileItem.ProcessingStatus = "queued"
 		fileItem.ProcessingReady = false
 		fileItem.ProcessingErrorCode = ""
@@ -449,7 +468,11 @@ func (s *Service) deleteFile(ctx context.Context, userID uint, fileID string, op
 	}
 
 	cfg := s.snapshot()
-	deletedFile, quota, shouldRemovePhysical, err := s.repo.DeleteFileObjectAndReleaseQuota(ctx, userID, normalizedFileID, cfg.UserStorageQuotaBytes, options)
+	quotaBytes := cfg.UserStorageQuotaBytes
+	if userID == 0 {
+		quotaBytes = 0
+	}
+	deletedFile, quota, shouldRemovePhysical, err := s.repo.DeleteFileObjectAndReleaseQuota(ctx, userID, normalizedFileID, quotaBytes, options)
 	if err != nil {
 		if options.RequireUnreferenced && errors.Is(err, repository.ErrConflict) {
 			return nil, false, nil
@@ -578,12 +601,14 @@ func (s *Service) OpenFileContent(ctx context.Context, userID uint, fileID strin
 }
 
 const (
-	fileCategoryImage   = "image"
-	fileCategoryPDF     = "pdf"
-	fileCategoryWord    = "word"
-	fileCategoryExcel   = "excel"
-	fileCategoryText    = "text"
-	fileCategoryUnknown = "unknown"
+	fileCategoryImage        = "image"
+	fileCategoryVideo        = "video"
+	fileCategoryPDF          = "pdf"
+	fileCategoryWord         = "word"
+	fileCategoryPresentation = "presentation"
+	fileCategoryExcel        = "excel"
+	fileCategoryText         = "text"
+	fileCategoryUnknown      = "unknown"
 )
 
 var dangerousMIMETypes = map[string]struct{}{
@@ -703,6 +728,10 @@ func normalizeDetectedMIME(detected string, fileName string) string {
 		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	case "doc":
 		return "application/msword"
+	case "pptx":
+		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	case "ppt":
+		return "application/vnd.ms-powerpoint"
 	case "xlsx":
 		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	case "xls":
@@ -717,6 +746,10 @@ func normalizeDetectedMIME(detected string, fileName string) string {
 		return "text/yaml"
 	case "toml":
 		return "application/toml"
+	case "mp4":
+		return "video/mp4"
+	case "webm":
+		return "video/webm"
 	}
 	if ext != "" && isTextMIMEForEmbed("", "sample."+ext) {
 		return "text/plain"
@@ -725,6 +758,8 @@ func normalizeDetectedMIME(detected string, fileName string) string {
 		switch ext {
 		case "docx":
 			return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+		case "pptx":
+			return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 		case "xlsx":
 			return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 		}
@@ -781,10 +816,14 @@ func inferFileCategory(mimeType string, fileName string) string {
 	switch {
 	case strings.HasPrefix(mimeType, "image/"):
 		return fileCategoryImage
+	case strings.HasPrefix(mimeType, "video/"):
+		return fileCategoryVideo
 	case mimeType == "application/pdf" || ext == "pdf":
 		return fileCategoryPDF
 	case strings.Contains(mimeType, "wordprocessingml") || strings.Contains(mimeType, "msword") || ext == "docx" || ext == "doc":
 		return fileCategoryWord
+	case strings.Contains(mimeType, "presentationml") || strings.Contains(mimeType, "ms-powerpoint") || ext == "pptx" || ext == "ppt":
+		return fileCategoryPresentation
 	case strings.Contains(mimeType, "spreadsheetml") || strings.Contains(mimeType, "ms-excel") || mimeType == "text/csv" || ext == "xlsx" || ext == "xls" || ext == "csv":
 		return fileCategoryExcel
 	case isTextMIMEForEmbed(mimeType, fileName):
@@ -830,12 +869,24 @@ func maxBytesForCategory(category string, cfg config.Config) int64 {
 	if category == fileCategoryImage {
 		return cfg.FileImageMaxBytes
 	}
+	if category == fileCategoryVideo {
+		return 0
+	}
 	return cfg.FileDocMaxBytes
+}
+
+func fileCategoryRequiresProcessing(category string) bool {
+	switch category {
+	case fileCategoryPDF, fileCategoryWord, fileCategoryPresentation, fileCategoryExcel, fileCategoryText:
+		return true
+	default:
+		return false
+	}
 }
 
 func supportsRAG(category string) bool {
 	switch category {
-	case fileCategoryPDF, fileCategoryWord, fileCategoryExcel, fileCategoryText:
+	case fileCategoryPDF, fileCategoryWord, fileCategoryPresentation, fileCategoryExcel, fileCategoryText, fileCategoryImage:
 		return true
 	default:
 		return false

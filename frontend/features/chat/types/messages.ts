@@ -7,7 +7,8 @@ export type MessageAttachment = {
   detectedMime?: string;
   fileCategory?: string;
   sizeBytes: number;
-  kind: "file" | "image" | "audio" | "video";
+  durationSeconds?: number;
+  kind: "file" | "image";
   previewURL?: string;
   processingStatus?: string;
   processingReady?: boolean;
@@ -45,6 +46,8 @@ export type ChatTraceBlock = {
   stage?: string;
   roundID?: string;
   parentEventID?: string;
+  startedAt?: string;
+  endedAt?: string;
   updatedAt?: string;
   payloadJson?: string;
 };
@@ -158,6 +161,7 @@ export type ChatAreaMessage = {
   reasoningTokens?: number;
   latencyMS?: number;
   billingCost?: ChatBillingCost;
+  knowledgeSources?: RAGCitation[];
   processTrace?: ChatMessageProcessTrace;
   inlineAlert?: ChatInlineAlert;
   compactDone?: { method: string; freed_tokens: number; summary_preview: string };

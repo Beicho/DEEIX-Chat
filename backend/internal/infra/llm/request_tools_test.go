@@ -547,25 +547,37 @@ func TestBuildGeminiToolsPreservesExplicitToolConfigWhenMixedTools(t *testing.T)
 	}
 }
 
-func TestBuildGeminiToolsSanitizesJSONSchemaForFunctionDeclarations(t *testing.T) {
+func TestBuildGeminiToolsPreservesJSONSchemaForFunctionDeclarations(t *testing.T) {
 	schema := json.RawMessage(`{
-		"$schema": "http://json-schema.org/draft-07/schema#",
+		"$schema": "https://json-schema.org/draft/2020-12/schema",
 		"additionalProperties": false,
 		"type": "object",
 		"properties": {
-			"query": {
-				"anyOf": [
-					{"type": "string", "default": ""},
-					{"type": "array", "items": {"type": "string", "additionalProperties": false}}
-				],
-				"description": "Search terms"
+			"headers": {
+				"type": "object",
+				"additionalProperties": {"type": "string"}
 			},
-			"num": {
-				"type": "number",
-				"default": 30
+			"actions": {
+				"type": "array",
+				"items": {"$ref": "#/properties/headers"}
+			},
+			"request": {"$ref": "#/$defs/request"},
+			"parser": {
+				"anyOf": [
+					{"$ref": "#/$defs/parser"},
+					{"type": "null"}
+				]
 			}
 		},
-		"required": ["query"]
+		"$defs": {
+			"request": {
+				"type": "object",
+				"properties": {"url": {"type": "string", "format": "uri"}},
+				"required": ["url"]
+			},
+			"parser": {"type": "object"}
+		},
+		"required": ["actions"]
 	}`)
 	payload := mustBuildGeminiRequestBody(t, GenerateInput{
 		Messages: []Message{{Role: "user", Content: "search"}},
@@ -578,26 +590,32 @@ func TestBuildGeminiToolsSanitizesJSONSchemaForFunctionDeclarations(t *testing.T
 
 	tools := payload["tools"].([]map[string]interface{})
 	declarations := tools[0]["functionDeclarations"].([]map[string]interface{})
-	parameters := declarations[0]["parameters"].(map[string]interface{})
-	if _, ok := parameters["$schema"]; ok {
-		t.Fatalf("expected $schema to be removed for Gemini, got %#v", parameters)
+	declaration := declarations[0]
+	if _, ok := declaration["parameters"]; ok {
+		t.Fatalf("expected Generate Content to use parametersJsonSchema, got %#v", declaration)
 	}
-	if _, ok := parameters["additionalProperties"]; ok {
-		t.Fatalf("expected additionalProperties to be removed for Gemini, got %#v", parameters)
+	parameters, ok := declaration["parametersJsonSchema"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected native JSON Schema parameters, got %#v", declaration)
+	}
+	if parameters["$schema"] != "https://json-schema.org/draft/2020-12/schema" || parameters["additionalProperties"] != false {
+		t.Fatalf("expected root JSON Schema fields to be preserved, got %#v", parameters)
+	}
+	definitions := asMap(parameters["$defs"])
+	if asMap(definitions["request"])["type"] != "object" || asMap(definitions["parser"])["type"] != "object" {
+		t.Fatalf("expected JSON Schema definitions to be preserved, got %#v", definitions)
 	}
 	properties := parameters["properties"].(map[string]interface{})
-	query := properties["query"].(map[string]interface{})
-	anyOf := query["anyOf"].([]interface{})
-	if _, ok := anyOf[0].(map[string]interface{})["default"]; ok {
-		t.Fatalf("expected nested default to be removed for Gemini, got %#v", anyOf[0])
+	actions := asMap(properties["actions"])
+	if asMap(actions["items"])["$ref"] != "#/properties/headers" {
+		t.Fatalf("expected array item reference to be preserved, got %#v", actions)
 	}
-	arraySchema := anyOf[1].(map[string]interface{})
-	items := arraySchema["items"].(map[string]interface{})
-	if _, ok := items["additionalProperties"]; ok {
-		t.Fatalf("expected nested additionalProperties to be removed for Gemini, got %#v", items)
+	if asMap(properties["request"])["$ref"] != "#/$defs/request" {
+		t.Fatalf("expected property reference to be preserved, got %#v", properties["request"])
 	}
-	if parameters["type"] != "object" || len(parameters["required"].([]interface{})) != 1 {
-		t.Fatalf("expected supported schema fields to remain, got %#v", parameters)
+	anyOf := asSlice(asMap(properties["parser"])["anyOf"])
+	if len(anyOf) != 2 || asMap(anyOf[0])["$ref"] != "#/$defs/parser" {
+		t.Fatalf("expected anyOf reference to be preserved, got %#v", anyOf)
 	}
 }
 
@@ -1280,6 +1298,110 @@ func TestParseResponsesCapturesOpenAINativeShellAndImageTools(t *testing.T) {
 	}
 	if len(result.Citations) != 1 || result.Citations[0] != "https://example.com/image.png" {
 		t.Fatalf("expected image URL citation to be collected, got %#v", result.Citations)
+	}
+}
+
+func TestParseResponsesCapturesGeneratedImageWithoutBase64Trace(t *testing.T) {
+	payload := mustDecodeObject(t, `{
+		"id": "resp_1",
+		"output": [
+			{
+				"type":"image_generation_call",
+				"id":"img_1",
+				"status":"completed",
+				"output_format":"png",
+				"revised_prompt":"A dog running",
+				"result":"ZmluYWw="
+			}
+		]
+	}`)
+
+	result := buildGenerateOutputFromParsed(EndpointResponses, payload)
+	if len(result.GeneratedImages) != 1 {
+		t.Fatalf("expected one generated image, got %#v", result.GeneratedImages)
+	}
+	image := result.GeneratedImages[0]
+	if image.B64JSON != "ZmluYWw=" || image.MIMEType != "image/png" || image.RevisedPrompt != "A dog running" {
+		t.Fatalf("unexpected generated image: %#v", image)
+	}
+	if len(result.ServerToolCalls) != 1 {
+		t.Fatalf("expected one image tool trace, got %#v", result.ServerToolCalls)
+	}
+	outputJSON := result.ServerToolCalls[0].OutputJSON
+	if strings.Contains(outputJSON, "ZmluYWw=") {
+		t.Fatalf("expected image base64 to be excluded from tool trace, got %q", outputJSON)
+	}
+	if !strings.Contains(outputJSON, `"image_generated":true`) {
+		t.Fatalf("expected generated image metadata in tool trace, got %q", outputJSON)
+	}
+}
+
+func TestResponsesStreamAcceptsLargePartialImageAndKeepsOnlyFinalImage(t *testing.T) {
+	partial := strings.Repeat("A", 2*1024*1024)
+	partialPayload, err := json.Marshal(map[string]interface{}{
+		"type":                "response.image_generation_call.partial_image",
+		"item_id":             "img_1",
+		"output_format":       "png",
+		"output_index":        0,
+		"partial_image_index": 3,
+		"partial_image_b64":   partial,
+	})
+	if err != nil {
+		t.Fatalf("marshal partial image event: %v", err)
+	}
+	completedPayload, err := json.Marshal(map[string]interface{}{
+		"type": "response.completed",
+		"response": map[string]interface{}{
+			"id": "resp_1",
+			"output": []interface{}{
+				map[string]interface{}{
+					"type":          "image_generation_call",
+					"id":            "img_1",
+					"status":        "completed",
+					"output_format": "png",
+					"result":        "ZmluYWw=",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal completed event: %v", err)
+	}
+	rawStream := strings.Join([]string{
+		"event: response.image_generation_call.partial_image",
+		"data: " + string(partialPayload),
+		"",
+		"event: response.completed",
+		"data: " + string(completedPayload),
+		"",
+	}, "\n")
+
+	result := &GenerateOutput{ToolCalls: make([]ToolCall, 0), ServerToolCalls: make([]ToolCall, 0)}
+	partialEvents := 0
+	err = consumeOpenAIGenerateStream(EndpointResponses, AdapterOpenAIResponses, strings.NewReader(rawStream), result, func(event GenerateStreamEvent) error {
+		if event.GeneratedImage == nil {
+			return nil
+		}
+		partialEvents++
+		if !event.GeneratedImagePartial || event.GeneratedImageIndex != 3 {
+			t.Fatalf("unexpected partial image event metadata: %#v", event)
+		}
+		if event.GeneratedImage.B64JSON != partial || event.GeneratedImage.MIMEType != "image/png" {
+			t.Fatalf("unexpected partial image event: %#v", event.GeneratedImage)
+		}
+		return nil
+	}, false)
+	if err != nil {
+		t.Fatalf("consume large image stream: %v", err)
+	}
+	if partialEvents != 1 {
+		t.Fatalf("expected one partial image event, got %d", partialEvents)
+	}
+	if len(result.GeneratedImages) != 1 || result.GeneratedImages[0].B64JSON != "ZmluYWw=" {
+		t.Fatalf("expected only the final image to be persisted, got %#v", result.GeneratedImages)
+	}
+	if len(result.ServerToolCalls) != 1 || strings.Contains(result.ServerToolCalls[0].OutputJSON, "ZmluYWw=") {
+		t.Fatalf("expected sanitized final image tool trace, got %#v", result.ServerToolCalls)
 	}
 }
 

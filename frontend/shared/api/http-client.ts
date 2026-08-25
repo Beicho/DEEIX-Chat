@@ -7,6 +7,7 @@ export type ApiRequestOptions = {
   accessToken?: string;
   body?: unknown;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
 };
 
 export class ApiError extends Error {
@@ -51,10 +52,15 @@ function normalizeApiErrorMessage(message: string, status: number): string {
   return normalized;
 }
 
-export function resolveApiBaseURL(): string {
+export function resolveConfiguredApiBaseURL(): string {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  return configured ? configured.replace(/\/+$/, "") : "";
+}
+
+export function resolveApiBaseURL(): string {
+  const configured = resolveConfiguredApiBaseURL();
   if (configured) {
-    return configured.replace(/\/+$/, "");
+    return configured;
   }
 
   if (typeof window === "undefined") {
@@ -103,6 +109,7 @@ function buildRequestInit(options: ApiRequestOptions): RequestInit {
     method: options.method ?? "GET",
     headers,
     body,
+    signal: options.signal,
     credentials: "include",
     cache: "no-store",
   };

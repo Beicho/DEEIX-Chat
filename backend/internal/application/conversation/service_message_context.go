@@ -15,10 +15,23 @@ import (
 	domainmemory "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/memory"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/objectstore"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/conv"
 )
 
-const MessageErrorCodeMediaImageStreamUnsupported = "media.image_stream_unsupported"
+const (
+	MessageErrorCodeMediaImageStreamUnsupported   = "media.image_stream_unsupported"
+	MessageErrorCodeKnowledgeBaseInvalidReference = "knowledge_base.invalid_reference"
+	MessageErrorCodeKnowledgeBaseUnavailable      = "knowledge_base.unavailable"
+	MessageErrorCodeKnowledgeBaseNotReady         = "knowledge_base.not_ready"
+	messageErrorCodeInternal                      = "internal.error"
+)
+
+const (
+	maxConversationImageContextCount = 10
+	maxConversationImageContextBytes = 20 * 1024 * 1024
+	maxConversationImageSourceBytes  = 50 * 1024 * 1024
+)
 
 func normalizePublicID(raw string) string {
 	return conv.NormalizePublicID(raw)
@@ -74,9 +87,24 @@ func estimateMessageTokens(message llm.Message) int64 {
 		for _, part := range message.Parts {
 			tokens += estimateContentPartTokens(part)
 		}
-		return tokens
+	} else {
+		tokens += estimateTokens(message.Content)
 	}
-	return tokens + estimateTokens(message.Content)
+	tokens += estimateTokens(message.ReasoningContent)
+	for _, call := range message.ToolCalls {
+		tokens += estimateTokens(call.ToolCallID)
+		tokens += estimateTokens(call.ToolName)
+		tokens += estimateTokens(call.ArgumentsJSON)
+		tokens += 8
+	}
+	for _, result := range message.ToolResults {
+		tokens += estimateTokens(result.ToolCallID)
+		tokens += estimateTokens(result.ToolName)
+		tokens += estimateTokens(result.OutputJSON)
+		tokens += estimateTokens(result.Error)
+		tokens += 8
+	}
+	return tokens
 }
 
 func estimatePromptTokens(messages []llm.Message) int64 {
@@ -116,11 +144,11 @@ func firstNonEmptyString(values ...string) string {
 
 func buildContextPolicyJSON(cfg config.Config) string {
 	policy := map[string]interface{}{
-		"max_turns":                     cfg.ContextMaxTurns,
-		"max_input_tokens":              cfg.ContextMaxInputTokens,
-		"compact_enabled":               cfg.ContextCompactEnabled,
-		"compact_trigger_tokens":        cfg.ContextCompactTrigger,
-		"compact_preserve_recent_turns": cfg.ContextCompactPreserve,
+		"max_turns":                      cfg.ContextMaxTurns,
+		"compact_enabled":                cfg.ContextCompactEnabled,
+		"context_window_fallback_tokens": cfg.ContextWindowFallbackTokens,
+		"compact_trigger_percent":        cfg.ContextCompactTriggerPercent,
+		"compact_preserve_recent_turns":  cfg.ContextCompactPreserve,
 	}
 	raw, err := json.Marshal(policy)
 	if err != nil {
@@ -159,6 +187,9 @@ func inferProvider(platformModelName string) string {
 }
 
 func classifyRunErrorCode(err error) string {
+	if errors.Is(err, ErrGeneratedMediaArtifactUnavailable) {
+		return MessageErrorCodeMediaArtifactUnavailable
+	}
 	var upstreamErr *llm.UpstreamError
 	if errors.As(err, &upstreamErr) && isImageStreamConfigurationFailure(upstreamErr) {
 		return MessageErrorCodeMediaImageStreamUnsupported
@@ -174,6 +205,12 @@ func classifyRunErrorCode(err error) string {
 		return "storage_quota_exceeded"
 	case errors.Is(err, ErrFileTooLarge):
 		return "file_too_large"
+	case errors.Is(err, ErrInvalidKnowledgeBaseReference):
+		return MessageErrorCodeKnowledgeBaseInvalidReference
+	case errors.Is(err, ErrKnowledgeBaseUnavailable):
+		return MessageErrorCodeKnowledgeBaseUnavailable
+	case errors.Is(err, ErrKnowledgeBaseNotReady):
+		return MessageErrorCodeKnowledgeBaseNotReady
 	case errors.Is(err, ErrModelRouteNotConfigured):
 		return "model_route_not_configured"
 	case errors.Is(err, ErrUpstreamEmptyResponse):
@@ -194,12 +231,18 @@ func classifyRunErrorCode(err error) string {
 		return "media_image_edit_too_many_inputs"
 	case errors.Is(err, ErrMediaImageEditInputInvalid):
 		return "media_image_edit_input_invalid"
+	case errors.Is(err, ErrMediaVideoPromptRequired):
+		return "media_video_prompt_required"
+	case errors.Is(err, ErrMediaVideoInputInvalid):
+		return "media_video_input_invalid"
+	case errors.Is(err, ErrMediaVideoTooManyInputs):
+		return "media_video_too_many_inputs"
 	case errors.Is(err, ErrMediaRouteProtocolMismatch):
 		return "media_route_protocol_mismatch"
 	case errors.Is(err, ErrUpstreamRequestFailed):
 		return "upstream_request_failed"
 	default:
-		return "internal_error"
+		return messageErrorCodeInternal
 	}
 }
 
@@ -253,13 +296,19 @@ func sanitizeUpstreamDebugSnapshot(debug *llm.UpstreamDebugSnapshot) *llm.Upstre
 	}
 	return &llm.UpstreamDebugSnapshot{
 		Request: llm.UpstreamDebugRequest{
-			Method: debug.Request.Method,
-			Path:   debug.Request.Path,
-			Body:   sanitizeUpstreamNameJSON(debug.Request.Body),
+			Method:        debug.Request.Method,
+			Path:          debug.Request.Path,
+			Body:          sanitizeUpstreamNameJSON(llm.SanitizeUpstreamDebugBody(debug.Request.Body)),
+			BodyBytes:     debug.Request.BodyBytes,
+			BodyTruncated: debug.Request.BodyTruncated,
+			RedactedParts: debug.Request.RedactedParts,
 		},
 		Response: llm.UpstreamDebugResponse{
-			StatusCode: debug.Response.StatusCode,
-			Body:       sanitizeUpstreamNameJSON(debug.Response.Body),
+			StatusCode:    debug.Response.StatusCode,
+			Body:          sanitizeUpstreamNameJSON(llm.SanitizeUpstreamDebugBody(debug.Response.Body)),
+			BodyBytes:     debug.Response.BodyBytes,
+			BodyTruncated: debug.Response.BodyTruncated,
+			RedactedParts: debug.Response.RedactedParts,
 		},
 	}
 }
@@ -457,6 +506,9 @@ func MessageErrorCode(err error) string {
 	if err == nil {
 		return ""
 	}
+	if errors.Is(err, ErrGeneratedMediaArtifactUnavailable) {
+		return MessageErrorCodeMediaArtifactUnavailable
+	}
 	var upstreamErr *llm.UpstreamError
 	if errors.As(err, &upstreamErr) && isImageStreamConfigurationFailure(upstreamErr) {
 		return MessageErrorCodeMediaImageStreamUnsupported
@@ -555,6 +607,20 @@ func shouldFallbackToNonStreaming(err error) bool {
 	}
 }
 
+type generationAttemptObservation struct {
+	emitted bool
+}
+
+func (o *generationAttemptObservation) markObservable() {
+	if o != nil {
+		o.emitted = true
+	}
+}
+
+func (o *generationAttemptObservation) canRetry(err error, classify func(error) bool) bool {
+	return o != nil && err != nil && !o.emitted && classify != nil && classify(err)
+}
+
 func isStreamUnsupportedError(err *llm.UpstreamError) bool {
 	detail := strings.ToLower(strings.TrimSpace(err.Message + " " + err.Body))
 	if detail == "" || !strings.Contains(detail, "stream") {
@@ -645,7 +711,9 @@ func isTextMIMEForEmbed(mimeType, fileName string) bool {
 
 type userContextInput struct {
 	Attachments         []AttachmentInput
+	ImageAnalyses       []imageAttachmentAnalysis
 	RAGChunks           []domainconversation.RAGChunk
+	RAGNotice           string
 	HistoricalArtifacts []domainconversation.ContextArtifact
 	CurrentArtifacts    []domainconversation.ContextArtifact
 	Snapshot            *snapshotContext
@@ -686,8 +754,7 @@ func buildStableFileContextXML(attachments []AttachmentInput) userContextXML {
 	}
 	items := make([]AttachmentInput, 0, len(attachments))
 	for _, att := range attachments {
-		kind := normalizeAttachmentKind(att.Kind, att.MimeType)
-		if kind == "image" || strings.TrimSpace(att.ExtractedText) == "" {
+		if !isStableTextAttachment(att) {
 			continue
 		}
 		items = append(items, att)
@@ -718,13 +785,175 @@ func stableAttachmentSortKey(att AttachmentInput) string {
 	return "3:"
 }
 
+type conversationImageRef struct {
+	messageIndex int
+	fileID       string
+}
+
+func conversationImageRefs(messages []domainconversation.Message, attachments []AttachmentInput, limit int) []conversationImageRef {
+	if len(messages) == 0 || limit <= 0 {
+		return nil
+	}
+	available := make(map[string]AttachmentInput, len(attachments))
+	current := make(map[string]struct{})
+	for _, att := range attachments {
+		fileID := strings.TrimSpace(att.FileID)
+		if fileID == "" {
+			continue
+		}
+		if att.Current {
+			current[fileID] = struct{}{}
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(att.ContextMode), fileContextModeDirectImage) &&
+			normalizeAttachmentKind(att.Kind, firstNonEmptyString(att.DetectedMIME, att.MimeType)) == "image" {
+			available[fileID] = att
+		}
+	}
+
+	refs := make([]conversationImageRef, 0)
+	historyIndex := 0
+	for _, message := range messages {
+		if message.Role != "user" && message.Role != "assistant" && message.Role != "system" {
+			continue
+		}
+		if message.Role == "user" {
+			for _, snapshot := range parseAttachmentSnapshotRefs(message.Attachments) {
+				fileID := strings.TrimSpace(snapshot.FileID)
+				if fileID == "" {
+					continue
+				}
+				if _, isCurrent := current[fileID]; isCurrent {
+					continue
+				}
+				_, isAvailable := available[fileID]
+				snapshotMIME := firstNonEmptyString(snapshot.DetectedMIME, snapshot.MimeType)
+				if !isAvailable && normalizeAttachmentKind(snapshot.Kind, snapshotMIME) != "image" {
+					continue
+				}
+				refs = append(refs, conversationImageRef{messageIndex: historyIndex, fileID: fileID})
+			}
+		}
+		historyIndex++
+	}
+	if len(refs) > limit {
+		refs = refs[len(refs)-limit:]
+	}
+	return refs
+}
+
+func (s *Service) injectConversationImageContext(
+	ctx context.Context,
+	messages []llm.Message,
+	domainMessages []domainconversation.Message,
+	attachments []AttachmentInput,
+	cfg config.Config,
+) ([]llm.Message, error) {
+	refs := conversationImageRefs(domainMessages, attachments, maxConversationImageContextCount)
+	if len(refs) == 0 {
+		return messages, nil
+	}
+
+	attachmentByFileID := make(map[string]AttachmentInput, len(attachments))
+	for _, att := range attachments {
+		attachmentByFileID[strings.TrimSpace(att.FileID)] = att
+	}
+	maxDim := cfg.ImageMaxDimension
+	if maxDim <= 0 {
+		maxDim = 1024
+	}
+	cache := s.imageContextCache
+	if cache == nil {
+		cache = defaultPreparedConversationImageCache()
+	}
+	storeProvider := s.storeProvider
+	if storeProvider == nil {
+		storeProvider = appstorage.NewRuntimeProvider(config.NewRuntime(cfg), nil)
+	}
+
+	var store objectstore.Store
+	partsByRef := make(map[int]llm.ContentPart, len(refs))
+	loadedByFileID := make(map[string]llm.ContentPart, len(refs))
+	totalBytes := 0
+	for index := len(refs) - 1; index >= 0; index-- {
+		ref := refs[index]
+		part, loaded := loadedByFileID[ref.fileID]
+		if !loaded {
+			att, ok := attachmentByFileID[ref.fileID]
+			if !ok || strings.TrimSpace(att.StoragePath) == "" {
+				return nil, fmt.Errorf("%w: historical image %s", ErrInvalidFileReference, ref.fileID)
+			}
+			mime := resolveImageMimeType(firstNonEmptyString(att.DetectedMIME, att.MimeType))
+			cacheKey := preparedConversationImageCacheKey(att, maxDim, mime)
+			if cached, ok := cache.get(cacheKey); ok {
+				part = llm.ContentPart{Kind: llm.ContentPartImage, MimeType: cached.mimeType, Data: cached.data}
+			} else {
+				if store == nil {
+					openedStore, openErr := storeProvider.Open(ctx)
+					if openErr != nil {
+						return nil, fmt.Errorf("%w: open object storage: %v", ErrFileNotFound, openErr)
+					}
+					store = openedStore
+				}
+				reader, _, openErr := store.Open(ctx, strings.TrimSpace(att.StoragePath))
+				if openErr != nil {
+					return nil, fmt.Errorf("%w: historical image %s: %v", ErrFileNotFound, ref.fileID, openErr)
+				}
+				data, readErr := io.ReadAll(io.LimitReader(reader, maxConversationImageSourceBytes+1))
+				closeErr := reader.Close()
+				if readErr != nil {
+					return nil, fmt.Errorf("%w: read historical image %s: %v", ErrFileNotFound, ref.fileID, readErr)
+				}
+				if closeErr != nil {
+					return nil, fmt.Errorf("%w: close historical image %s: %v", ErrFileNotFound, ref.fileID, closeErr)
+				}
+				if len(data) == 0 {
+					return nil, fmt.Errorf("%w: historical image %s is empty", ErrInvalidFileReference, ref.fileID)
+				}
+				if len(data) > maxConversationImageSourceBytes {
+					return nil, fmt.Errorf("%w: historical image %s exceeds source limit", ErrFileTooLarge, ref.fileID)
+				}
+				resized, actualMIME := resizeImageIfNeeded(data, mime, maxDim)
+				part = llm.ContentPart{Kind: llm.ContentPartImage, MimeType: actualMIME, Data: resized}
+				cache.put(cacheKey, preparedConversationImage{data: resized, mimeType: actualMIME})
+			}
+			loadedByFileID[ref.fileID] = part
+		}
+		if len(part.Data) == 0 {
+			return nil, fmt.Errorf("%w: historical image %s is empty", ErrInvalidFileReference, ref.fileID)
+		}
+		if totalBytes+len(part.Data) > maxConversationImageContextBytes {
+			return nil, fmt.Errorf("%w: historical image context exceeds %d bytes", ErrFileTooLarge, maxConversationImageContextBytes)
+		}
+		totalBytes += len(part.Data)
+		partsByRef[index] = part
+	}
+
+	result := cloneLLMMessages(messages)
+	for index, ref := range refs {
+		part := partsByRef[index]
+		if ref.messageIndex < 0 || ref.messageIndex >= len(result) {
+			return nil, fmt.Errorf("%w: historical image message index", ErrInvalidFileReference)
+		}
+		message := result[ref.messageIndex]
+		message.Parts = append([]llm.ContentPart(nil), message.Parts...)
+		if len(message.Parts) == 0 && strings.TrimSpace(message.Content) != "" {
+			message.Parts = append(message.Parts, llm.ContentPart{Kind: llm.ContentPartText, Text: message.Content})
+			message.Content = ""
+		}
+		message.Parts = append(message.Parts, part)
+		result[ref.messageIndex] = message
+	}
+	return result, nil
+}
+
 func imageAttachmentsForCurrentUser(attachments []AttachmentInput) []AttachmentInput {
 	if len(attachments) == 0 {
 		return nil
 	}
 	result := make([]AttachmentInput, 0)
 	for _, att := range attachments {
-		if normalizeAttachmentKind(att.Kind, att.MimeType) == "image" {
+		if att.Current && normalizeAttachmentKind(att.Kind, att.MimeType) == "image" {
 			result = append(result, att)
 		}
 	}
@@ -739,7 +968,9 @@ func injectUserContext(
 	storeProvider appstorage.Provider,
 ) []llm.Message {
 	if len(input.Attachments) == 0 &&
+		len(input.ImageAnalyses) == 0 &&
 		len(input.RAGChunks) == 0 &&
+		strings.TrimSpace(input.RAGNotice) == "" &&
 		len(input.HistoricalArtifacts) == 0 &&
 		input.Snapshot == nil &&
 		len(input.Memory) == 0 &&
@@ -765,7 +996,12 @@ func injectUserContext(
 	}
 
 	lastUserMsg := messages[lastUserIdx]
-	imageParts := make([]llm.ContentPart, 0, len(input.Attachments))
+	imageParts := make([]llm.ContentPart, 0, len(lastUserMsg.Parts)+len(input.Attachments))
+	for _, part := range lastUserMsg.Parts {
+		if part.Kind == llm.ContentPartImage && len(part.Data) > 0 {
+			imageParts = append(imageParts, part)
+		}
+	}
 	contextXML := buildUserContextXML(input)
 
 	for _, att := range input.Attachments {
@@ -793,10 +1029,10 @@ func injectUserContext(
 				continue
 			}
 			mime := resolveImageMimeType(att.MimeType)
-			resized := resizeImageIfNeeded(imgData, mime, maxDim)
+			resized, actualMIME := resizeImageIfNeeded(imgData, mime, maxDim)
 			imageParts = append(imageParts, llm.ContentPart{
 				Kind:     llm.ContentPartImage,
-				MimeType: mime,
+				MimeType: actualMIME,
 				Data:     resized,
 			})
 		}
@@ -806,7 +1042,7 @@ func injectUserContext(
 		return messages
 	}
 
-	content := strings.TrimSpace(lastUserMsg.Content)
+	content := strings.TrimSpace(userMessageText(lastUserMsg))
 	if !contextXML.empty() {
 		content = buildUserContextPrompt(content, contextXML)
 	}
@@ -833,6 +1069,23 @@ func injectUserContext(
 	return result
 }
 
+func userMessageText(message llm.Message) string {
+	if strings.TrimSpace(message.Content) != "" || len(message.Parts) == 0 {
+		return message.Content
+	}
+	var builder strings.Builder
+	for _, part := range message.Parts {
+		if part.Kind != llm.ContentPartText && part.Kind != llm.ContentPartFile {
+			continue
+		}
+		if builder.Len() > 0 {
+			builder.WriteString("\n")
+		}
+		builder.WriteString(part.Text)
+	}
+	return builder.String()
+}
+
 func formatAttachmentFileContext(fileName string, text string) string {
 	name := strings.TrimSpace(fileName)
 	if name == "" {
@@ -842,31 +1095,54 @@ func formatAttachmentFileContext(fileName string, text string) string {
 }
 
 type userContextXML struct {
-	summary  string
-	memory   []string
-	files    []string
-	evidence []string
-	rag      []string
-	recall   []string
+	summary   string
+	memory    []string
+	files     []string
+	images    []string
+	evidence  []string
+	rag       []string
+	ragNotice string
+	recall    []string
 }
 
 func (x userContextXML) empty() bool {
 	return strings.TrimSpace(x.summary) == "" &&
 		len(x.memory) == 0 &&
 		len(x.files) == 0 &&
+		len(x.images) == 0 &&
 		len(x.evidence) == 0 &&
 		len(x.rag) == 0 &&
+		strings.TrimSpace(x.ragNotice) == "" &&
 		len(x.recall) == 0
 }
 
 func buildUserContextXML(input userContextInput) userContextXML {
 	return userContextXML{
-		summary:  formatSnapshotContext(input.Snapshot),
-		memory:   formatMemoryContext(input.Memory),
-		evidence: formatHistoricalEvidenceContext(input.HistoricalArtifacts),
-		rag:      formatRAGFileContext(input.RAGChunks),
-		recall:   formatRecallContext(input.RecallChunks),
+		summary:   formatSnapshotContext(input.Snapshot),
+		memory:    formatMemoryContext(input.Memory),
+		images:    formatImageAnalysisContext(input.ImageAnalyses),
+		evidence:  formatHistoricalEvidenceContext(input.HistoricalArtifacts),
+		rag:       formatRAGFileContext(input.RAGChunks),
+		ragNotice: strings.TrimSpace(input.RAGNotice),
+		recall:    formatRecallContext(input.RecallChunks),
 	}
+}
+
+func formatImageAnalysisContext(analyses []imageAttachmentAnalysis) []string {
+	if len(analyses) == 0 {
+		return nil
+	}
+	items := make([]string, 0, len(analyses))
+	for _, analysis := range analyses {
+		content := strings.TrimSpace(analysis.Content)
+		if content == "" {
+			continue
+		}
+		name := firstNonEmptyString(analysis.FileName, analysis.FileID, "unknown")
+		toolName := firstNonEmptyString(analysis.ToolName, "MCP")
+		items = append(items, `<img name="`+xmlEscapeAttr(name)+`" via="`+xmlEscapeAttr(toolName)+`">`+xmlEscapeText(content)+`</img>`)
+	}
+	return items
 }
 
 func formatSnapshotContext(snapshot *snapshotContext) string {
@@ -988,6 +1264,11 @@ func buildUserContextPrompt(userRequest string, contextXML userContextXML) strin
 		builder.WriteString(strings.Join(contextXML.files, "\n"))
 		builder.WriteString("\n</files>")
 	}
+	if len(contextXML.images) > 0 {
+		builder.WriteString("\n<images>\n")
+		builder.WriteString(strings.Join(contextXML.images, "\n"))
+		builder.WriteString("\n</images>")
+	}
 	if len(contextXML.evidence) > 0 {
 		builder.WriteString("\n<evs>\n")
 		builder.WriteString(strings.Join(contextXML.evidence, "\n"))
@@ -997,6 +1278,11 @@ func buildUserContextPrompt(userRequest string, contextXML userContextXML) strin
 		builder.WriteString("\n<rag>\n")
 		builder.WriteString(strings.Join(contextXML.rag, "\n"))
 		builder.WriteString("\n</rag>")
+	}
+	if strings.TrimSpace(contextXML.ragNotice) != "" {
+		builder.WriteString("\n<rag_status>")
+		builder.WriteString(xmlEscapeText(contextXML.ragNotice))
+		builder.WriteString("</rag_status>")
 	}
 	if len(contextXML.recall) > 0 {
 		builder.WriteString("\n<recall>\n")
@@ -1107,11 +1393,11 @@ func (s *Service) selectRelevantUserMemories(ctx context.Context, userID uint, q
 	}
 	searchCtx, cancel := context.WithTimeout(ctx, semanticRecallDeadline)
 	defer cancel()
-	embeddings, err := s.embeddingSvc.EmbedTexts(searchCtx, []string{query})
+	embeddings, embeddingSignature, err := s.embeddingSvc.EmbedTextsWithSignature(searchCtx, []string{query})
 	if err != nil || len(embeddings) == 0 {
 		return fallback
 	}
-	matches, err := s.memoryRecorder.SearchUserMemoriesByEmbedding(searchCtx, userID, embeddings[0], topK, 0.7)
+	matches, err := s.memoryRecorder.SearchUserMemoriesByEmbedding(searchCtx, userID, embeddings[0], embeddingSignature, topK, 0.7)
 	if err != nil || len(matches) == 0 {
 		return fallback
 	}

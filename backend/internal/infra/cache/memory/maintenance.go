@@ -22,6 +22,16 @@ func (c *Cache) sweepExpiredLocked(now time.Time) {
 			delete(c.settings, key)
 		}
 	}
+	for key, item := range c.userSettings {
+		if now.After(item.expiresAt) {
+			delete(c.userSettings, key)
+		}
+	}
+	for key, item := range c.userSettingVersions {
+		if now.After(item.expiresAt) {
+			delete(c.userSettingVersions, key)
+		}
+	}
 	for key, item := range c.rag {
 		if now.After(item.expiresAt) {
 			delete(c.rag, key)
@@ -41,14 +51,14 @@ func (c *Cache) sweepExpiredLocked(now time.Time) {
 			delete(c.fixedHTTP, key)
 		}
 	}
-	for userID, item := range c.rateLimitOverrides {
+	for key, item := range c.providerAuthTransactions {
 		if now.After(item.expiresAt) {
-			delete(c.rateLimitOverrides, userID)
+			delete(c.providerAuthTransactions, key)
 		}
 	}
-	for key, item := range c.concurrencySlots {
+	for key, item := range c.providerAuthGrants {
 		if now.After(item.expiresAt) {
-			delete(c.concurrencySlots, key)
+			delete(c.providerAuthGrants, key)
 		}
 	}
 	cutoff := now.Add(-slidingWindowRetention)

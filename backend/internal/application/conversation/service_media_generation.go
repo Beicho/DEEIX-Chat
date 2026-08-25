@@ -8,21 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
-	"net/url"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
+	appcm "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/contentmoderation"
 	appupload "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/upload"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/traceid"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"golang.org/x/net/proxy"
@@ -203,19 +198,51 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		StartedAt:          startedAt,
 	}
 	var retErr error
+	var moderationCoord *appcm.RunCoordinator
+	var result *SendMessageResult
+	var userMessage *model.Message
+	var assistantMessage *model.Message
 	defer func() {
+		// On generation failure, still finish input-only moderation when active.
+		if retErr != nil && moderationCoord != nil {
+			if result == nil && userMessage != nil && assistantMessage != nil {
+				result = &SendMessageResult{
+					UserMessage:      *userMessage,
+					AssistantMessage: *assistantMessage,
+					Billable:         false,
+					StartedAt:        startedAt,
+				}
+			}
+			s.completeModerationAfterFailure(context.WithoutCancel(ctx), moderationCoord, result)
+		}
 		endedAt := time.Now()
 		run.EndedAt = &endedAt
 		run.TotalLatencyMS = endedAt.Sub(startedAt).Milliseconds()
-		if retErr == nil {
+		switch {
+		case result != nil && result.IsModerationBlocked():
+			applyBlockedRunFields(run, result)
+		case retErr == nil:
 			run.Status = "success"
-		} else {
+			if result != nil {
+				applyModerationRunState(run, result)
+			}
+		case errors.Is(retErr, ErrMessageGenerationCanceled):
+			run.Status = "canceled"
+			run.ErrorCode = classifyRunErrorCode(retErr)
+			run.ErrorMessage = truncateError(messageErrorSummary(retErr), 255)
+			if result != nil {
+				applyModerationRunState(run, result)
+			}
+		default:
 			run.Status = "error"
 			run.ErrorCode = classifyRunErrorCode(retErr)
 			run.ErrorMessage = truncateError(messageErrorSummary(retErr), 255)
+			if result != nil {
+				applyModerationRunState(run, result)
+			}
 		}
-		if err := s.repo.CreateConversationRun(context.WithoutCancel(ctx), run); err != nil && s.logger != nil {
-			s.logger.Error("create_media_conversation_run_failed",
+		if err := s.repo.UpsertConversationRun(context.WithoutCancel(ctx), run); err != nil && s.logger != nil {
+			s.logger.Error("upsert_media_conversation_run_failed",
 				zap.String("trace_id", traceid.FromContext(ctx)),
 				zap.String("run_id", run.RunID),
 				zap.Error(err),
@@ -225,9 +252,9 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 	attachmentsJSON := marshalAttachmentSnapshots(resolvedAttachments)
 	cancelCtx, cancel := context.WithCancel(ctx)
 	ctx = cancelCtx
-	s.generationStreams.register(ctx, runID, input.UserID, cancel)
+	s.generationStreams.register(ctx, runID, input.UserID, conversation.PublicID, cancel)
 
-	assistantMessage := &model.Message{
+	assistantMessage = &model.Message{
 		ConversationID: input.ConversationID,
 		UserID:         input.UserID,
 		PublicID:       normalizePublicID(uuid.NewString()),
@@ -239,7 +266,6 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		Status:         "pending",
 		Attachments:    "[]",
 	}
-	var userMessage *model.Message
 	if reuseUserMessage {
 		reused := *branchState.ReuseUserMessage
 		userMessage = &reused
@@ -297,15 +323,32 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		userMessage.ParentPublicID = branchState.ParentPublicID
 		userMessage.SourcePublicID = branchState.SourcePublicID
 		assistantMessage.ParentPublicID = userMessage.PublicID
-		s.maybeGenerateConversationMetadataAsync(*conversation, *userMessage)
 	}
 	traceRecorder := newMessageTraceRecorder(s, ctx, assistantMessage, input.OnEvent)
 	defer func() {
-		if retErr != nil && traceRecorder != nil {
+		if retErr != nil && (result == nil || !result.IsModerationBlocked()) && traceRecorder != nil {
 			traceRecorder.fail(retErr)
 			traceRecorder.attachToMessage(assistantMessage)
 		}
 	}()
+	// Prefer explicit FileIDs; fall back to resolved edit attachments.
+	moderationFileIDs := append([]string{}, input.FileIDs...)
+	if len(moderationFileIDs) == 0 {
+		for _, item := range resolvedAttachments {
+			if id := strings.TrimSpace(item.FileID); id != "" {
+				moderationFileIDs = append(moderationFileIDs, id)
+			}
+		}
+	}
+	moderationCoord = s.startModerationRun(ctx, SendMessageInput{
+		UserID:         input.UserID,
+		ConversationID: input.ConversationID,
+		RequestID:      input.RequestID,
+		Content:        strings.TrimSpace(input.Prompt),
+		FileIDs:        moderationFileIDs,
+		ClientRunID:    runID,
+		OnEvent:        input.OnEvent,
+	}, runID, userMessage, assistantMessage, run)
 	emitMediaEvent(input.OnEvent, "queued", "image task queued")
 
 	cfg := s.cfg.Snapshot()
@@ -329,6 +372,25 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		DeniedPathsJSON:       cfg.ModelOptionDeniedPaths,
 		ModelCapabilitiesJSON: route.ModelCapabilitiesJSON,
 	})
+	if llm.NormalizeAdapter(route.Protocol) == llm.AdapterGeminiInteractions {
+		filteredOptions = withGeminiInteractionResponseType(filteredOptions, "image")
+		routeConfig.Endpoint = llm.EndpointInteractions
+		run.Endpoint = llm.EndpointInteractions
+	}
+	buildBillableFailure := func(failure error, usage llm.Usage) *SendMessageResult {
+		result := buildFailedMediaBillingResult(failedMediaBillingResultInput{
+			UserMessage:      userMessage,
+			AssistantMessage: assistantMessage,
+			Route:            *route,
+			EffectiveOptions: filteredOptions,
+			Usage:            usage,
+			StartedAt:        startedAt,
+			Failure:          failure,
+			Billable:         true,
+		})
+		applyMediaRunUsage(run, result)
+		return result
+	}
 
 	emitMediaEvent(input.OnEvent, "running", mediaImageRunningMessage(input.TaskType))
 	generateInput := llm.GenerateInput{
@@ -376,29 +438,52 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		output, err = s.llmClient.Generate(ctx, routeConfig, generateInput)
 	}
 	if err != nil {
+		if s.isCanceledMediaGeneration(ctx, runID, err) {
+			retErr = ErrMessageGenerationCanceled
+			result, cancelErr := s.completeCanceledMediaGeneration(canceledMediaGenerationInput{
+				Context:          ctx,
+				Conversation:     conversation,
+				UserMessage:      userMessage,
+				AssistantMessage: assistantMessage,
+				ReuseUserMessage: reuseUserMessage,
+				Route:            *route,
+				EffectiveOptions: filteredOptions,
+				GenerateInput:    generateInput,
+				StartedAt:        startedAt,
+				Billable:         true,
+			})
+			if cancelErr != nil {
+				retErr = cancelErr
+				return nil, cancelErr
+			}
+			applyMediaRunUsage(run, result)
+			return result, nil
+		}
 		s.routeResolver.MarkRouteFailure(ctx, route, err)
 		retErr = wrapUpstreamRequestError(err)
 		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
 		return nil, retErr
 	}
 	s.routeResolver.MarkRouteSuccess(ctx, route)
-	if output == nil || len(output.GeneratedImages) == 0 {
+	if output == nil || (len(output.GeneratedImages) == 0 && strings.TrimSpace(output.Text) == "") {
 		retErr = ErrUpstreamEmptyResponse
 		_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
-		return nil, retErr
+		return buildBillableFailure(retErr, mediaOutputUsage(output)), retErr
 	}
 
-	emitMediaEvent(input.OnEvent, "saving_artifact", "saving image")
+	hasGeneratedImages := len(output.GeneratedImages) > 0
+	if hasGeneratedImages {
+		emitMediaEvent(input.OnEvent, "saving_artifact", "saving image")
+	}
 	uploaded := make([]model.FileObject, 0, len(output.GeneratedImages))
 	attachmentRows := make([]model.Attachment, 0, len(output.GeneratedImages))
+	generatedBytesByFileID := make(map[string][]byte, len(output.GeneratedImages))
 	now := time.Now()
 	for i, image := range output.GeneratedImages {
-		image.URL = buildRouteMediaProxyURL(route.BaseURL, image.URL)
-		data, mimeType, readErr := s.readGeneratedImage(ctx, image)
+		data, mimeType, readErr := s.readGeneratedImage(ctx, image, route.BaseURL)
 		if readErr != nil {
-			retErr = readErr
-			_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
-			return nil, readErr
+			retErr = s.finalizeGeneratedMediaArtifactFailure(ctx, run, assistantMessage.ID, i+1, len(output.GeneratedImages), readErr)
+			return buildBillableFailure(retErr, output.Usage), retErr
 		}
 		fileName := generatedImageFileName(route.PlatformModelName, now, i, len(output.GeneratedImages), mimeType)
 		uploadResult, uploadErr := s.UploadFile(ctx, appupload.UploadFileInput{
@@ -412,10 +497,11 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		if uploadErr != nil {
 			retErr = uploadErr
 			_ = s.repo.UpdateMessageState(ctx, assistantMessage.ID, "error", classifyRunErrorCode(retErr), truncateError(messageErrorSummary(retErr), 255))
-			return nil, uploadErr
+			return buildBillableFailure(uploadErr, output.Usage), uploadErr
 		}
 		file := uploadResult.File
 		uploaded = append(uploaded, file)
+		generatedBytesByFileID[file.FileID] = data
 		attachmentRows = append(attachmentRows, model.Attachment{
 			ConversationID: input.ConversationID,
 			MessageID:      assistantMessage.ID,
@@ -443,14 +529,19 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		userMessage.TokenUsage = usage.InputTokens + usage.CacheReadTokens + usage.CacheWriteTokens
 	}
 
+	contentType := "image"
 	content := generatedImageMarkdown(uploaded)
+	if !hasGeneratedImages {
+		contentType = "text"
+		content = strings.TrimSpace(output.Text)
+	}
 	latencyMS := time.Since(startedAt).Milliseconds()
 	// 上游与文件上传已完成后，数据库侧的附件、用量和完成态仍需保持原子一致。
 	if reuseUserMessage {
 		if err = s.repo.CompleteAssistantMessageWithGeneratedAttachments(ctx,
 			assistantMessage.ID,
 			repository.AssistantMessageCompletionUpdate{
-				ContentType:      "image",
+				ContentType:      contentType,
 				Content:          content,
 				InputTokens:      usage.InputTokens,
 				OutputTokens:     usage.OutputTokens,
@@ -463,7 +554,7 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 			attachmentRows,
 		); err != nil {
 			retErr = err
-			return nil, err
+			return buildBillableFailure(err, output.Usage), err
 		}
 	} else {
 		if err = s.repo.CompleteAssistantMessageWithAttachments(ctx,
@@ -475,7 +566,7 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 			},
 			assistantMessage.ID,
 			repository.AssistantMessageCompletionUpdate{
-				ContentType:     "image",
+				ContentType:     contentType,
 				Content:         content,
 				OutputTokens:    usage.OutputTokens,
 				ReasoningTokens: usage.ReasoningTokens,
@@ -485,10 +576,11 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 			attachmentRows,
 		); err != nil {
 			retErr = err
-			return nil, err
+			return buildBillableFailure(err, output.Usage), err
 		}
 	}
 	assistantMessage.Content = content
+	assistantMessage.ContentType = contentType
 	assistantMessage.OutputTokens = usage.OutputTokens
 	assistantMessage.ReasoningTokens = usage.ReasoningTokens
 	assistantMessage.TokenUsage = assistantMessage.OutputTokens + assistantMessage.ReasoningTokens
@@ -504,10 +596,11 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 	run.CacheWriteTokens = usage.CacheWriteTokens
 	run.ReasoningTokens = usage.ReasoningTokens
 
-	return &SendMessageResult{
+	result = &SendMessageResult{
 		UserMessage:         *userMessage,
 		AssistantMessage:    *assistantMessage,
-		MetadataRefreshHint: conversationMetadataRefreshHint(*conversation, *userMessage),
+		MetadataRefreshHint: s.resolveConversationMetadataRefreshHint(ctx, *conversation, *userMessage),
+		Billable:            true,
 		UpstreamID:          route.UpstreamID,
 		UpstreamName:        route.UpstreamName,
 		PlatformModelName:   route.PlatformModelName,
@@ -522,7 +615,31 @@ func (s *Service) StreamMediaImage(ctx context.Context, input MediaImageInput) (
 		CacheWrite1hTokens:  usage.CacheWrite1hTokens,
 		LatencyMS:           latencyMS,
 		StartedAt:           startedAt,
-	}, nil
+	}
+	if moderationCoord != nil {
+		outputImages := loadOutputImagesFromFiles(moderationCoord, uploaded, generatedBytesByFileID)
+		s.completeModerationAfterSuccess(
+			ctx,
+			moderationCoord,
+			result,
+			moderationOutputText(output.Text, traceRecorder.upstreamThinkContent()),
+			outputImages,
+			SendMessageInput{
+				UserID:         input.UserID,
+				ConversationID: input.ConversationID,
+			},
+			reuseUserMessage,
+		)
+	}
+	return result, nil
+}
+
+// mediaOutputUsage 安全提取允许为空的媒体响应 usage。
+func mediaOutputUsage(output *llm.GenerateOutput) llm.Usage {
+	if output == nil {
+		return llm.Usage{}
+	}
+	return output.Usage
 }
 
 func mediaImageUserContentType(taskType MediaImageTaskType) string {
@@ -641,14 +758,18 @@ func (s *Service) readMediaImageEditFile(ctx context.Context, userID uint, fileI
 }
 
 // emitMediaEvent 输出媒体任务状态事件；失败不影响主流程。
-func emitMediaEvent(onEvent func(string, map[string]interface{}) error, status string, message string) {
+func emitMediaEvent(onEvent func(string, map[string]interface{}) error, status string, message string, contentType ...string) {
 	if onEvent == nil {
 		return
 	}
-	_ = onEvent("media_status", map[string]interface{}{
+	payload := map[string]interface{}{
 		"status":  status,
 		"message": message,
-	})
+	}
+	if len(contentType) > 0 && strings.TrimSpace(contentType[0]) != "" {
+		payload["content_type"] = strings.TrimSpace(contentType[0])
+	}
+	_ = onEvent("media_status", payload)
 }
 
 func emitMediaImageDelta(onEvent func(string, map[string]interface{}) error, event llm.GenerateStreamEvent) error {
@@ -671,6 +792,22 @@ func mediaImageStreamEnabled(protocol string, upstreamModel string, capabilities
 	return llm.SupportsImageGenerationStream(protocol, upstreamModel) && !mediaImageStreamExplicitlyDisabled(capabilitiesJSON)
 }
 
+func withGeminiInteractionResponseType(options map[string]interface{}, responseType string) map[string]interface{} {
+	next := make(map[string]interface{}, len(options)+1)
+	for key, value := range options {
+		next[key] = value
+	}
+	format := map[string]interface{}{}
+	if raw, ok := next["response_format"].(map[string]interface{}); ok {
+		for key, value := range raw {
+			format[key] = value
+		}
+	}
+	format["type"] = strings.TrimSpace(responseType)
+	next["response_format"] = format
+	return next
+}
+
 func mediaImageStreamExplicitlyDisabled(capabilitiesJSON string) bool {
 	raw := strings.TrimSpace(capabilitiesJSON)
 	if raw == "" {
@@ -685,7 +822,7 @@ func mediaImageStreamExplicitlyDisabled(capabilitiesJSON string) bool {
 
 // readGeneratedImage 读取上游图片结果，并统一校验为可保存的图片字节。
 // 上游临时 URL 只用于服务端下载，最终不会直接写入消息内容，避免长期依赖外部地址。
-func (s *Service) readGeneratedImage(ctx context.Context, image llm.GeneratedImage) ([]byte, string, error) {
+func (s *Service) readGeneratedImage(ctx context.Context, image llm.GeneratedImage, trustedProviderEndpoint string) ([]byte, string, error) {
 	mimeType := strings.TrimSpace(image.MIMEType)
 	if mimeType == "" {
 		mimeType = "image/png"
@@ -693,43 +830,41 @@ func (s *Service) readGeneratedImage(ctx context.Context, image llm.GeneratedIma
 	if b64 := strings.TrimSpace(image.B64JSON); b64 != "" {
 		data, err := base64.StdEncoding.DecodeString(stripBase64DataURLPrefix(b64))
 		if err != nil {
-			return nil, mimeType, err
+			return nil, mimeType, newGeneratedMediaArtifactError("image", "decode", err)
 		}
-		return validateGeneratedImageBytes(data, mimeType)
+		validated, detectedMIME, validationErr := validateGeneratedImageBytes(data, mimeType)
+		if validationErr != nil {
+			return nil, mimeType, newGeneratedMediaArtifactError("image", "validation", validationErr)
+		}
+		return validated, detectedMIME, nil
 	}
 	url := strings.TrimSpace(image.URL)
 	if url == "" {
 		return nil, mimeType, ErrUpstreamEmptyResponse
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, mimeType, err
+	if s.mediaDownloader == nil {
+		return nil, mimeType, newGeneratedMediaArtifactError("image", "configuration", fmt.Errorf("generated media downloader is not configured"))
 	}
 	cfg := s.cfg.Snapshot()
-	client := security.NewOutboundHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 60*time.Second)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, mimeType, err
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, mimeType, fmt.Errorf("download generated image failed: HTTP %d", resp.StatusCode)
-	}
-	if contentType := strings.TrimSpace(resp.Header.Get("Content-Type")); strings.HasPrefix(strings.ToLower(contentType), "image/") {
-		mimeType = strings.Split(contentType, ";")[0]
-	}
-	limit := s.cfg.Snapshot().MaxUploadFileBytes
+	limit := cfg.MaxUploadFileBytes
 	if limit <= 0 {
 		limit = 20 * 1024 * 1024
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	data, downloadedMIME, err := s.mediaDownloader.DownloadImage(ctx, url, trustedProviderEndpoint, limit)
 	if err != nil {
-		return nil, mimeType, err
+		if isMediaArtifactResponseTooLarge(err) {
+			return nil, mimeType, ErrFileTooLarge
+		}
+		return nil, mimeType, newGeneratedMediaArtifactError("image", "download", err)
 	}
-	if int64(len(data)) > limit {
-		return nil, mimeType, ErrFileTooLarge
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(downloadedMIME)), "image/") {
+		mimeType = strings.TrimSpace(downloadedMIME)
 	}
-	return validateGeneratedImageBytes(data, mimeType)
+	validated, detectedMIME, validationErr := validateGeneratedImageBytes(data, mimeType)
+	if validationErr != nil {
+		return nil, mimeType, newGeneratedMediaArtifactError("image", "validation", validationErr)
+	}
+	return validated, detectedMIME, nil
 }
 
 // stripBase64DataURLPrefix 兼容 data URL 和纯 base64 两种上游返回格式。
@@ -1071,7 +1206,7 @@ func (s *Service) StreamMediaVideo(ctx context.Context, input MediaVideoInput) (
 
 	emitMediaEvent(input.OnEvent, "running", "generating video")
 	cfg := s.cfg.Snapshot()
-	httpClient := newVideoGenerationHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
+	httpClient := newVideoGenerationHTTPClient(cfg.SSRFProtectionEnabled, 300*time.Second)
 	videoBaseURL := videoGenerationBaseURL(route)
 
 	createResult, createPath, err := createVideoGenerationTask(ctx, httpClient, route, videoBaseURL, input, videoInputImages)
@@ -1884,7 +2019,7 @@ func (s *Service) downloadGeneratedVideo(ctx context.Context, url string) ([]byt
 		return nil, "", ErrUpstreamEmptyResponse
 	}
 	cfg := s.cfg.Snapshot()
-	client := newVideoGenerationHTTPClient(cfg.Env, cfg.SSRFProtectionEnabled, 300*time.Second)
+	client := newVideoGenerationHTTPClient(cfg.SSRFProtectionEnabled, 300*time.Second)
 	limit := s.cfg.Snapshot().MaxUploadFileBytes * 10 // 视频文件可能较大
 	if limit <= 0 {
 		limit = 200 * 1024 * 1024
@@ -1922,8 +2057,8 @@ func (s *Service) downloadGeneratedVideo(ctx context.Context, url string) ([]byt
 	return nil, lastMimeType, lastErr
 }
 
-func newVideoGenerationHTTPClient(env string, ssrfProtectionEnabled bool, timeout time.Duration) *http.Client {
-	transport := security.NewOutboundHTTPTransport(env, ssrfProtectionEnabled, 30*time.Second)
+func newVideoGenerationHTTPClient(ssrfProtectionEnabled bool, timeout time.Duration) *http.Client {
+	transport := security.NewOutboundHTTPTransport(security.NewStrictOutboundPolicy(ssrfProtectionEnabled), 30*time.Second)
 	if proxyURL := videoGenerationSocks5ProxyURL(); proxyURL != "" {
 		if dialContext, err := socks5DialContext(proxyURL); err == nil {
 			transport.Proxy = nil

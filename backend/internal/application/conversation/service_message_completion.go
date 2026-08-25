@@ -20,6 +20,8 @@ type persistMessageGenerationInput struct {
 	UserMessage               *model.Message
 	AssistantMessage          *model.Message
 	AssistantText             string
+	AssistantReasoningContent string
+	GeneratedImages           []llm.GeneratedImage
 	InputTokens               int64
 	CacheReadTokens           int64
 	CacheWriteTokens          int64
@@ -30,27 +32,32 @@ type persistMessageGenerationInput struct {
 	StatefulPromptFingerprint string
 	ToolCallRows              []model.ToolCall
 	PersistedToolCallKeys     map[string]struct{}
+	Route                     *channel.ResolvedRoute
 	ReuseUserMessage          bool
+	// SkipEmbed defers message embedding until the moderation barrier passes.
+	SkipEmbed bool
 }
 
 type persistInterruptedMessageGenerationInput struct {
-	SendInput             SendMessageInput
-	UserMessage           *model.Message
-	AssistantMessage      *model.Message
-	AssistantText         string
-	EstimatedInputTokens  int64
-	UpstreamCallStarted   bool
-	Usage                 llm.Usage
-	AssistantLatency      int64
-	Error                 error
-	ToolCallRows          []model.ToolCall
-	PersistedToolCallKeys map[string]struct{}
-	TraceRecorder         *messageTraceRecorder
-	Route                 *channel.ResolvedRoute
-	EffectiveOptions      map[string]interface{}
-	ServerSideToolUsage   map[string]int64
-	StartedAt             time.Time
-	ReuseUserMessage      bool
+	SendInput              SendMessageInput
+	UserMessage            *model.Message
+	AssistantMessage       *model.Message
+	AssistantText          string
+	AssistantReasoningText string
+	EstimatedInputTokens   int64
+	UpstreamCallStarted    bool
+	Usage                  llm.Usage
+	UsageRecovered         bool
+	AssistantLatency       int64
+	Error                  error
+	ToolCallRows           []model.ToolCall
+	PersistedToolCallKeys  map[string]struct{}
+	TraceRecorder          *messageTraceRecorder
+	Route                  *channel.ResolvedRoute
+	EffectiveOptions       map[string]interface{}
+	ServerSideToolUsage    map[string]int64
+	StartedAt              time.Time
+	ReuseUserMessage       bool
 }
 
 type interruptedMessageGenerationMetrics struct {
@@ -64,11 +71,15 @@ type interruptedMessageGenerationMetrics struct {
 	ReasoningTokens  int64
 }
 
-const moderationBlockedAssistantContent = "内容包含不适宜信息，已被拦截。"
+const (
+	interruptedUsageSourceObserved  = "observed"
+	interruptedUsageSourceRecovered = "recovered"
+	interruptedUsageSourceEstimated = "estimated"
+	interruptedUsageSourceMixed     = "mixed"
+)
 
 type persistMessageToolCallsInput struct {
 	SendInput             SendMessageInput
-	UserMessageID         uint
 	AssistantMessageID    uint
 	RunID                 string
 	Rows                  []model.ToolCall
@@ -106,6 +117,8 @@ func (s *Service) persistSuccessfulMessageGeneration(ctx context.Context, input 
 		input.AssistantMessage.ID,
 		repository.AssistantMessageCompletionUpdate{
 			Content:          input.AssistantText,
+			ReasoningContent: input.AssistantReasoningContent,
+			KnowledgeSources: input.AssistantMessage.KnowledgeSources,
 			InputTokens:      assistantCompletionInputTokens(input),
 			OutputTokens:     input.OutputTokens,
 			CacheReadTokens:  assistantCompletionCacheReadTokens(input),
@@ -118,6 +131,7 @@ func (s *Service) persistSuccessfulMessageGeneration(ctx context.Context, input 
 		return err
 	}
 	input.AssistantMessage.Content = input.AssistantText
+	input.AssistantMessage.ReasoningContent = input.AssistantReasoningContent
 	input.AssistantMessage.TokenUsage = input.OutputTokens + input.ReasoningTokens
 	input.AssistantMessage.OutputTokens = input.OutputTokens
 	input.AssistantMessage.ReasoningTokens = input.ReasoningTokens
@@ -151,17 +165,42 @@ func assistantCompletionCacheWriteTokens(input persistMessageGenerationInput) in
 	return 0
 }
 
+// persistAssistantImagePayloadIfPresent 保存结构化图片或兼容旧文本图片载荷。
 func (s *Service) persistAssistantImagePayloadIfPresent(ctx context.Context, input persistMessageGenerationInput) (bool, error) {
-	normalized, err := s.normalizeAssistantImageContent(
-		ctx,
-		input.SendInput.UserID,
-		input.SendInput.ConversationID,
-		input.AssistantMessage.ID,
-		successfulMessageGenerationModelName(input),
-		input.AssistantText,
-	)
+	var normalized *assistantImageContentNormalization
+	var err error
+	if len(input.GeneratedImages) > 0 {
+		trustedProviderEndpoint := ""
+		if input.Route != nil {
+			trustedProviderEndpoint = input.Route.BaseURL
+		}
+		normalized, err = s.normalizeAssistantGeneratedImages(
+			ctx,
+			input.SendInput.UserID,
+			input.SendInput.ConversationID,
+			input.AssistantMessage.ID,
+			successfulMessageGenerationModelName(input),
+			trustedProviderEndpoint,
+			input.GeneratedImages,
+		)
+	} else {
+		normalized, err = s.normalizeAssistantImageContent(
+			ctx,
+			input.SendInput.UserID,
+			input.SendInput.ConversationID,
+			input.AssistantMessage.ID,
+			successfulMessageGenerationModelName(input),
+			input.AssistantText,
+		)
+	}
 	if err != nil || normalized == nil {
 		return false, err
+	}
+	contentType := "image"
+	content := normalized.Content
+	if len(input.GeneratedImages) > 0 && strings.TrimSpace(input.AssistantText) != "" {
+		contentType = "mixed"
+		content = strings.TrimSpace(input.AssistantText) + "\n\n" + normalized.Content
 	}
 
 	if input.ReuseUserMessage {
@@ -169,8 +208,10 @@ func (s *Service) persistAssistantImagePayloadIfPresent(ctx context.Context, inp
 			ctx,
 			input.AssistantMessage.ID,
 			repository.AssistantMessageCompletionUpdate{
-				ContentType:      "image",
-				Content:          normalized.Content,
+				ContentType:      contentType,
+				Content:          content,
+				ReasoningContent: input.AssistantReasoningContent,
+				KnowledgeSources: input.AssistantMessage.KnowledgeSources,
 				InputTokens:      input.InputTokens,
 				OutputTokens:     input.OutputTokens,
 				CacheReadTokens:  input.CacheReadTokens,
@@ -194,12 +235,14 @@ func (s *Service) persistAssistantImagePayloadIfPresent(ctx context.Context, inp
 			},
 			input.AssistantMessage.ID,
 			repository.AssistantMessageCompletionUpdate{
-				ContentType:     "image",
-				Content:         normalized.Content,
-				OutputTokens:    input.OutputTokens,
-				ReasoningTokens: input.ReasoningTokens,
-				LatencyMS:       input.AssistantLatency,
-				Status:          "success",
+				ContentType:      contentType,
+				Content:          content,
+				ReasoningContent: input.AssistantReasoningContent,
+				KnowledgeSources: input.AssistantMessage.KnowledgeSources,
+				OutputTokens:     input.OutputTokens,
+				ReasoningTokens:  input.ReasoningTokens,
+				LatencyMS:        input.AssistantLatency,
+				Status:           "success",
 			},
 			normalized.AttachmentRows,
 		); err != nil {
@@ -207,8 +250,9 @@ func (s *Service) persistAssistantImagePayloadIfPresent(ctx context.Context, inp
 		}
 	}
 
-	input.AssistantMessage.ContentType = "image"
-	input.AssistantMessage.Content = normalized.Content
+	input.AssistantMessage.ContentType = contentType
+	input.AssistantMessage.Content = content
+	input.AssistantMessage.ReasoningContent = input.AssistantReasoningContent
 	if input.ReuseUserMessage {
 		input.AssistantMessage.InputTokens = input.InputTokens
 		input.AssistantMessage.CacheReadTokens = input.CacheReadTokens
@@ -238,7 +282,6 @@ func successfulMessageGenerationModelName(input persistMessageGenerationInput) s
 func (s *Service) finishSuccessfulMessageGeneration(ctx context.Context, input persistMessageGenerationInput) error {
 	if err := s.persistMessageToolCalls(ctx, persistMessageToolCallsInput{
 		SendInput:             input.SendInput,
-		UserMessageID:         input.UserMessage.ID,
 		AssistantMessageID:    input.AssistantMessage.ID,
 		RunID:                 input.AssistantMessage.RunID,
 		Rows:                  input.ToolCallRows,
@@ -247,7 +290,13 @@ func (s *Service) finishSuccessfulMessageGeneration(ctx context.Context, input p
 		return err
 	}
 
-	s.updateStatefulResponseAsync(input.SendInput.ConversationID, input.ResponseID, input.StatefulPromptFingerprint)
+	// 非默认分支不代表会话主链，不能覆盖后续默认消息使用的 Responses 状态。
+	if normalizeBranchReason(input.SendInput.BranchReason) == "default" {
+		s.updateStatefulResponseAsync(input.SendInput.ConversationID, input.ResponseID, input.StatefulPromptFingerprint)
+	}
+	if input.SkipEmbed {
+		return nil
+	}
 	if input.ReuseUserMessage {
 		s.embedMessagePairAsync(input.SendInput, nil, input.AssistantMessage)
 	} else {
@@ -259,6 +308,8 @@ func (s *Service) finishSuccessfulMessageGeneration(ctx context.Context, input p
 
 // persistInterruptedMessageGeneration 在模型调用已经产生可见内容或工具轨迹后失败时，保留本轮 assistant 消息。
 // 显式取消由取消流程单独处理，避免把用户主动停止误标为异常中断。
+// Partial outputs from cancel/interrupt/upstream errors remain subject to the
+// moderation barrier after persistence.
 func (s *Service) persistInterruptedMessageGeneration(ctx context.Context, input persistInterruptedMessageGenerationInput) *SendMessageResult {
 	if !shouldPersistInterruptedMessageGeneration(input) {
 		return nil
@@ -306,7 +357,9 @@ func (s *Service) persistInterruptedMessageGeneration(ctx context.Context, input
 		persistCtx,
 		input.AssistantMessage.ID,
 		repository.AssistantMessageCompletionUpdate{
-			Content:          assistantContent,
+			Content:          input.AssistantText,
+			ReasoningContent: strings.TrimSpace(input.AssistantReasoningText),
+			KnowledgeSources: input.AssistantMessage.KnowledgeSources,
 			InputTokens:      interruptedCompletionInputTokens(input, metrics),
 			OutputTokens:     metrics.OutputTokens,
 			CacheReadTokens:  interruptedCompletionCacheReadTokens(input, metrics),
@@ -329,7 +382,6 @@ func (s *Service) persistInterruptedMessageGeneration(ctx context.Context, input
 
 	if err := s.persistMessageToolCalls(persistCtx, persistMessageToolCallsInput{
 		SendInput:             input.SendInput,
-		UserMessageID:         input.UserMessage.ID,
 		AssistantMessageID:    input.AssistantMessage.ID,
 		RunID:                 input.AssistantMessage.RunID,
 		Rows:                  input.ToolCallRows,
@@ -342,7 +394,7 @@ func (s *Service) persistInterruptedMessageGeneration(ctx context.Context, input
 		)
 	}
 	if input.TraceRecorder != nil {
-		input.TraceRecorder.fail(input.Error)
+		input.TraceRecorder.failWithContext(persistCtx, input.Error)
 		input.TraceRecorder.attachToMessage(input.AssistantMessage)
 	}
 
@@ -366,18 +418,20 @@ func shouldPersistInterruptedMessageGeneration(input persistInterruptedMessageGe
 	hasEstimatedCanceledInput := errors.Is(input.Error, ErrMessageGenerationCanceled) &&
 		input.UpstreamCallStarted &&
 		input.EstimatedInputTokens > 0
-	return strings.TrimSpace(input.AssistantText) != "" || hasRetainedToolTrace || hasObservedUsage || hasEstimatedCanceledInput
+	return strings.TrimSpace(input.AssistantText) != "" ||
+		strings.TrimSpace(input.AssistantReasoningText) != "" ||
+		hasRetainedToolTrace ||
+		hasObservedUsage ||
+		hasEstimatedCanceledInput
 }
 
 // resolveInterruptedMessageGenerationMetrics 统一处理中断消息的真实 usage 与估算兜底。
 func resolveInterruptedMessageGenerationMetrics(input persistInterruptedMessageGenerationInput) interruptedMessageGenerationMetrics {
-	inputTokens := input.Usage.InputTokens
-	if inputTokens <= 0 {
-		inputTokens = input.EstimatedInputTokens
-	}
+	inputTokens := resolveObservedOrHigherEstimatedTokens(input.Usage.InputTokens, input.EstimatedInputTokens)
 	outputTokens := input.Usage.OutputTokens
-	if outputTokens <= 0 && strings.TrimSpace(input.AssistantText) != "" {
-		outputTokens = estimateTokens(input.AssistantText)
+	reasoningTokens := input.Usage.ReasoningTokens
+	if !input.UsageRecovered {
+		outputTokens, reasoningTokens = resolveInterruptedOutputUsage(input)
 	}
 	latencyMS := input.AssistantLatency
 	if latencyMS < 0 {
@@ -394,7 +448,47 @@ func resolveInterruptedMessageGenerationMetrics(input persistInterruptedMessageG
 		ErrorMessage:     truncateError(messageErrorSummary(input.Error), 255),
 		CacheReadTokens:  input.Usage.CacheReadTokens,
 		CacheWriteTokens: input.Usage.CacheWriteTokens,
-		ReasoningTokens:  input.Usage.ReasoningTokens,
+		ReasoningTokens:  reasoningTokens,
+	}
+}
+
+func resolveInterruptedOutputUsage(input persistInterruptedMessageGenerationInput) (int64, int64) {
+	estimatedOutputTokens := estimateTokens(input.AssistantText)
+	estimatedReasoningTokens := estimateTokens(input.AssistantReasoningText)
+	observedOutputTokens := input.Usage.OutputTokens
+	observedReasoningTokens := input.Usage.ReasoningTokens
+
+	if observedReasoningTokens > 0 {
+		return resolveObservedOrHigherEstimatedTokens(observedOutputTokens, estimatedOutputTokens),
+			resolveObservedOrHigherEstimatedTokens(observedReasoningTokens, estimatedReasoningTokens)
+	}
+	if observedOutputTokens > 0 {
+		return resolveObservedOrHigherEstimatedTokens(
+			observedOutputTokens,
+			estimatedOutputTokens+estimatedReasoningTokens,
+		), 0
+	}
+	return estimatedOutputTokens, estimatedReasoningTokens
+}
+
+func interruptedUsageSource(input persistInterruptedMessageGenerationInput, metrics interruptedMessageGenerationMetrics) string {
+	hasObserved := input.Usage != (llm.Usage{})
+	hasEstimated := metrics.InputTokens > input.Usage.InputTokens ||
+		metrics.OutputTokens > input.Usage.OutputTokens ||
+		metrics.ReasoningTokens > input.Usage.ReasoningTokens
+	if input.UsageRecovered {
+		if hasEstimated {
+			return interruptedUsageSourceMixed
+		}
+		return interruptedUsageSourceRecovered
+	}
+	switch {
+	case hasObserved && hasEstimated:
+		return interruptedUsageSourceMixed
+	case hasObserved:
+		return interruptedUsageSourceObserved
+	default:
+		return interruptedUsageSourceEstimated
 	}
 }
 
@@ -445,7 +539,8 @@ func applyInterruptedMessageGenerationState(input persistInterruptedMessageGener
 		input.UserMessage.TokenUsage = metrics.InputTokens + metrics.CacheReadTokens + metrics.CacheWriteTokens
 	}
 
-	input.AssistantMessage.Content = interruptedAssistantContent(input)
+	input.AssistantMessage.Content = input.AssistantText
+	input.AssistantMessage.ReasoningContent = strings.TrimSpace(input.AssistantReasoningText)
 	if input.ReuseUserMessage {
 		input.AssistantMessage.InputTokens = metrics.InputTokens
 		input.AssistantMessage.CacheReadTokens = metrics.CacheReadTokens
@@ -479,6 +574,7 @@ func buildInterruptedSendMessageResult(input persistInterruptedMessageGeneration
 		EffectiveOptions:    input.EffectiveOptions,
 		UsageSpeed:          input.Usage.Speed,
 		UsageServiceTier:    input.Usage.ServiceTier,
+		UsageSource:         interruptedUsageSource(input, metrics),
 		RawUsageJSON:        input.Usage.RawUsageJSON,
 		CacheWrite5mTokens:  input.Usage.CacheWrite5mTokens,
 		CacheWrite1hTokens:  input.Usage.CacheWrite1hTokens,
@@ -517,7 +613,7 @@ func (s *Service) persistMessageToolCalls(ctx context.Context, input persistMess
 	s.persistToolContextArtifacts(ctx, toolContextArtifactInput{
 		ConversationID: input.SendInput.ConversationID,
 		UserID:         input.SendInput.UserID,
-		MessageID:      input.UserMessageID,
+		MessageID:      input.AssistantMessageID,
 		RunID:          input.RunID,
 		Rows:           rows,
 	})

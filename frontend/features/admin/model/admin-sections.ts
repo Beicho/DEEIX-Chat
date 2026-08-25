@@ -1,8 +1,7 @@
 export const ADMIN_SECTIONS = [
-  { id: "dashboard", label: "Dashboard", href: "/dashboard" },
+  { id: "statistics", label: "Statistics", href: "/statistics" },
   { id: "accounts", label: "Accounts", href: "/users" },
-  { id: "security", label: "Security", href: "/security" },
-  { id: "invitations", label: "Invitation codes", href: "/invitations" },
+  { id: "groups", label: "Permission Groups", href: "/groups" },
   { id: "upstreams", label: "Upstreams", href: "/upstreams" },
   { id: "models", label: "Models", href: "/models" },
   { id: "tool-settings", label: "Tools", href: "/tools" },
@@ -14,9 +13,11 @@ export const ADMIN_SECTIONS = [
   { id: "moderation", label: "Content checks", href: "/moderation" },
   { id: "branding", label: "Branding", href: "/branding" },
   { id: "logs", label: "Logs", href: "/logs" },
+  { id: "content-moderation", label: "Content moderation", href: "/content-moderation" },
   { id: "login-settings", label: "Login & auth", href: "/login" },
   { id: "conversation-settings", label: "Conversation", href: "/conversation" },
   { id: "chat-files", label: "Files & retrieval", href: "/chat-files" },
+  { id: "knowledge-bases", label: "Knowledge bases", href: "/knowledge-bases" },
   { id: "about", label: "About", href: "/about" },
 ] as const;
 
@@ -26,5 +27,5 @@ export function resolveAdminSection(section?: string | null): AdminSection {
   if (ADMIN_SECTIONS.some((item) => item.id === section)) {
     return section as AdminSection;
   }
-  return "dashboard";
+  return "statistics";
 }

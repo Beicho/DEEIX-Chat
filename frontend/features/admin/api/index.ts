@@ -6,6 +6,8 @@ export * from "./billing";
 export * from "./dashboard";
 export * from "./llm";
 export * from "./mcp";
+export * from "./permission-groups";
 export * from "./reference-data";
 export * from "./security";
 export * from "./settings";
+export * from "./statistics";

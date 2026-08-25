@@ -1,11 +1,11 @@
 import type {
-  AdminBillingMode,
   AdminBillingPlanDTO,
   AdminModelPricingDTO,
   UpsertAdminModelPricingRequest,
 } from "@/features/admin/api/billing.types";
 import type { AdminLLMModelDTO } from "@/features/admin/api/llm.types";
 import type { PatchSettingItem, SettingItem } from "@/shared/api/settings.types";
+import { parseKindsJSON } from "@/shared/model/llm-schema";
 
 export type BillingModelPricingRow = {
   platformModelName: string;
@@ -13,6 +13,7 @@ export type BillingModelPricingRow = {
   icon: string;
   pricing: AdminModelPricingDTO | null;
   isFree: boolean;
+  supportsVideoGeneration: boolean;
 };
 
 export type PricingMode = "token" | "call" | "duration" | "tiered";
@@ -46,6 +47,7 @@ export type PlanFormState = {
   billingInterval: string;
   periodCredit: string;
   discountPercent: string;
+  permissionGroupID: string;
 };
 
 export type ModelPricingExportEntry = {
@@ -74,6 +76,7 @@ export type ModelPricingImportMessages = {
   duplicateModel: (model: string) => string;
   pricingObject: (model: string) => string;
   invalidPricingMode: (model: string) => string;
+  durationVideoOnly: (model: string) => string;
   invalidNumber: (model: string, field: string) => string;
   invalidTieredPricing: (model: string, field: string) => string;
   invalidTieredPricingJSON: (model: string) => string;
@@ -132,6 +135,33 @@ export const DIALOG_LAYOUT_TRANSITION = {
     ease: [0.16, 1, 0.3, 1] as const,
   },
 };
+
+export function formatBillingAmountInput(value: number | null | undefined): string {
+  if (!Number.isFinite(value ?? NaN) || (value ?? 0) <= 0) {
+    return "0";
+  }
+  return String(value);
+}
+
+export function downloadJSONFile(filename: string, value: unknown): void {
+  const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function shortListDescription(items: string[], emptyText = "", moreLabel = "and"): string {
+  if (items.length === 0) {
+    return emptyText;
+  }
+  const visible = items.slice(0, 5).join(", ");
+  return items.length > 5 ? `${visible} ${moreLabel} ${items.length}` : visible;
+}
 
 export function formatUSD(value: number): string {
   if (!Number.isFinite(value) || value <= 0) {
@@ -231,8 +261,14 @@ export function createFormState(row: BillingModelPricingRow): PricingFormState {
   };
 }
 
-export function createPlanFormState(plan: AdminBillingPlanDTO): PlanFormState {
+export function createPlanFormState(plan: AdminBillingPlanDTO, defaultPermissionGroupID?: number): PlanFormState {
   const defaultPrice = plan.prices.find((item) => item.isDefault) || plan.prices[0];
+  let permissionGroupID = "";
+  if (plan.permissionGroupID != null) {
+    permissionGroupID = String(plan.permissionGroupID);
+  } else if (defaultPermissionGroupID) {
+    permissionGroupID = String(defaultPermissionGroupID);
+  }
   return {
     name: plan.name || "",
     description: plan.description || "",
@@ -240,6 +276,7 @@ export function createPlanFormState(plan: AdminBillingPlanDTO): PlanFormState {
     billingInterval: defaultPrice?.billingInterval || "month",
     periodCredit: String(plan.periodCreditUSD ?? 0),
     discountPercent: String(plan.discountPercent ?? 0),
+    permissionGroupID,
   };
 }
 
@@ -271,6 +308,7 @@ const DEFAULT_IMPORT_MESSAGES: ModelPricingImportMessages = {
   duplicateModel: (model) => `${model} appears more than once`,
   pricingObject: (model) => `${model} pricing must be an object`,
   invalidPricingMode: (model) => `${model}.pricingMode must be token, call, duration, or tiered`,
+  durationVideoOnly: (model) => `${model}.pricingMode=duration requires a video model capability`,
   invalidNumber: (model, field) => `${model}.${field} must be a number greater than or equal to 0`,
   invalidTieredPricing: (model, field) => `${model}.${field} must contain a non-empty tiers array`,
   invalidTieredPricingJSON: (model) => `${model}.tieredPricingJSON is not valid JSON`,
@@ -426,6 +464,7 @@ export function createOptimisticModelPricing(row: BillingModelPricingRow, payloa
 export function parseModelPricingImportJSON(
   raw: string,
   knownPlatformModelNames: Set<string>,
+  videoGenerationModelNames: Set<string>,
   messages: ModelPricingImportMessages = DEFAULT_IMPORT_MESSAGES,
 ): ModelPricingImportParseResult {
   const errors: string[] = [];
@@ -478,6 +517,10 @@ export function parseModelPricingImportJSON(
     }
     const entryErrors: string[] = [];
     const pricingMode = rawEntry.pricingMode;
+    if (pricingMode === "duration" && !videoGenerationModelNames.has(platformModelName)) {
+      errors.push(messages.durationVideoOnly(platformModelName));
+      continue;
+    }
     const tieredPricingJSON = pricingMode === "tiered"
       ? parseTieredPricingImportValue(rawEntry, platformModelName, entryErrors, messages)
       : undefined;
@@ -527,6 +570,9 @@ export function buildPricingRows(models: AdminLLMModelDTO[], pricingItems: Admin
         icon: pricing?.modelIcon || model.icon || "",
         pricing,
         isFree: pricing?.isFree ?? false,
+        supportsVideoGeneration: parseKindsJSON(model.kindsJSON).some(
+          (kind) => kind === "video_gen" || kind === "video_extension",
+        ),
       };
     });
 }

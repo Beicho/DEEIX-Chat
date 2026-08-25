@@ -10,6 +10,8 @@ import (
 	"time"
 
 	domainbilling "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/billing"
+	domainknowledgebase "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/knowledgebase"
+	domainskill "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/skill"
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/dberror"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/models"
@@ -19,6 +21,11 @@ import (
 )
 
 var userListSearchEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+const (
+	userListSubscriptionStatusActive = "active"
+	userListSubscriptionStatusFree   = "free"
+)
 
 // translateError 将 gorm 底层错误统一映射为仓储语义错误。
 func translateError(err error) error {
@@ -501,6 +508,49 @@ func (r *Repo) ListUsers(ctx context.Context, offset int, limit int, filter repo
 			like,
 			like,
 		)
+	}
+	if providerSlug := strings.TrimSpace(filter.IdentityProvider); providerSlug != "" {
+		query = query.Where(
+			`EXISTS (
+				SELECT 1
+				FROM identity_user_links user_identity_filter
+				INNER JOIN identity_providers identity_provider_filter
+					ON identity_provider_filter.id = user_identity_filter.provider_id
+				WHERE user_identity_filter.user_id = identity_users.id
+					AND identity_provider_filter.slug = ?
+			)`,
+			providerSlug,
+		)
+	}
+	if subscriptionStatus := strings.TrimSpace(filter.SubscriptionStatus); subscriptionStatus != "" {
+		now := time.Now()
+		currentPaidSubscriptionSQL := `EXISTS (
+			SELECT 1
+			FROM billing_subscriptions subscription_filter
+			INNER JOIN billing_plans subscription_plan_filter
+				ON subscription_plan_filter.id = subscription_filter.plan_id
+			WHERE subscription_filter.user_id = identity_users.id
+				AND subscription_filter.status = ?
+				AND subscription_filter.current_period_start_at <= ?
+				AND (subscription_filter.current_period_end_at IS NULL OR subscription_filter.current_period_end_at > ?)
+				AND subscription_plan_filter.code <> ?
+		)`
+		switch subscriptionStatus {
+		case userListSubscriptionStatusFree:
+			query = query.Where("NOT "+currentPaidSubscriptionSQL, userListSubscriptionStatusActive, now, now, userListSubscriptionStatusFree)
+		case userListSubscriptionStatusActive:
+			query = query.Where(currentPaidSubscriptionSQL, userListSubscriptionStatusActive, now, now, userListSubscriptionStatusFree)
+		default:
+			query = query.Where(
+				`EXISTS (
+					SELECT 1
+					FROM billing_subscriptions subscription_filter
+					WHERE subscription_filter.user_id = identity_users.id
+						AND subscription_filter.status = ?
+				)`,
+				subscriptionStatus,
+			)
+		}
 	}
 
 	if err := query.Count(&total).Error; err != nil {
@@ -1012,7 +1062,23 @@ func (r *Repo) ListLatestSessionActivityByUserIDs(ctx context.Context, userIDs [
 // DeleteAccountHard 删除用户主记录及主要用户域数据。
 func (r *Repo) DeleteAccountHard(ctx context.Context, userID uint) error {
 	return translateError(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var builtinFileReferences int64
+		if err := tx.Table("knowledge_base_files AS kbf").
+			Joins("JOIN knowledge_bases AS kb ON kb.id = kbf.knowledge_base_id").
+			Joins("JOIN file_objects AS fo ON fo.id = kbf.file_object_id").
+			Where("kb.scope = ? AND fo.user_id = ? AND fo.status = ?", domainknowledgebase.ScopeBuiltin, userID, "active").
+			Count(&builtinFileReferences).Error; err != nil {
+			return err
+		}
+		if builtinFileReferences > 0 {
+			return domainknowledgebase.ErrBuiltinFileOwnerDeleteBlocked
+		}
+
 		conversationSubQuery := tx.Unscoped().Model(&model.Conversation{}).Select("id").Where("user_id = ?", userID)
+		projectSubQuery := tx.Unscoped().Model(&model.ConversationProject{}).Select("id").Where("user_id = ?", userID)
+		userSkillSubQuery := tx.Model(&model.Skill{}).Select("id").Where("scope = ? AND owner_user_id = ?", domainskill.ScopeUser, userID)
+		userKnowledgeBaseSubQuery := tx.Model(&model.KnowledgeBase{}).Select("id").Where("scope = ? AND owner_user_id = ?", domainknowledgebase.ScopeUser, userID)
+		userFileSubQuery := tx.Unscoped().Model(&model.FileObject{}).Select("id").Where("user_id = ?", userID)
 		runSubQuery := tx.Unscoped().Model(&model.ConversationRun{}).Select("run_id").Where("user_id = ?", userID)
 
 		steps := []struct {
@@ -1110,6 +1176,52 @@ func (r *Repo) DeleteAccountHard(ctx context.Context, userID uint) error {
 				},
 			},
 			{
+				label: "chat_conversation_project_mcp_tools",
+				run: func(db *gorm.DB) error {
+					return db.Where("project_id IN (?)", projectSubQuery).Delete(&model.ConversationProjectMCPTool{}).Error
+				},
+			},
+			{
+				label: "chat_conversation_project_skills",
+				run: func(db *gorm.DB) error {
+					return db.Where("project_id IN (?) OR skill_id IN (?)", projectSubQuery, userSkillSubQuery).
+						Delete(&model.ConversationProjectSkill{}).Error
+				},
+			},
+			{
+				label: "chat_conversation_project_knowledge_bases",
+				run: func(db *gorm.DB) error {
+					return db.Where("project_id IN (?) OR knowledge_base_id IN (?)", projectSubQuery, userKnowledgeBaseSubQuery).
+						Delete(&model.ConversationProjectKnowledgeBase{}).Error
+				},
+			},
+			{
+				label: "chat_conversation_projects",
+				run: func(db *gorm.DB) error {
+					return db.Unscoped().Where("user_id = ?", userID).Delete(&model.ConversationProject{}).Error
+				},
+			},
+			{
+				label: "skills",
+				run: func(db *gorm.DB) error {
+					return db.Where("scope = ? AND owner_user_id = ?", domainskill.ScopeUser, userID).Delete(&model.Skill{}).Error
+				},
+			},
+			{
+				label: "knowledge_base_files",
+				run: func(db *gorm.DB) error {
+					return db.Where("knowledge_base_id IN (?) OR file_object_id IN (?)", userKnowledgeBaseSubQuery, userFileSubQuery).
+						Delete(&model.KnowledgeBaseFile{}).Error
+				},
+			},
+			{
+				label: "knowledge_bases",
+				run: func(db *gorm.DB) error {
+					return db.Where("scope = ? AND owner_user_id = ?", domainknowledgebase.ScopeUser, userID).
+						Delete(&model.KnowledgeBase{}).Error
+				},
+			},
+			{
 				label: "file_chunks",
 				run: func(db *gorm.DB) error {
 					return db.Unscoped().Where("user_id = ?", userID).Delete(&model.FileChunk{}).Error
@@ -1137,6 +1249,12 @@ func (r *Repo) DeleteAccountHard(ctx context.Context, userID uint) error {
 				label: "user_settings",
 				run: func(db *gorm.DB) error {
 					return db.Unscoped().Where("user_id = ?", userID).Delete(&model.UserSetting{}).Error
+				},
+			},
+			{
+				label: "permission_group_user_access",
+				run: func(db *gorm.DB) error {
+					return db.Unscoped().Where("user_id = ?", userID).Delete(&model.PermissionGroupUserAccess{}).Error
 				},
 			},
 			// 财务审计事实不在账号硬删除中清理：
@@ -1768,6 +1886,25 @@ func (r *Repo) ListUserIdentitiesByUserID(ctx context.Context, userID uint) ([]d
 	results := make([]domainuser.UserIdentity, 0, len(items))
 	for _, item := range items {
 		results = append(results, *toDomainUserIdentity(item))
+	}
+	return results, nil
+}
+
+func (r *Repo) ListUserIdentitiesByUserIDs(ctx context.Context, userIDs []uint) (map[uint][]domainuser.UserIdentity, error) {
+	results := make(map[uint][]domainuser.UserIdentity, len(userIDs))
+	if len(userIDs) == 0 {
+		return results, nil
+	}
+	items := make([]model.UserIdentity, 0)
+	if err := r.db.WithContext(ctx).
+		Where("user_id IN ?", userIDs).
+		Order("user_id ASC, id ASC").
+		Find(&items).Error; err != nil {
+		return nil, translateError(err)
+	}
+	for _, item := range items {
+		identity := toDomainUserIdentity(item)
+		results[identity.UserID] = append(results[identity.UserID], *identity)
 	}
 	return results, nil
 }

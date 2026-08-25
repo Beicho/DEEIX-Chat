@@ -1,15 +1,12 @@
 import type { AdminLLMModelDTO, AdminLLMModelVendor, AdminLLMStatus } from "@/features/admin/api/llm.types";
 import { MODEL_KIND_META, resolveProtocolLabel } from "@/features/admin/utils/llm-display";
 import { parseKindsJSON, stringifyKinds } from "@/shared/model/llm-schema";
-import { KNOWN_VENDOR_OPTIONS } from "@/shared/lib/model-identity";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 export const PAGE_SIZE_DEFAULT = 25;
-
-export const MODEL_VENDOR_OPTIONS: AdminLLMModelVendor[] = KNOWN_VENDOR_OPTIONS.map((item) => item.value);
 
 export const MODEL_STATUS_OPTIONS: AdminLLMStatus[] = ["active", "inactive"];
 
@@ -34,9 +31,12 @@ export const ADAPTER_LABELS: Record<string, string> = {
   anthropic_messages: resolveProtocolLabel("anthropic_messages"),
   google_generate_content: resolveProtocolLabel("google_generate_content"),
   google_image_generation: resolveProtocolLabel("google_image_generation"),
+  gemini_interactions: resolveProtocolLabel("gemini_interactions"),
   xai_responses: resolveProtocolLabel("xai_responses"),
   xai_image: resolveProtocolLabel("xai_image"),
   xai_image_edits: resolveProtocolLabel("xai_image_edits"),
+  xai_video: resolveProtocolLabel("xai_video"),
+  xai_video_extensions: resolveProtocolLabel("xai_video_extensions"),
 };
 
 // ---------------------------------------------------------------------------

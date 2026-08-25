@@ -22,8 +22,9 @@ import (
 	authhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/auth"
 	billinghttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/billing"
 	channelhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/channel"
-	collaborationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/collaboration"
+	contentmoderationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/contentmoderation"
 	conversationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/conversation"
+	knowledgebasehttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/knowledgebase"
 	mcphttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/mcp"
 	memoryhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/memory"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
@@ -57,32 +58,23 @@ type HealthChecker interface {
 
 // Modules 聚合可注册的业务模块。
 type Modules struct {
-	Auth          *authhttp.Module
-	AuthService   middleware.SessionValidator
-	Channel       *channelhttp.Module
-	Conversation  *conversationhttp.Module
-	MCP           *mcphttp.Module
-	Memory        *memoryhttp.Module
-	Security      *securityhttp.Module
-	BrowserProof  middleware.BrowserProofVerifier
-	Fingerprint   middleware.FingerprintRecorder
-	Billing       *billinghttp.Module
-	Admin         *adminhttp.Module
-	Announcement  *announcementhttp.Module
-	Notification  *notificationhttp.Module
-	Collaboration *collaborationhttp.Module
-	PromptPreset  *promptpresethttp.Module
-	Skill         *skillhttp.Module
-	Settings      *settingshttp.Module
-	User          *userhttp.Module
-	UserSettings  *usersettingshttp.Module
-	Status        *statushttp.Module
-	Alerting      *alertinghttp.Module
-	StartupLog    func(*zap.Logger)
-}
-
-type frontendShareMetadataProvider interface {
-	GetPublicShareMetadata(ctx context.Context, shareID string) (title string, description string, err error)
+	Auth              *authhttp.Module
+	AuthService       middleware.SessionValidator
+	Channel           *channelhttp.Module
+	Conversation      *conversationhttp.Module
+	MCP               *mcphttp.Module
+	Memory            *memoryhttp.Module
+	Billing           *billinghttp.Module
+	Admin             *adminhttp.Module
+	ContentModeration *contentmoderationhttp.Module
+	Announcement      *announcementhttp.Module
+	PromptPreset      *promptpresethttp.Module
+	Skill             *skillhttp.Module
+	KnowledgeBase     *knowledgebasehttp.Module
+	Settings          *settingshttp.Module
+	User              *userhttp.Module
+	UserSettings      *usersettingshttp.Module
+	StartupLog        func(*zap.Logger)
 }
 
 // NewEngine 创建并注册 API 路由。
@@ -112,7 +104,7 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	})))
 	engine.Use(middleware.RequestID())
 	engine.Use(middleware.AccessLog(log))
-	engine.Use(middleware.SecurityHeaders(snapshot.Env))
+	engine.Use(middleware.SecurityHeaders())
 	engine.Use(middleware.CORS(snapshot.CORSAllowOrigin))
 
 	engine.GET("/healthz", func(c *gin.Context) {
@@ -130,10 +122,7 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		c.Header("Pragma", "no-cache")
 		c.JSON(http.StatusOK, buildinfo.Snapshot())
 	})
-	if modules.Status != nil {
-		modules.Status.RegisterPublicRoutes(api)
-	}
-	if modules.Auth != nil || modules.Settings != nil || modules.Billing != nil || modules.Conversation != nil || modules.Channel != nil || modules.User != nil {
+	if modules.Auth != nil || modules.Settings != nil || modules.Billing != nil || modules.Conversation != nil || modules.User != nil || modules.Channel != nil {
 		publicAuth := api.Group("")
 		publicAuth.Use(middleware.PublicAuthRateLimit(limiter, cfg))
 		if modules.Auth != nil {
@@ -141,6 +130,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		}
 		if modules.User != nil {
 			modules.User.RegisterPublicRoutes(publicAuth)
+		}
+		if modules.Channel != nil {
+			modules.Channel.RegisterPublicRoutes(publicAuth)
 		}
 		if modules.Conversation != nil {
 			modules.Conversation.RegisterPublicRoutes(publicAuth)
@@ -205,6 +197,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.Skill != nil {
 		modules.Skill.RegisterRoutes(authRequired)
 	}
+	if modules.KnowledgeBase != nil {
+		modules.KnowledgeBase.RegisterRoutes(authRequired)
+	}
 	if modules.UserSettings != nil {
 		modules.UserSettings.RegisterRoutes(authRequired)
 	}
@@ -214,7 +209,7 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.User != nil {
 		modules.User.RegisterRoutes(authRequired)
 	}
-	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.Conversation != nil || modules.MCP != nil || modules.Settings != nil || modules.Security != nil || modules.Announcement != nil || modules.Notification != nil || modules.Collaboration != nil || modules.PromptPreset != nil || modules.Skill != nil || modules.Alerting != nil {
+	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.MCP != nil || modules.Settings != nil || modules.Announcement != nil || modules.PromptPreset != nil || modules.Skill != nil || modules.KnowledgeBase != nil || modules.ContentModeration != nil {
 		adminGroup := authRequired.Group("/admin")
 		adminGroup.Use(middleware.AdminOnly())
 		if modules.Auth != nil {
@@ -222,6 +217,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		}
 		if modules.Admin != nil {
 			modules.Admin.RegisterRoutes(adminGroup)
+		}
+		if modules.ContentModeration != nil {
+			modules.ContentModeration.RegisterRoutes(adminGroup)
 		}
 		if modules.Billing != nil {
 			modules.Billing.RegisterAdminRoutes(adminGroup)
@@ -253,12 +251,18 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		if modules.Skill != nil {
 			modules.Skill.RegisterAdminRoutes(adminGroup)
 		}
+		if modules.KnowledgeBase != nil {
+			modules.KnowledgeBase.RegisterAdminRoutes(adminGroup)
+		}
 	}
 
 	if modules.StartupLog != nil {
 		modules.StartupLog(log)
 	}
-	registerFrontendStatic(engine, snapshot.FrontendDistDir, log, modules.Conversation)
+	if modules.Settings != nil {
+		modules.Settings.RegisterFrontendRoutes(engine)
+	}
+	registerFrontendStatic(engine, snapshot.FrontendDistDir, log)
 
 	return engine, nil
 }
