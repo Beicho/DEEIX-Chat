@@ -90,13 +90,12 @@ func (s *Service) UpsertUpstreamModel(ctx context.Context, upstreamID uint, inpu
 		if txErr != nil {
 			return txErr
 		}
-		if platformModelCreated {
-			createdPlatformModelName = platformModel.PlatformModelName
-		}
-
 		platformModel, platformModelCreated, txErr := ensurePlatformModel(ctx, txRepo, platformModelName, kindsJSON, upstreamModelName)
 		if txErr != nil {
 			return txErr
+		}
+		if platformModelCreated {
+			createdPlatformModelName = platformModel.PlatformModelName
 		}
 		if !platformModelCreated && kindsExplicit && strings.TrimSpace(platformModel.KindsJSON) != kindsJSON {
 			if txErr := txRepo.UpdateModel(ctx, platformModel.ID, repository.UpdateChannelModelInput{KindsJSON: &kindsJSON}); txErr != nil {

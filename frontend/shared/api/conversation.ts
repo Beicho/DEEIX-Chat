@@ -1369,7 +1369,28 @@ export async function importConversationTakeout(
 
 export async function listMessageBookmarks(
   accessToken: string,
-  options: { query?: string; page?: number; pageSize?: number }
+  options: { query?: string; page?: number; pageSize?: number } = {},
+): Promise<PagePayload<MessageBookmarkListItemDTO>> {
+  const page = options.page && options.page > 0 ? options.page : 1;
+  const pageSize = options.pageSize && options.pageSize > 0 ? options.pageSize : 20;
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const query = options.query?.trim();
+  if (query) {
+    params.set("q", query);
+  }
+  const data = await authedRequest<PagePayload<MessageBookmarkListItemDTO>>(
+    `/api/v1/message-bookmarks?${params.toString()}`,
+    { accessToken },
+    true,
+  );
+  return {
+    total: data.total ?? 0,
+    results: data.results ?? [],
+  };
+}
 
 export async function setMessageBookmark(
   accessToken: string,
