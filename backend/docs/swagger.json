@@ -19165,10 +19165,14 @@
             "type": "object",
             "required": [
                 "createdAt",
+                "expiresAt",
+                "hasPassword",
+                "includeThinking",
                 "lastAccessedAt",
                 "messageCount",
                 "modelSnapshot",
                 "revokedAt",
+                "scope",
                 "shareID",
                 "status",
                 "titleSnapshot",
@@ -19177,6 +19181,17 @@
             "properties": {
                 "createdAt": {
                     "type": "string"
+                },
+                "expiresAt": {
+                    "type": "string",
+                    "x-nullable": true,
+                    "x-omitempty": false
+                },
+                "hasPassword": {
+                    "type": "boolean"
+                },
+                "includeThinking": {
+                    "type": "boolean"
                 },
                 "lastAccessedAt": {
                     "type": "string",
@@ -19193,6 +19208,9 @@
                     "type": "string",
                     "x-nullable": true,
                     "x-omitempty": false
+                },
+                "scope": {
+                    "type": "string"
                 },
                 "shareID": {
                     "type": "string"

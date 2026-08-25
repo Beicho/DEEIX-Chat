@@ -79,15 +79,6 @@ type ConversationExportResponse struct {
 	Compatibility           ConversationExportCompatibilityResponse `json:"compatibility"`
 }
 
-type ConversationSearchResultResponse struct {
-	Conversation    ConversationResponse `json:"conversation"`
-	MessagePublicID string               `json:"messagePublicID"`
-	MessageRole     string               `json:"messageRole"`
-	Snippet         string               `json:"snippet"`
-	MatchedTitle    bool                 `json:"matchedTitle"`
-	MatchedAt       time.Time            `json:"matchedAt"`
-}
-
 // ConversationDraftResponse 对外输入框草稿响应 DTO。
 type ConversationDraftResponse struct {
 	ConversationPublicID string          `json:"conversationPublicID"`
@@ -331,15 +322,19 @@ type BatchSetConversationProjectResponse struct {
 
 // ConversationShareResponse 会话分享响应 DTO。
 type ConversationShareResponse struct {
-	ShareID        string     `json:"shareID"`
-	Status         string     `json:"status"`
-	TitleSnapshot  string     `json:"titleSnapshot"`
-	ModelSnapshot  string     `json:"modelSnapshot"`
-	MessageCount   int        `json:"messageCount"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
-	RevokedAt      *time.Time `json:"revokedAt" extensions:"x-nullable,!x-omitempty"`
-	LastAccessedAt *time.Time `json:"lastAccessedAt" extensions:"x-nullable,!x-omitempty"`
+	ShareID         string     `json:"shareID"`
+	Status          string     `json:"status"`
+	TitleSnapshot   string     `json:"titleSnapshot"`
+	ModelSnapshot   string     `json:"modelSnapshot"`
+	MessageCount    int        `json:"messageCount"`
+	Scope           string     `json:"scope"`
+	HasPassword     bool       `json:"hasPassword"`
+	IncludeThinking bool       `json:"includeThinking"`
+	ExpiresAt       *time.Time `json:"expiresAt" extensions:"x-nullable,!x-omitempty"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
+	RevokedAt       *time.Time `json:"revokedAt" extensions:"x-nullable,!x-omitempty"`
+	LastAccessedAt  *time.Time `json:"lastAccessedAt" extensions:"x-nullable,!x-omitempty"`
 }
 
 func toConversationShareResponse(item *appconversation.ConversationShareResult) ConversationShareResponse {
@@ -1129,7 +1124,6 @@ func toMessageResponseWithRunAndFallback(m model.Message, run model.Run, fallbac
 		ContentType:       m.ContentType,
 		Content:           content,
 		BranchReason:      m.BranchReason,
-		MessageGroupID:    m.MessageGroupID,
 		SourceMessageID:   m.SourceMessageID,
 		TokenUsage:        m.TokenUsage,
 		InputTokens:       m.InputTokens,

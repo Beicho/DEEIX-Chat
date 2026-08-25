@@ -1182,10 +1182,14 @@ export interface ConversationSearchResultResponse {
 
 export interface ConversationShareResponse {
   createdAt: string;
+  expiresAt: string | null;
+  hasPassword: boolean;
+  includeThinking: boolean;
   lastAccessedAt: string | null;
   messageCount: number;
   modelSnapshot: string;
   revokedAt: string | null;
+  scope: string;
   shareID: string;
   status: string;
   titleSnapshot: string;

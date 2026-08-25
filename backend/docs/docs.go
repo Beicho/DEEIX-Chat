@@ -19172,10 +19172,14 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "createdAt",
+                "expiresAt",
+                "hasPassword",
+                "includeThinking",
                 "lastAccessedAt",
                 "messageCount",
                 "modelSnapshot",
                 "revokedAt",
+                "scope",
                 "shareID",
                 "status",
                 "titleSnapshot",
@@ -19184,6 +19188,17 @@ const docTemplate = `{
             "properties": {
                 "createdAt": {
                     "type": "string"
+                },
+                "expiresAt": {
+                    "type": "string",
+                    "x-nullable": true,
+                    "x-omitempty": false
+                },
+                "hasPassword": {
+                    "type": "boolean"
+                },
+                "includeThinking": {
+                    "type": "boolean"
                 },
                 "lastAccessedAt": {
                     "type": "string",
@@ -19200,6 +19215,9 @@ const docTemplate = `{
                     "type": "string",
                     "x-nullable": true,
                     "x-omitempty": false
+                },
+                "scope": {
+                    "type": "string"
                 },
                 "shareID": {
                     "type": "string"

@@ -2905,6 +2905,14 @@ definitions:
     properties:
       createdAt:
         type: string
+      expiresAt:
+        type: string
+        x-nullable: true
+        x-omitempty: false
+      hasPassword:
+        type: boolean
+      includeThinking:
+        type: boolean
       lastAccessedAt:
         type: string
         x-nullable: true
@@ -2917,6 +2925,8 @@ definitions:
         type: string
         x-nullable: true
         x-omitempty: false
+      scope:
+        type: string
       shareID:
         type: string
       status:
@@ -2927,10 +2937,14 @@ definitions:
         type: string
     required:
     - createdAt
+    - expiresAt
+    - hasPassword
+    - includeThinking
     - lastAccessedAt
     - messageCount
     - modelSnapshot
     - revokedAt
+    - scope
     - shareID
     - status
     - titleSnapshot
