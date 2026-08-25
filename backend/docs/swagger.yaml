@@ -3278,6 +3278,46 @@ definitions:
     required:
     - mode
     type: object
+  CreateServerRequest:
+    properties:
+      authToken:
+        type: string
+      baseURL:
+        type: string
+      headersJSON:
+        type: string
+      name:
+        type: string
+      oauthAccessToken:
+        type: string
+      oauthAuthURL:
+        type: string
+      oauthClientID:
+        type: string
+      oauthClientSecret:
+        type: string
+      oauthRefreshToken:
+        type: string
+      oauthScopes:
+        type: string
+      oauthTokenURL:
+        type: string
+      status:
+        type: string
+      timeoutSeconds:
+        type: integer
+    required:
+    - baseURL
+    - name
+    - oauthAccessToken
+    - oauthAuthURL
+    - oauthClientID
+    - oauthClientSecret
+    - oauthRefreshToken
+    - oauthScopes
+    - oauthTokenURL
+    - timeoutSeconds
+    type: object
   CreateUpstreamRequest:
     properties:
       apiKeys:
@@ -3462,6 +3502,23 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/DeletePermissionGroupResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  DeleteServerResponse:
+    properties:
+      deleted:
+        type: boolean
+    required:
+    - deleted
+    type: object
+  DeleteServerResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/DeleteServerResponse'
       errorMsg:
         type: string
     required:
@@ -4431,6 +4488,13 @@ definitions:
         type: string
     required:
     - data
+    - errorMsg
+    type: object
+  McpErrorDoc:
+    properties:
+      errorMsg:
+        type: string
+    required:
     - errorMsg
     type: object
   MeResponse:
@@ -7219,6 +7283,27 @@ definitions:
     required:
     - modelIDs
     type: object
+  ReorderServerOrderItem:
+    properties:
+      serverID:
+        type: integer
+      toolIDs:
+        items:
+          type: integer
+        type: array
+    required:
+    - serverID
+    - toolIDs
+    type: object
+  ReorderServersRequest:
+    properties:
+      servers:
+        items:
+          $ref: '#/definitions/ReorderServerOrderItem'
+        type: array
+    required:
+    - servers
+    type: object
   ResetUpstreamCircuitResponseDoc:
     properties:
       data:
@@ -7488,6 +7573,142 @@ definitions:
     required:
     - data
     - errorMsg
+    type: object
+  ServerDataResponse:
+    properties:
+      server:
+        $ref: '#/definitions/ServerResponse'
+    required:
+    - server
+    type: object
+  ServerDataResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/ServerDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  ServerListResponse:
+    properties:
+      results:
+        items:
+          $ref: '#/definitions/ServerResponse'
+        type: array
+    required:
+    - results
+    type: object
+  ServerListResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/ServerListResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  ServerResponse:
+    properties:
+      activeToolCount:
+        type: integer
+      baseURL:
+        type: string
+      createdAt:
+        type: string
+      headersJSON:
+        type: string
+      id:
+        type: integer
+      lastError:
+        type: string
+      lastSyncedAt:
+        type: string
+        x-nullable: true
+        x-omitempty: false
+      name:
+        type: string
+      oauthAuthURL:
+        type: string
+      oauthClientID:
+        type: string
+      oauthScopes:
+        type: string
+      oauthStatus:
+        type: string
+      oauthTokenURL:
+        type: string
+      ownerUserID:
+        type: integer
+      requiresToolMetadataSyncConfirmation:
+        type: boolean
+      scope:
+        type: string
+      sortOrder:
+        type: integer
+      status:
+        type: string
+      timeoutSeconds:
+        type: integer
+      toolCount:
+        type: integer
+      updatedAt:
+        type: string
+    required:
+    - activeToolCount
+    - baseURL
+    - createdAt
+    - headersJSON
+    - id
+    - lastError
+    - lastSyncedAt
+    - name
+    - oauthAuthURL
+    - oauthClientID
+    - oauthScopes
+    - oauthStatus
+    - oauthTokenURL
+    - ownerUserID
+    - requiresToolMetadataSyncConfirmation
+    - scope
+    - sortOrder
+    - status
+    - timeoutSeconds
+    - toolCount
+    - updatedAt
+    type: object
+  ServerToolOrderListResponse:
+    properties:
+      results:
+        items:
+          $ref: '#/definitions/ServerToolOrderResponse'
+        type: array
+    required:
+    - results
+    type: object
+  ServerToolOrderListResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/ServerToolOrderListResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  ServerToolOrderResponse:
+    properties:
+      server:
+        $ref: '#/definitions/ServerResponse'
+      tools:
+        items:
+          $ref: '#/definitions/ToolResponse'
+        type: array
+    required:
+    - server
+    - tools
     type: object
   SetConversationArchiveRequest:
     properties:
@@ -8062,6 +8283,100 @@ definitions:
     - model
     - sessionID
     type: object
+  ToolListResponse:
+    properties:
+      results:
+        items:
+          $ref: '#/definitions/ToolResponse'
+        type: array
+    required:
+    - results
+    type: object
+  ToolListResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/ToolListResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  ToolResponse:
+    properties:
+      attachmentArgument:
+        type: string
+      attachmentEncoding:
+        enum:
+        - ""
+        - base64
+        - data_url
+        type: string
+      attachmentInputMode:
+        enum:
+        - none
+        - image
+        type: string
+      attachmentPromptArgument:
+        type: string
+      createdAt:
+        type: string
+      defaultEnabled:
+        type: boolean
+      description:
+        type: string
+      displayName:
+        type: string
+      id:
+        type: integer
+      inputSchemaJSON:
+        type: string
+      name:
+        type: string
+      requiresConfirmation:
+        type: boolean
+      serverID:
+        type: integer
+      serverName:
+        type: string
+      sortOrder:
+        type: integer
+      status:
+        type: string
+      toolKind:
+        type: string
+      updatedAt:
+        type: string
+    required:
+    - attachmentArgument
+    - attachmentEncoding
+    - attachmentInputMode
+    - attachmentPromptArgument
+    - createdAt
+    - defaultEnabled
+    - description
+    - displayName
+    - id
+    - inputSchemaJSON
+    - name
+    - requiresConfirmation
+    - serverID
+    - serverName
+    - sortOrder
+    - status
+    - toolKind
+    - updatedAt
+    type: object
+  ToolResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/ToolResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
   UnreadCountDataResponse:
     properties:
       unreadCount:
@@ -8358,6 +8673,48 @@ definitions:
         type: integer
     required:
     - name
+    type: object
+  UpdateServerToolsStatusRequest:
+    properties:
+      status:
+        type: string
+      toolIDs:
+        items:
+          type: integer
+        type: array
+    required:
+    - status
+    - toolIDs
+    type: object
+  UpdateToolRequest:
+    properties:
+      attachmentArgument:
+        type: string
+      attachmentEncoding:
+        enum:
+        - base64
+        - data_url
+        type: string
+      attachmentInputMode:
+        enum:
+        - none
+        - image
+        type: string
+      attachmentPromptArgument:
+        type: string
+      defaultEnabled:
+        type: boolean
+      description:
+        type: string
+      displayName:
+        type: string
+      requiresConfirmation:
+        type: boolean
+      status:
+        type: string
+    required:
+    - defaultEnabled
+    - requiresConfirmation
     type: object
   UpdateUpstreamRequest:
     properties:
@@ -13400,6 +13757,289 @@ paths:
       summary: 管理员清理日志
       tags:
       - admin
+  /admin/mcp/servers:
+    get:
+      description: 管理员查看已配置的 MCP 服务及其工具统计
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ServerListResponseDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 获取 MCP 服务列表
+      tags:
+      - admin-mcp
+    post:
+      consumes:
+      - application/json
+      description: 管理员创建一个 MCP 服务配置
+      parameters:
+      - description: MCP 服务配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/CreateServerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ServerDataResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 创建 MCP 服务
+      tags:
+      - admin-mcp
+  /admin/mcp/servers/{id}:
+    delete:
+      description: 管理员删除一个 MCP 服务及其工具
+      parameters:
+      - description: MCP 服务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/DeleteServerResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 删除 MCP 服务
+      tags:
+      - admin-mcp
+    patch:
+      consumes:
+      - application/json
+      description: 管理员更新一个 MCP 服务配置
+      parameters:
+      - description: MCP 服务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: MCP 服务配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/CreateServerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ServerDataResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 更新 MCP 服务
+      tags:
+      - admin-mcp
+  /admin/mcp/servers/{id}/sync:
+    post:
+      description: 管理员从 MCP 服务同步工具定义
+      parameters:
+      - description: MCP 服务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 是否用远端元数据覆盖管理员自定义的工具名称和说明
+        in: query
+        name: overwrite_customized_metadata
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ToolListResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 同步 MCP 工具
+      tags:
+      - admin-mcp
+  /admin/mcp/servers/{id}/tools:
+    get:
+      description: 管理员查看指定 MCP 服务已同步的工具
+      parameters:
+      - description: MCP 服务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ToolListResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 获取 MCP 服务工具
+      tags:
+      - admin-mcp
+  /admin/mcp/servers/{id}/tools/status:
+    patch:
+      consumes:
+      - application/json
+      description: 管理员批量启用或停用指定 MCP 服务的工具
+      parameters:
+      - description: MCP 服务 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: MCP 工具状态
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/UpdateServerToolsStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ToolListResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 批量更新 MCP 工具状态
+      tags:
+      - admin-mcp
+  /admin/mcp/servers/order:
+    patch:
+      consumes:
+      - application/json
+      description: 管理员保存 MCP 服务及其工具的展示顺序
+      parameters:
+      - description: MCP 排序配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ReorderServersRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ServerToolOrderListResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 调整 MCP 服务及工具顺序
+      tags:
+      - admin-mcp
+  /admin/mcp/tools/{id}:
+    patch:
+      consumes:
+      - application/json
+      description: 管理员更新 MCP 工具的展示信息、附件处理配置或状态
+      parameters:
+      - description: MCP 工具 ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: MCP 工具配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/UpdateToolRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ToolResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 更新 MCP 工具
+      tags:
+      - admin-mcp
   /admin/models/{modelID}/permission-groups:
     get:
       consumes:
@@ -17746,6 +18386,25 @@ paths:
       summary: 读取模型展示图标
       tags:
       - llm
+  /mcp/tools:
+    get:
+      description: 获取当前聊天侧可选择的 MCP 工具
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ToolListResponseDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/McpErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 获取可用 MCP 工具
+      tags:
+      - mcp
   /me:
     delete:
       consumes:
