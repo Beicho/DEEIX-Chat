@@ -780,21 +780,32 @@ export async function revokeConversationShares(
   );
 }
 
-export async function getSharedConversation(shareID: string): Promise<PublicSharedConversationDTO> {
+function sharePasswordHeaders(password?: string): Record<string, string> | undefined {
+  const normalized = password?.trim();
+  return normalized ? { "X-Share-Password": normalized } : undefined;
+}
+
+export async function getSharedConversation(
+  shareID: string,
+  password?: string,
+): Promise<PublicSharedConversationDTO> {
   return apiRequest<PublicSharedConversationDTO>(
     `/api/v1/shared-conversations/${pathParam(shareID)}`,
+    { headers: sharePasswordHeaders(password) },
   );
 }
 
 export async function cloneSharedConversation(
   accessToken: string,
   shareID: string,
+  password?: string,
 ): Promise<ConversationDTO> {
   return authedRequest<ConversationDTO>(
     `/api/v1/shared-conversations/${pathParam(shareID)}/clone`,
     {
       method: "POST",
       accessToken,
+      body: password?.trim() ? { password: password.trim() } : {},
     },
     true,
   );

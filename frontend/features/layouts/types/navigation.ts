@@ -23,10 +23,10 @@ export type NavigationItem = {
 }
 
 export type ConversationSearchResult = {
-  resultID: string
+  resultID?: string
   publicID: string
   title: string
-  searchText: string
+  searchText?: string
   href: string
   snippet?: string
   messagePublicID?: string
@@ -42,6 +42,7 @@ export type SidebarConversationItem = {
   url: string
   starred?: boolean
   shareActive?: boolean
+  labelsJSON?: string
 }
 
 export type SidebarConversationRenameTarget = {

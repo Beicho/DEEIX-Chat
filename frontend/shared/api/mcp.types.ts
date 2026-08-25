@@ -6,9 +6,9 @@ export type MCPToolDTO = {
   displayName: string;
   description: string;
   inputSchemaJSON: string;
-  attachmentInputMode: "none" | "image" | string;
+  attachmentInputMode: "none" | "image";
   attachmentArgument: string;
-  attachmentEncoding: "" | "base64" | "data_url" | string;
+  attachmentEncoding: "" | "base64" | "data_url";
   attachmentPromptArgument: string;
   status: string;
   sortOrder: number;

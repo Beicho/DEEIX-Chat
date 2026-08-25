@@ -21,10 +21,17 @@ export function toServerConversationSearchResult(
   item: ConversationSearchResultDTO,
   untitled = "New chat",
 ): ConversationSearchResult {
-  const conversation = item.conversation
+  const legacy = item as ConversationSearchResultDTO & {
+    conversation?: ConversationDTO
+    snippet?: string
+    messagePublicID?: string
+    matchedTitle?: boolean
+    matchedAt?: string
+  }
+  const conversation = legacy.conversation ?? item
   const title = conversation.title?.trim() || untitled
-  const snippet = item.snippet?.trim() || ""
-  const messagePublicID = item.messagePublicID?.trim() || ""
+  const snippet = legacy.snippet?.trim() || ""
+  const messagePublicID = legacy.messagePublicID?.trim() || ""
 
   return {
     resultID: messagePublicID ? `${conversation.publicID}:${messagePublicID}` : `${conversation.publicID}:title`,
@@ -34,8 +41,8 @@ export function toServerConversationSearchResult(
     href: `/chat?conversation_id=${conversation.publicID}`,
     snippet,
     messagePublicID,
-    matchedTitle: item.matchedTitle,
-    updatedAt: item.matchedAt || conversation.updatedAt,
+    matchedTitle: legacy.matchedTitle,
+    updatedAt: legacy.matchedAt || conversation.updatedAt,
   }
 }
 
@@ -93,4 +100,3 @@ export function formatUpdatedAtLabel(value: string, formatLabel: UpdatedAtLabelF
 
   return formatLabel(isCurrentYear ? "thisYearDateTime" : "fullDateTime", values)
 }
-

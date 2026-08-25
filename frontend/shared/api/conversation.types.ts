@@ -80,6 +80,7 @@ export type ConversationProjectDTO = Omit<ConversationProjectResponse, "mcpDefau
 
 export type MessageDTO = Omit<
   MessageResponse,
+  | "branchReason"
   | "billingCost"
   | "modelIcon"
   | "modelVendor"
@@ -95,6 +96,7 @@ export type MessageDTO = Omit<
   processTrace?: MessageProcessTraceDTO;
   myFeedback: "up" | "down" | "";
   billingCost?: MessageBillingCostDTO;
+  bookmarked?: boolean;
 };
 
 export type ConversationRunDTO = Omit<RunResponse, "taskType">;
@@ -181,9 +183,20 @@ export type DeleteConversationData = Omit<ConversationDeleteResponse, "quota"> &
   quota?: UserStorageQuotaDTO;
 };
 
-export type CreateConversationShareRequest = ContractCreateConversationShareRequest;
+export type CreateConversationShareRequest = ContractCreateConversationShareRequest & {
+  defaultMessagePublicIDs?: string[];
+  scope?: "current" | "full";
+  expiresInDays?: 0 | 7 | 30;
+  password?: string;
+  includeThinking?: boolean;
+};
 
-export type ConversationShareDTO = ConversationShareResponse;
+export type ConversationShareDTO = ConversationShareResponse & {
+  scope: "current" | "full" | string;
+  hasPassword: boolean;
+  includeThinking: boolean;
+  expiresAt: string | null;
+};
 
 export type RevokeConversationSharesRequest = ContractRevokeConversationSharesRequest;
 
@@ -205,8 +218,20 @@ export type MessageFeedbackResult = Omit<MessageFeedbackResponse, "myFeedback"> 
   myFeedback: "up" | "down" | "";
 };
 
-export type SendMessageRequest = Omit<ContractSendMessageRequest, "options"> & {
+export type SendMessageRequest = Omit<ContractSendMessageRequest, "branchReason" | "options"> & {
   options?: ConversationOptions;
+  selectedToolIDs?: number[];
+  confirmedToolIDs?: number[];
+  webSearchEnabled?: boolean;
+  codeSandboxEnabled?: boolean;
+  researchMaxLLMCalls?: number;
+  researchMaxToolCalls?: number;
+  skillIDs?: number[];
+  htmlVisualPrompt?: boolean;
+  htmlVisualColorMode?: "light" | "dark";
+  assistantID?: string;
+  branchReason?: "default" | "retry" | "edit" | "arena";
+  messageGroupID?: string;
 };
 
 export type MediaImageRequest = {
@@ -218,7 +243,7 @@ export type MediaImageRequest = {
   maskFileID?: string;
   parentMessagePublicID?: string;
   sourceMessagePublicID?: string;
-  branchReason?: "default" | "retry" | "edit";
+  branchReason?: "default" | "retry" | "edit" | "arena";
 };
 
 export type MediaVideoRequest = {
@@ -229,7 +254,7 @@ export type MediaVideoRequest = {
   fileIDs?: string[];
   parentMessagePublicID?: string;
   sourceMessagePublicID?: string;
-  branchReason?: "default" | "retry" | "edit";
+  branchReason?: "default" | "retry" | "edit" | "arena";
 };
 
 export type MediaVideoExtensionRequest = Omit<ContractMediaVideoExtensionRequest, "options"> & {

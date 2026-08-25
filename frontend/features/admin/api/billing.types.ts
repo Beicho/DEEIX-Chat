@@ -132,7 +132,7 @@ export type UpdateAdminBillingConfigRequest = {
   usdToCNYRate?: number;
   displayCurrency?: "USD" | "CNY";
   nativeToolBillingEnabled?: boolean;
-  nativeToolPricing?: NativeToolPricingDTO[];
+  nativeToolPricing?: AdminNativeToolPricingPayload[];
 };
 
 export type AdminBillingConfigData = {

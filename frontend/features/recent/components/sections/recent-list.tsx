@@ -333,7 +333,7 @@ type RecentListProps = {
   shareFilter: ConversationShareFilter;
   rowStates: RecentRowState[];
   isSelectionMode: boolean;
-  loadMoreRef: React.RefObject<HTMLDivElement | null>;
+  loadMoreRef: React.Ref<HTMLDivElement>;
   hasMore: boolean;
   loadMoreFailed: boolean;
   loadingMore: boolean;

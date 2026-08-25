@@ -32,6 +32,7 @@ export type UserDTO = {
   mustResetPassword: boolean;
   initialUsernameRequired: boolean;
   initialSecurityRequired: boolean;
+  identityProviders: UserIdentityProviderSummaryDTO[];
   twoFactorAvailable: boolean;
   twoFactorEnabled: boolean;
   twoFactorRequired: boolean;
@@ -177,7 +178,7 @@ export type LoginOptionsData = {
   turnstileRegistrationEnabled: boolean;
   turnstileSiteKey: string;
   providers: IdentityProviderDTO[];
-  providerAuthBridge: ProviderAuthBridgeResponse;
+  providerAuthBridge?: ProviderAuthBridgeResponse;
 };
 
 export type CompleteEmailRegistrationOptions = {
