@@ -21,69 +21,69 @@ const (
 
 // ConversationTakeout is the portable JSON shape for user-owned conversation data.
 type ConversationTakeout struct {
-	Format             string                           `json:"format,omitempty"`
-	Version            int                              `json:"version"`
-	ExportScope        string                           `json:"exportScope,omitempty"`
-	ExportedAt         time.Time                        `json:"exportedAt,omitempty"`
-	Conversation       ConversationTakeoutConversation  `json:"conversation,omitempty"`
-	Messages           []ConversationTakeoutMessage     `json:"messages,omitempty"`
-	Conversations      []ConversationTakeoutItem        `json:"conversations,omitempty"`
-	TotalConversations int                              `json:"totalConversations,omitempty"`
-	TotalMessages      int                              `json:"totalMessages,omitempty"`
-	Compatibility      ConversationTakeoutCompatibility `json:"compatibility,omitempty"`
+	Format             string
+	Version            int
+	ExportScope        string
+	ExportedAt         time.Time
+	Conversation       ConversationTakeoutConversation
+	Messages           []ConversationTakeoutMessage
+	Conversations      []ConversationTakeoutItem
+	TotalConversations int
+	TotalMessages      int
+	Compatibility      ConversationTakeoutCompatibility
 }
 
 type ConversationTakeoutCompatibility struct {
-	Format string `json:"format"`
-	Notes  string `json:"notes"`
+	Format string
+	Notes  string
 }
 
 type ConversationTakeoutItem struct {
-	Conversation ConversationTakeoutConversation `json:"conversation"`
-	Messages     []ConversationTakeoutMessage    `json:"messages"`
+	Conversation ConversationTakeoutConversation
+	Messages     []ConversationTakeoutMessage
 }
 
 type ConversationTakeoutConversation struct {
-	PublicID   string          `json:"publicID,omitempty"`
-	Title      string          `json:"title"`
-	LabelsJSON string          `json:"labelsJSON,omitempty"`
-	Labels     json.RawMessage `json:"labels,omitempty"`
-	Model      string          `json:"model,omitempty"`
-	Provider   string          `json:"provider,omitempty"`
-	Status     string          `json:"status,omitempty"`
-	CreatedAt  *time.Time      `json:"createdAt,omitempty"`
-	UpdatedAt  *time.Time      `json:"updatedAt,omitempty"`
+	PublicID   string
+	Title      string
+	LabelsJSON string
+	Labels     json.RawMessage
+	Model      string
+	Provider   string
+	Status     string
+	CreatedAt  *time.Time
+	UpdatedAt  *time.Time
 }
 
 type ConversationTakeoutMessage struct {
-	PublicID         string     `json:"publicID,omitempty"`
-	ParentPublicID   string     `json:"parentPublicID,omitempty"`
-	SourcePublicID   string     `json:"sourcePublicID,omitempty"`
-	RunID            string     `json:"runID,omitempty"`
-	Role             string     `json:"role"`
-	ContentType      string     `json:"contentType"`
-	Content          string     `json:"content"`
-	BranchReason     string     `json:"branchReason,omitempty"`
-	TokenUsage       int64      `json:"tokenUsage,omitempty"`
-	InputTokens      int64      `json:"inputTokens,omitempty"`
-	OutputTokens     int64      `json:"outputTokens,omitempty"`
-	CacheReadTokens  int64      `json:"cacheReadTokens,omitempty"`
-	CacheWriteTokens int64      `json:"cacheWriteTokens,omitempty"`
-	ReasoningTokens  int64      `json:"reasoningTokens,omitempty"`
-	LatencyMS        int64      `json:"latencyMS,omitempty"`
-	Status           string     `json:"status,omitempty"`
-	ErrorCode        string     `json:"errorCode,omitempty"`
-	ErrorMessage     string     `json:"errorMessage,omitempty"`
-	Attachments      string     `json:"attachments,omitempty"`
-	EditedAt         *time.Time `json:"editedAt,omitempty"`
-	CreatedAt        *time.Time `json:"createdAt,omitempty"`
-	UpdatedAt        *time.Time `json:"updatedAt,omitempty"`
+	PublicID         string
+	ParentPublicID   string
+	SourcePublicID   string
+	RunID            string
+	Role             string
+	ContentType      string
+	Content          string
+	BranchReason     string
+	TokenUsage       int64
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	ReasoningTokens  int64
+	LatencyMS        int64
+	Status           string
+	ErrorCode        string
+	ErrorMessage     string
+	Attachments      string
+	EditedAt         *time.Time
+	CreatedAt        *time.Time
+	UpdatedAt        *time.Time
 }
 
 type ConversationImportResult struct {
-	ImportedConversationCount int                  `json:"importedConversationCount"`
-	ImportedMessageCount      int                  `json:"importedMessageCount"`
-	Conversations             []model.Conversation `json:"conversations"`
+	ImportedConversationCount int
+	ImportedMessageCount      int
+	Conversations             []model.Conversation
 }
 
 // ExportConversationTakeout exports all visible conversations owned by the current user.

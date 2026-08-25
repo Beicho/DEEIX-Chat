@@ -426,6 +426,13 @@ func validatePatchItem(item PatchItem) error {
 	}
 	value := strings.TrimSpace(item.Value)
 	switch key {
+	case "branding:app_name":
+		return validateStringMax(value, 120, key)
+	case "branding:logo_url", "branding:logo_dark_url":
+		if err := validateStringMax(value, 2048, key); err != nil {
+			return err
+		}
+		return validateOptionalBrandingAssetURL(value, key)
 	case "billing:mode":
 		switch value {
 		case "self", "period", "usage":
@@ -488,6 +495,11 @@ func validatePatchItem(item PatchItem) error {
 		return validateIntMinMax(value, config.MinContextWindowFallbackTokens, config.MaxContextWindowFallbackTokens, key)
 	case "chat:context_compact_trigger_percent":
 		return validateOptionalIntZeroOrMinMax(value, config.MinContextCompactTriggerPercent, config.MaxContextCompactTriggerPercent, key)
+	case "moderation:action":
+		if value != "block" {
+			return fmt.Errorf("%s must be block", key)
+		}
+		return nil
 	case "auth:login_default_next_path":
 		if value == "" {
 			return fmt.Errorf("%s cannot be empty", key)

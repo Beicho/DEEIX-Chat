@@ -35,6 +35,7 @@ import (
 	appsecurity "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/security"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/settings"
 	appskill "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/skill"
+	appstatus "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/status"
 	appsystemevent "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/systemevent"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/usersettings"
@@ -72,6 +73,7 @@ import (
 	securityrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/security"
 	settingsrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/settings"
 	skillrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/skill"
+	statusrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/status"
 	systemeventrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/systemevent"
 	userrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/user"
 	usersettingsrepo "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/persistence/postgres/usersettings"
@@ -409,7 +411,7 @@ func NewApp() (*App, error) {
 	collaborationHandler := collaborationhttp.NewHandler(collaborationService)
 	collaborationModule := collaborationhttp.NewModule(collaborationHandler)
 
-	statusService := statushttp.NewService(db)
+	statusService := appstatus.NewService(statusrepo.NewRepo(db))
 	statusHandler := statushttp.NewHandler(statusService)
 	statusModule := statushttp.NewModule(statusHandler)
 
@@ -530,29 +532,30 @@ func NewApp() (*App, error) {
 	rateLimiter := buildRateLimiter(cfg, redisClient, memoryCache)
 	conversationService.SetModerationRateLimiter(rateLimiter)
 	engine, err := platformhttp.NewEngine(runtimeCfg, log, platformhttp.Modules{
-		Auth:              authModule,
-		AuthService:       authService,
-		Channel:           channelModule,
-		Conversation:      conversationModule,
-		MCP:               mcpModule,
-		Memory:            memoryModule,
-		Security:          securityModule,
-		BrowserProof:      requestProofService,
-		Fingerprint:       fingerprintService,
-		Billing:           billingModule,
-		Admin:             adminModule,
-		ContentModeration: contentModerationModule,
-		Announcement:      announcementModule,
-		Notification:      notificationModule,
-		Collaboration:     collaborationModule,
-		PromptPreset:      promptPresetModule,
-		Skill:             skillModule,
-		KnowledgeBase:     knowledgeBaseModule,
-		Settings:          settingsModule,
-		UserSettings:      userSettingsModule,
-		User:              userModule,
-		Status:            statusModule,
-		Alerting:          alertingModule,
+		Auth:               authModule,
+		AuthService:        authService,
+		Channel:            channelModule,
+		Conversation:       conversationModule,
+		MCP:                mcpModule,
+		Memory:             memoryModule,
+		Security:           securityModule,
+		BrowserProof:       requestProofService,
+		Fingerprint:        fingerprintService,
+		Billing:            billingModule,
+		Admin:              adminModule,
+		ContentModeration:  contentModerationModule,
+		Announcement:       announcementModule,
+		Notification:       notificationModule,
+		Collaboration:      collaborationModule,
+		PromptPreset:       promptPresetModule,
+		Skill:              skillModule,
+		KnowledgeBase:      knowledgeBaseModule,
+		Settings:           settingsModule,
+		UserSettings:       userSettingsModule,
+		User:               userModule,
+		Status:             statusModule,
+		Alerting:           alertingModule,
+		FrontendFileReader: os.ReadFile,
 		StartupLog: func(log *zap.Logger) {
 			if log == nil || bootstrapSuperAdmin == nil {
 				return

@@ -26,20 +26,20 @@ func (h *Handler) ExportConversationTakeout(c *gin.Context) {
 		map[string]interface{}{"conversation_count": item.TotalConversations, "message_count": item.TotalMessages},
 	)
 
-	response.Success(c, item)
+	response.Success(c, toConversationTakeoutPayload(item))
 }
 
 // ImportConversationTakeout imports a previously exported conversation JSON file.
 func (h *Handler) ImportConversationTakeout(c *gin.Context) {
 	userID := middleware.MustUserID(c)
 
-	var req appconversation.ConversationTakeout
+	var req conversationTakeoutPayload
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.InvalidRequestBody(c, err)
 		return
 	}
 
-	result, err := h.service.ImportConversationTakeout(c.Request.Context(), userID, req)
+	result, err := h.service.ImportConversationTakeout(c.Request.Context(), userID, req.toApplication())
 	if err != nil {
 		if errors.Is(err, appconversation.ErrInvalidConversationImport) {
 			response.Error(c, http.StatusBadRequest, "invalid conversation import")

@@ -160,7 +160,6 @@ func systemFallbackProtocols(compatible string) map[string]string {
 			modelKindAudio:     llm.AdapterOpenAIChatCompletions,
 			modelKindImageGen:  protocolOpenAIImageGenerations,
 			modelKindImageEdit: protocolOpenAIImageEdits,
-			modelKindVideoGen:  protocolOpenAIVideoGenerations,
 		}
 	default:
 		return map[string]string{}

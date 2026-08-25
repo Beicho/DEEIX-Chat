@@ -52,7 +52,7 @@ func TestFrontendStaticFallbackServesExportedPage(t *testing.T) {
 	}
 
 	engine := gin.New()
-	registerFrontendStatic(engine, root, nil, nil)
+	registerFrontendStatic(engine, root, nil, nil, os.ReadFile)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/chat?conversation_id=demo", nil)
@@ -93,7 +93,7 @@ func TestFrontendSharePathServesExportedSharePageWithOpenGraphMetadata(t *testin
 	registerFrontendStatic(engine, root, nil, fakeShareMetadataProvider{
 		title:       "Team plan",
 		description: `Use "alpha" < beta & ship.`,
-	})
+	}, os.ReadFile)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "https://chat.example/share/abc123", nil)
@@ -131,7 +131,7 @@ func TestFrontendShareQueryServesExportedSharePageWithCanonicalOpenGraphURL(t *t
 	registerFrontendStatic(engine, root, nil, fakeShareMetadataProvider{
 		title:       "Legacy link",
 		description: "Legacy description",
-	})
+	}, os.ReadFile)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "https://chat.example/share?conversation_id=legacy-id", nil)
@@ -165,7 +165,7 @@ func TestFrontendStaticFallbackUsesAcceptLanguageLocaleDirectory(t *testing.T) {
 	}
 
 	engine := gin.New()
-	registerFrontendStatic(engine, root, nil, nil)
+	registerFrontendStatic(engine, root, nil, nil, os.ReadFile)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/chat", nil)
@@ -202,7 +202,7 @@ func TestFrontendStaticFallbackCookieLocaleBeatsAcceptLanguage(t *testing.T) {
 	}
 
 	engine := gin.New()
-	registerFrontendStatic(engine, root, nil, nil)
+	registerFrontendStatic(engine, root, nil, nil, os.ReadFile)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -226,7 +226,7 @@ func TestFrontendStaticCachesNextExportData(t *testing.T) {
 	}
 
 	engine := gin.New()
-	registerFrontendStatic(engine, root, nil, nil)
+	registerFrontendStatic(engine, root, nil, nil, os.ReadFile)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/__next._tree.txt?conversation_id=demo&_rsc=abc", nil)
@@ -252,7 +252,7 @@ func TestFrontendStaticCachesImmutableBuildAssets(t *testing.T) {
 	}
 
 	engine := gin.New()
-	registerFrontendStatic(engine, root, nil, nil)
+	registerFrontendStatic(engine, root, nil, nil, os.ReadFile)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/_next/static/chunks/app.js", nil)
@@ -277,7 +277,7 @@ func TestFrontendStaticFallbackSkipsAPIPaths(t *testing.T) {
 	}
 
 	engine := gin.New()
-	registerFrontendStatic(engine, root, nil, nil)
+	registerFrontendStatic(engine, root, nil, nil, os.ReadFile)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/missing", nil)

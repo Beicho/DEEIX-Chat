@@ -1,20 +1,26 @@
 package status
 
 import (
+	"context"
 	"net/http"
 	"time"
 
+	domainstatus "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/status"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/response"
 	"github.com/gin-gonic/gin"
 )
 
 // Handler 处理公开状态页请求。
 type Handler struct {
-	service *Service
+	service modelStatusService
+}
+
+type modelStatusService interface {
+	GetModelsStatus(ctx context.Context) (*domainstatus.ModelsStatus, error)
 }
 
 // NewHandler 创建状态页 handler。
-func NewHandler(service *Service) *Handler {
+func NewHandler(service modelStatusService) *Handler {
 	return &Handler{service: service}
 }
 
@@ -36,7 +42,7 @@ func (h *Handler) GetModelsStatus(c *gin.Context) {
 
 	// 设置公开缓存头
 	c.Header("Cache-Control", "public, max-age=60, stale-while-revalidate=120")
-	c.JSON(http.StatusOK, status)
+	c.JSON(http.StatusOK, toModelsStatusResponse(status))
 }
 
 // ModelsStatusResponse 表示模型状态响应。
@@ -52,4 +58,17 @@ type ModelStatusDetail struct {
 	Availability float64   `json:"availability"` // 0.0-1.0
 	Status       string    `json:"status"`       // "operational" | "degraded" | "down"
 	LastChecked  time.Time `json:"lastChecked"`
+}
+
+func toModelsStatusResponse(value *domainstatus.ModelsStatus) ModelsStatusResponse {
+	if value == nil {
+		return ModelsStatusResponse{Models: []ModelStatusDetail{}}
+	}
+	models := make([]ModelStatusDetail, 0, len(value.Models))
+	for _, item := range value.Models {
+		models = append(models, ModelStatusDetail{
+			ModelName: item.ModelName, Availability: item.Availability, Status: item.Status, LastChecked: item.LastChecked,
+		})
+	}
+	return ModelsStatusResponse{OverallStatus: value.OverallStatus, LastUpdated: value.LastUpdated, Models: models}
 }

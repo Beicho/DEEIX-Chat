@@ -181,6 +181,12 @@ func buildConversationFileContextPlan(
 	}
 	for _, item := range attachments {
 		kind := normalizeAttachmentKind(item.Kind, item.DetectedMIME)
+		if kind == "video" || item.FileCategory == fileCategoryVideo {
+			item.ContextMode = fileContextModeSkipped
+			plan.Attachments = append(plan.Attachments, item)
+			plan.Skipped = append(plan.Skipped, item)
+			continue
+		}
 		if kind == "image" && (item.Current || strings.EqualFold(strings.TrimSpace(item.MessageRole), "user")) {
 			item.ContextMode = fileContextModeDirectImage
 			plan.Attachments = append(plan.Attachments, item)
@@ -366,7 +372,7 @@ func splitRetrievalFallbackAttachments(items []AttachmentInput, cfg config.Confi
 }
 
 func truncateAttachmentForFullContextFallback(item AttachmentInput, cfg config.Config) (AttachmentInput, bool) {
-	if item.FileCategory == fileCategoryImage {
+	if item.FileCategory == fileCategoryImage || item.FileCategory == fileCategoryVideo {
 		return AttachmentInput{}, false
 	}
 	text := strings.TrimSpace(item.ExtractedText)

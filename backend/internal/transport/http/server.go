@@ -59,30 +59,31 @@ type HealthChecker interface {
 
 // Modules 聚合可注册的业务模块。
 type Modules struct {
-	Auth              *authhttp.Module
-	AuthService       middleware.SessionValidator
-	Channel           *channelhttp.Module
-	Conversation      *conversationhttp.Module
-	MCP               *mcphttp.Module
-	Memory            *memoryhttp.Module
-	Security          *securityhttp.Module
-	BrowserProof      middleware.BrowserProofVerifier
-	Fingerprint       middleware.FingerprintRecorder
-	Billing           *billinghttp.Module
-	Admin             *adminhttp.Module
-	ContentModeration *contentmoderationhttp.Module
-	Announcement      *announcementhttp.Module
-	Notification      *notificationhttp.Module
-	Collaboration     *collaborationhttp.Module
-	PromptPreset      *promptpresethttp.Module
-	Skill             *skillhttp.Module
-	KnowledgeBase     *knowledgebasehttp.Module
-	Settings          *settingshttp.Module
-	User              *userhttp.Module
-	UserSettings      *usersettingshttp.Module
-	Status            *statushttp.Module
-	Alerting          *alertinghttp.Module
-	StartupLog        func(*zap.Logger)
+	Auth               *authhttp.Module
+	AuthService        middleware.SessionValidator
+	Channel            *channelhttp.Module
+	Conversation       *conversationhttp.Module
+	MCP                *mcphttp.Module
+	Memory             *memoryhttp.Module
+	Security           *securityhttp.Module
+	BrowserProof       middleware.BrowserProofVerifier
+	Fingerprint        middleware.FingerprintRecorder
+	Billing            *billinghttp.Module
+	Admin              *adminhttp.Module
+	ContentModeration  *contentmoderationhttp.Module
+	Announcement       *announcementhttp.Module
+	Notification       *notificationhttp.Module
+	Collaboration      *collaborationhttp.Module
+	PromptPreset       *promptpresethttp.Module
+	Skill              *skillhttp.Module
+	KnowledgeBase      *knowledgebasehttp.Module
+	Settings           *settingshttp.Module
+	User               *userhttp.Module
+	UserSettings       *usersettingshttp.Module
+	Status             *statushttp.Module
+	Alerting           *alertinghttp.Module
+	FrontendFileReader func(string) ([]byte, error)
+	StartupLog         func(*zap.Logger)
 }
 
 type frontendShareMetadataProvider interface {
@@ -277,12 +278,12 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.Settings != nil {
 		modules.Settings.RegisterFrontendRoutes(engine)
 	}
-	registerFrontendStatic(engine, snapshot.FrontendDistDir, log, modules.Conversation)
+	registerFrontendStatic(engine, snapshot.FrontendDistDir, log, modules.Conversation, modules.FrontendFileReader)
 
 	return engine, nil
 }
 
-func registerFrontendStatic(engine *gin.Engine, distDir string, log *zap.Logger, shareMetadata frontendShareMetadataProvider) {
+func registerFrontendStatic(engine *gin.Engine, distDir string, log *zap.Logger, shareMetadata frontendShareMetadataProvider, readFile func(string) ([]byte, error)) {
 	root := strings.TrimSpace(distDir)
 	if root == "" {
 		return
@@ -326,7 +327,7 @@ func registerFrontendStatic(engine *gin.Engine, distDir string, log *zap.Logger,
 			if filePath, ok := resolveFrontendSharePageFile(frontendRoots); ok {
 				c.Header("Cache-Control", "no-cache")
 				applyFrontendLocaleVary(c)
-				serveFrontendSharePage(c, filePath, shareID, shareMetadata)
+				serveFrontendSharePage(c, filePath, shareID, shareMetadata, readFile)
 				return
 			}
 		}
@@ -388,8 +389,12 @@ func resolveFrontendSharePageFile(roots []string) (string, bool) {
 	return "", false
 }
 
-func serveFrontendSharePage(c *gin.Context, filePath string, shareID string, provider frontendShareMetadataProvider) {
-	body, err := os.ReadFile(filePath)
+func serveFrontendSharePage(c *gin.Context, filePath string, shareID string, provider frontendShareMetadataProvider, readFile func(string) ([]byte, error)) {
+	if readFile == nil {
+		c.File(filePath)
+		return
+	}
+	body, err := readFile(filePath)
 	if err != nil {
 		c.File(filePath)
 		return

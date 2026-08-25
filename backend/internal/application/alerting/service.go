@@ -50,12 +50,12 @@ type Config struct {
 
 // ConfigView 是返回给管理端的脱敏配置视图。
 type ConfigView struct {
-	Enabled            bool     `json:"enabled"`
-	EnabledNotifiers   []string `json:"enabledNotifiers"`
-	TelegramConfigured bool     `json:"telegramConfigured"`
-	TelegramChatID     string   `json:"telegramChatId"`
-	WebhookConfigured  bool     `json:"webhookConfigured"`
-	DebounceSeconds    int      `json:"debounceSeconds"`
+	Enabled            bool
+	EnabledNotifiers   []string
+	TelegramConfigured bool
+	TelegramChatID     string
+	WebhookConfigured  bool
+	DebounceSeconds    int
 }
 
 // Service 协调告警配置、去抖与多通道分发。

@@ -1,17 +1,21 @@
 package security
 
-import "errors"
+import (
+	"errors"
+
+	domainsecurity "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/security"
+)
 
 var (
-	ErrPoWStoreUnavailable          = errors.New("pow store unavailable")
-	ErrPoWChallengeNotFound         = errors.New("pow challenge not found")
+	ErrPoWStoreUnavailable          = domainsecurity.ErrPoWStoreUnavailable
+	ErrPoWChallengeNotFound         = domainsecurity.ErrPoWChallengeNotFound
 	ErrPoWChallengeExpired          = errors.New("pow challenge expired")
 	ErrPoWChallengeReplay           = errors.New("pow challenge replay")
 	ErrPoWActionMismatch            = errors.New("pow action mismatch")
 	ErrPoWInvalidDifficulty         = errors.New("pow difficulty invalid")
 	ErrPoWInvalidProof              = errors.New("pow proof invalid")
-	ErrBrowserKeyNotFound           = errors.New("browser key not found")
-	ErrBrowserKeyRevoked            = errors.New("browser key revoked")
+	ErrBrowserKeyNotFound           = domainsecurity.ErrBrowserKeyNotFound
+	ErrBrowserKeyRevoked            = domainsecurity.ErrBrowserKeyRevoked
 	ErrBrowserKeyInvalid            = errors.New("browser key invalid")
 	ErrRequestProofMissing          = errors.New("request proof missing")
 	ErrRequestProofSession          = errors.New("request proof session mismatch")

@@ -1,6 +1,25 @@
 package security
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var (
+	ErrPoWStoreUnavailable  = errors.New("pow store unavailable")
+	ErrPoWChallengeNotFound = errors.New("pow challenge not found")
+	ErrBrowserKeyNotFound   = errors.New("browser key not found")
+	ErrBrowserKeyRevoked    = errors.New("browser key revoked")
+)
+
+// StoredPoWChallenge is the persistence representation of an issued challenge.
+type StoredPoWChallenge struct {
+	Challenge  string
+	UserID     uint
+	Action     string
+	Difficulty int
+	ExpiresAt  time.Time
+}
 
 // PoWChallenge is a short-lived proof-of-work challenge issued by the server.
 type PoWChallenge struct {

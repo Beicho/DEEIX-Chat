@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	sharedsecurity "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/shared/security"
 )
 
 const (
@@ -27,9 +29,10 @@ const (
 
 // NewAPIClientConfig configures the NewAPI bridge client.
 type NewAPIClientConfig struct {
-	BaseURL string
-	HMACKey string
-	Timeout time.Duration
+	BaseURL        string
+	HMACKey        string
+	Timeout        time.Duration
+	OutboundPolicy sharedsecurity.OutboundPolicy
 }
 
 // NewAPIClient calls NewAPI's HMAC-protected bridge API.
@@ -58,11 +61,9 @@ func NewNewAPIClient(cfg NewAPIClientConfig) *NewAPIClient {
 		timeout = 10 * time.Second
 	}
 	return &NewAPIClient{
-		baseURL: strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
-		hmacKey: strings.TrimSpace(cfg.HMACKey),
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		baseURL:    strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
+		hmacKey:    strings.TrimSpace(cfg.HMACKey),
+		httpClient: sharedsecurity.NewOutboundHTTPClient(cfg.OutboundPolicy, timeout),
 	}
 }
 

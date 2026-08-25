@@ -520,6 +520,9 @@ func (r *RuntimeSettings) normalizeConfig(cfg *config.Config) {
 		(cfg.ContextCompactTriggerPercent > 0 && cfg.ContextCompactTriggerPercent < config.MinContextCompactTriggerPercent) {
 		cfg.ContextCompactTriggerPercent = config.DefaultContextCompactTriggerPercent
 	}
+	if strings.TrimSpace(cfg.ModerationAction) != "block" {
+		cfg.ModerationAction = "block"
+	}
 	if cfg.MCPMaxSelectedToolsPerMessage <= 0 {
 		cfg.MCPMaxSelectedToolsPerMessage = config.DefaultMCPMaxSelectedToolsPerMessage
 	}

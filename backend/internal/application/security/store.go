@@ -7,13 +7,7 @@ import (
 	domainsecurity "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/security"
 )
 
-type StoredPoWChallenge struct {
-	Challenge  string
-	UserID     uint
-	Action     string
-	Difficulty int
-	ExpiresAt  time.Time
-}
+type StoredPoWChallenge = domainsecurity.StoredPoWChallenge
 
 // ProofStore hides Redis/Postgres details from proof verification logic.
 type ProofStore interface {

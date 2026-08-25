@@ -1280,7 +1280,7 @@ func (r *Repo) GetAdminCheckInStats(ctx context.Context, activeSince time.Time) 
 		SELECT COALESCE(count(DISTINCT user_id), 0)
 		FROM billing_checkin_records
 		WHERE deleted_at IS NULL
-		  AND check_in_date >= CAST(? AS date)`
+		  AND check_in_date >= ?`
 	if err := r.db.WithContext(ctx).Raw(activeSQL, activeSince).Scan(&stats.ActiveUsersLast7Days).Error; err != nil {
 		return nil, translateError(err)
 	}

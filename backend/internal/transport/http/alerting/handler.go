@@ -14,6 +14,26 @@ type Handler struct {
 	service *appalerting.Service
 }
 
+type configResponse struct {
+	Enabled            bool     `json:"enabled"`
+	EnabledNotifiers   []string `json:"enabledNotifiers"`
+	TelegramConfigured bool     `json:"telegramConfigured"`
+	TelegramChatID     string   `json:"telegramChatId"`
+	WebhookConfigured  bool     `json:"webhookConfigured"`
+	DebounceSeconds    int      `json:"debounceSeconds"`
+}
+
+func toConfigResponse(view appalerting.ConfigView) configResponse {
+	return configResponse{
+		Enabled:            view.Enabled,
+		EnabledNotifiers:   view.EnabledNotifiers,
+		TelegramConfigured: view.TelegramConfigured,
+		TelegramChatID:     view.TelegramChatID,
+		WebhookConfigured:  view.WebhookConfigured,
+		DebounceSeconds:    view.DebounceSeconds,
+	}
+}
+
 // NewHandler 创建处理器。
 func NewHandler(service *appalerting.Service) *Handler {
 	return &Handler{service: service}
@@ -32,7 +52,7 @@ func (h *Handler) GetConfig(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "load alerting config failed")
 		return
 	}
-	response.Success(c, view)
+	response.Success(c, toConfigResponse(view))
 }
 
 // UpdateConfig godoc
@@ -58,7 +78,7 @@ func (h *Handler) UpdateConfig(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "update alerting config failed")
 		return
 	}
-	response.Success(c, view)
+	response.Success(c, toConfigResponse(view))
 }
 
 // TestTelegram godoc
