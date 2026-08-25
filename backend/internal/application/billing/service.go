@@ -2517,6 +2517,27 @@ func (s *Service) ListUsageLogs(ctx context.Context, page int, pageSize int, fil
 	}, offset, limit)
 }
 
+// GetAdminDashboardStats returns today's usage and sales aggregates.
+func (s *Service) GetAdminDashboardStats(ctx context.Context, now time.Time) (*domainbilling.AdminDashboardStats, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	now = now.UTC()
+	startAt := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	endAt := startAt.Add(24 * time.Hour)
+	stats, err := s.repo.GetAdminDashboardStats(ctx, startAt, endAt, 8)
+	if err != nil {
+		return nil, err
+	}
+	if stats == nil {
+		stats = &domainbilling.AdminDashboardStats{}
+	}
+	stats.GeneratedAt = now
+	stats.PeriodStart = startAt
+	stats.PeriodEnd = endAt
+	return stats, nil
+}
+
 // UsageStatisticsFilter 描述管理员仪表盘的用量统计条件。
 type UsageStatisticsFilter struct {
 	StartDate         time.Time

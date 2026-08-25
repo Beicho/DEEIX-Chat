@@ -297,6 +297,39 @@ func (r *Repo) CountPlansWithPermissionGroup(ctx context.Context, groupID uint) 
 	return count, nil
 }
 
+// DeletePlan 软删除套餐并停用其价格。
+func (r *Repo) DeletePlan(ctx context.Context, planID uint) error {
+	if planID == 0 {
+		return repository.ErrInvalidInput
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var activeSubscriptions int64
+		if err := tx.Model(&model.Subscription{}).
+			Where("plan_id = ? AND status = ?", planID, "active").
+			Count(&activeSubscriptions).Error; err != nil {
+			return translateError(err)
+		}
+		if activeSubscriptions > 0 {
+			return repository.ErrInvalidInput
+		}
+		if err := tx.Model(&model.BillingPrice{}).
+			Where("plan_id = ?", planID).
+			Update("is_active", false).Error; err != nil {
+			return translateError(err)
+		}
+		result := tx.Model(&model.BillingPlan{}).
+			Where("id = ?", planID).
+			Update("is_active", false)
+		if result.Error != nil {
+			return translateError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return repository.ErrNotFound
+		}
+		return nil
+	})
+}
+
 // ListCurrentSubscriptionsByUserIDs 查询一批用户当前有效的活跃订阅。
 func (r *Repo) ListCurrentSubscriptionsByUserIDs(
 	ctx context.Context,
