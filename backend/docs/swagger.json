@@ -19684,7 +19684,15 @@
             "type": "object",
             "required": [
                 "baseURL",
-                "name"
+                "name",
+                "oauthAccessToken",
+                "oauthAuthURL",
+                "oauthClientID",
+                "oauthClientSecret",
+                "oauthRefreshToken",
+                "oauthScopes",
+                "oauthTokenURL",
+                "timeoutSeconds"
             ],
             "properties": {
                 "authToken": {
@@ -19699,8 +19707,32 @@
                 "name": {
                     "type": "string"
                 },
+                "oauthAccessToken": {
+                    "type": "string"
+                },
+                "oauthAuthURL": {
+                    "type": "string"
+                },
+                "oauthClientID": {
+                    "type": "string"
+                },
+                "oauthClientSecret": {
+                    "type": "string"
+                },
+                "oauthRefreshToken": {
+                    "type": "string"
+                },
+                "oauthScopes": {
+                    "type": "string"
+                },
+                "oauthTokenURL": {
+                    "type": "string"
+                },
                 "status": {
                     "type": "string"
+                },
+                "timeoutSeconds": {
+                    "type": "integer"
                 }
             }
         },
@@ -25852,9 +25884,17 @@
                 "lastError",
                 "lastSyncedAt",
                 "name",
+                "oauthAuthURL",
+                "oauthClientID",
+                "oauthScopes",
+                "oauthStatus",
+                "oauthTokenURL",
+                "ownerUserID",
                 "requiresToolMetadataSyncConfirmation",
+                "scope",
                 "sortOrder",
                 "status",
+                "timeoutSeconds",
                 "toolCount",
                 "updatedAt"
             ],
@@ -25885,14 +25925,38 @@
                 "name": {
                     "type": "string"
                 },
+                "oauthAuthURL": {
+                    "type": "string"
+                },
+                "oauthClientID": {
+                    "type": "string"
+                },
+                "oauthScopes": {
+                    "type": "string"
+                },
+                "oauthStatus": {
+                    "type": "string"
+                },
+                "oauthTokenURL": {
+                    "type": "string"
+                },
+                "ownerUserID": {
+                    "type": "integer"
+                },
                 "requiresToolMetadataSyncConfirmation": {
                     "type": "boolean"
+                },
+                "scope": {
+                    "type": "string"
                 },
                 "sortOrder": {
                     "type": "integer"
                 },
                 "status": {
                     "type": "string"
+                },
+                "timeoutSeconds": {
+                    "type": "integer"
                 },
                 "toolCount": {
                     "type": "integer"
@@ -26806,15 +26870,18 @@
                 "attachmentInputMode",
                 "attachmentPromptArgument",
                 "createdAt",
+                "defaultEnabled",
                 "description",
                 "displayName",
                 "id",
                 "inputSchemaJSON",
                 "name",
+                "requiresConfirmation",
                 "serverID",
                 "serverName",
                 "sortOrder",
                 "status",
+                "toolKind",
                 "updatedAt"
             ],
             "properties": {
@@ -26842,6 +26909,9 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "defaultEnabled": {
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -26857,6 +26927,9 @@
                 "name": {
                     "type": "string"
                 },
+                "requiresConfirmation": {
+                    "type": "boolean"
+                },
                 "serverID": {
                     "type": "integer"
                 },
@@ -26867,6 +26940,9 @@
                     "type": "integer"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "toolKind": {
                     "type": "string"
                 },
                 "updatedAt": {
@@ -27330,6 +27406,10 @@
         },
         "UpdateToolRequest": {
             "type": "object",
+            "required": [
+                "defaultEnabled",
+                "requiresConfirmation"
+            ],
             "properties": {
                 "attachmentArgument": {
                     "type": "string"
@@ -27351,11 +27431,17 @@
                 "attachmentPromptArgument": {
                     "type": "string"
                 },
+                "defaultEnabled": {
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
                 "displayName": {
                     "type": "string"
+                },
+                "requiresConfirmation": {
+                    "type": "boolean"
                 },
                 "status": {
                     "type": "string"

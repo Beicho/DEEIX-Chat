@@ -3288,11 +3288,35 @@ definitions:
         type: string
       name:
         type: string
+      oauthAccessToken:
+        type: string
+      oauthAuthURL:
+        type: string
+      oauthClientID:
+        type: string
+      oauthClientSecret:
+        type: string
+      oauthRefreshToken:
+        type: string
+      oauthScopes:
+        type: string
+      oauthTokenURL:
+        type: string
       status:
         type: string
+      timeoutSeconds:
+        type: integer
     required:
     - baseURL
     - name
+    - oauthAccessToken
+    - oauthAuthURL
+    - oauthClientID
+    - oauthClientSecret
+    - oauthRefreshToken
+    - oauthScopes
+    - oauthTokenURL
+    - timeoutSeconds
     type: object
   CreateUpstreamRequest:
     properties:
@@ -7606,12 +7630,28 @@ definitions:
         x-omitempty: false
       name:
         type: string
+      oauthAuthURL:
+        type: string
+      oauthClientID:
+        type: string
+      oauthScopes:
+        type: string
+      oauthStatus:
+        type: string
+      oauthTokenURL:
+        type: string
+      ownerUserID:
+        type: integer
       requiresToolMetadataSyncConfirmation:
         type: boolean
+      scope:
+        type: string
       sortOrder:
         type: integer
       status:
         type: string
+      timeoutSeconds:
+        type: integer
       toolCount:
         type: integer
       updatedAt:
@@ -7625,9 +7665,17 @@ definitions:
     - lastError
     - lastSyncedAt
     - name
+    - oauthAuthURL
+    - oauthClientID
+    - oauthScopes
+    - oauthStatus
+    - oauthTokenURL
+    - ownerUserID
     - requiresToolMetadataSyncConfirmation
+    - scope
     - sortOrder
     - status
+    - timeoutSeconds
     - toolCount
     - updatedAt
     type: object
@@ -8273,6 +8321,8 @@ definitions:
         type: string
       createdAt:
         type: string
+      defaultEnabled:
+        type: boolean
       description:
         type: string
       displayName:
@@ -8283,6 +8333,8 @@ definitions:
         type: string
       name:
         type: string
+      requiresConfirmation:
+        type: boolean
       serverID:
         type: integer
       serverName:
@@ -8290,6 +8342,8 @@ definitions:
       sortOrder:
         type: integer
       status:
+        type: string
+      toolKind:
         type: string
       updatedAt:
         type: string
@@ -8299,15 +8353,18 @@ definitions:
     - attachmentInputMode
     - attachmentPromptArgument
     - createdAt
+    - defaultEnabled
     - description
     - displayName
     - id
     - inputSchemaJSON
     - name
+    - requiresConfirmation
     - serverID
     - serverName
     - sortOrder
     - status
+    - toolKind
     - updatedAt
     type: object
   ToolResponseDoc:
@@ -8645,12 +8702,19 @@ definitions:
         type: string
       attachmentPromptArgument:
         type: string
+      defaultEnabled:
+        type: boolean
       description:
         type: string
       displayName:
         type: string
+      requiresConfirmation:
+        type: boolean
       status:
         type: string
+    required:
+    - defaultEnabled
+    - requiresConfirmation
     type: object
   UpdateUpstreamRequest:
     properties:

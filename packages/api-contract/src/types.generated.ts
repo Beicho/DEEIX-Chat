@@ -1405,7 +1405,15 @@ export interface CreateServerRequest {
   baseURL: string;
   headersJSON?: string;
   name: string;
+  oauthAccessToken: string;
+  oauthAuthURL: string;
+  oauthClientID: string;
+  oauthClientSecret: string;
+  oauthRefreshToken: string;
+  oauthScopes: string;
+  oauthTokenURL: string;
   status?: string;
+  timeoutSeconds: number;
 }
 
 export interface CreateUpstreamRequest {
@@ -3374,9 +3382,17 @@ export interface ServerResponse {
   lastError: string;
   lastSyncedAt: string | null;
   name: string;
+  oauthAuthURL: string;
+  oauthClientID: string;
+  oauthScopes: string;
+  oauthStatus: string;
+  oauthTokenURL: string;
+  ownerUserID: number;
   requiresToolMetadataSyncConfirmation: boolean;
+  scope: string;
   sortOrder: number;
   status: string;
+  timeoutSeconds: number;
   toolCount: number;
   updatedAt: string;
 }
@@ -3679,15 +3695,18 @@ export interface ToolResponse {
   attachmentInputMode: "none" | "image";
   attachmentPromptArgument: string;
   createdAt: string;
+  defaultEnabled: boolean;
   description: string;
   displayName: string;
   id: number;
   inputSchemaJSON: string;
   name: string;
+  requiresConfirmation: boolean;
   serverID: number;
   serverName: string;
   sortOrder: number;
   status: string;
+  toolKind: string;
   updatedAt: string;
 }
 
@@ -3879,8 +3898,10 @@ export interface UpdateToolRequest {
   attachmentEncoding?: "base64" | "data_url";
   attachmentInputMode?: "none" | "image";
   attachmentPromptArgument?: string;
+  defaultEnabled: boolean;
   description?: string;
   displayName?: string;
+  requiresConfirmation: boolean;
   status?: string;
 }
 

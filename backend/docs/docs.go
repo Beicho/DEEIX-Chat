@@ -19691,7 +19691,15 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "baseURL",
-                "name"
+                "name",
+                "oauthAccessToken",
+                "oauthAuthURL",
+                "oauthClientID",
+                "oauthClientSecret",
+                "oauthRefreshToken",
+                "oauthScopes",
+                "oauthTokenURL",
+                "timeoutSeconds"
             ],
             "properties": {
                 "authToken": {
@@ -19706,8 +19714,32 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "oauthAccessToken": {
+                    "type": "string"
+                },
+                "oauthAuthURL": {
+                    "type": "string"
+                },
+                "oauthClientID": {
+                    "type": "string"
+                },
+                "oauthClientSecret": {
+                    "type": "string"
+                },
+                "oauthRefreshToken": {
+                    "type": "string"
+                },
+                "oauthScopes": {
+                    "type": "string"
+                },
+                "oauthTokenURL": {
+                    "type": "string"
+                },
                 "status": {
                     "type": "string"
+                },
+                "timeoutSeconds": {
+                    "type": "integer"
                 }
             }
         },
@@ -25859,9 +25891,17 @@ const docTemplate = `{
                 "lastError",
                 "lastSyncedAt",
                 "name",
+                "oauthAuthURL",
+                "oauthClientID",
+                "oauthScopes",
+                "oauthStatus",
+                "oauthTokenURL",
+                "ownerUserID",
                 "requiresToolMetadataSyncConfirmation",
+                "scope",
                 "sortOrder",
                 "status",
+                "timeoutSeconds",
                 "toolCount",
                 "updatedAt"
             ],
@@ -25892,14 +25932,38 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "oauthAuthURL": {
+                    "type": "string"
+                },
+                "oauthClientID": {
+                    "type": "string"
+                },
+                "oauthScopes": {
+                    "type": "string"
+                },
+                "oauthStatus": {
+                    "type": "string"
+                },
+                "oauthTokenURL": {
+                    "type": "string"
+                },
+                "ownerUserID": {
+                    "type": "integer"
+                },
                 "requiresToolMetadataSyncConfirmation": {
                     "type": "boolean"
+                },
+                "scope": {
+                    "type": "string"
                 },
                 "sortOrder": {
                     "type": "integer"
                 },
                 "status": {
                     "type": "string"
+                },
+                "timeoutSeconds": {
+                    "type": "integer"
                 },
                 "toolCount": {
                     "type": "integer"
@@ -26813,15 +26877,18 @@ const docTemplate = `{
                 "attachmentInputMode",
                 "attachmentPromptArgument",
                 "createdAt",
+                "defaultEnabled",
                 "description",
                 "displayName",
                 "id",
                 "inputSchemaJSON",
                 "name",
+                "requiresConfirmation",
                 "serverID",
                 "serverName",
                 "sortOrder",
                 "status",
+                "toolKind",
                 "updatedAt"
             ],
             "properties": {
@@ -26849,6 +26916,9 @@ const docTemplate = `{
                 "createdAt": {
                     "type": "string"
                 },
+                "defaultEnabled": {
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -26864,6 +26934,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "requiresConfirmation": {
+                    "type": "boolean"
+                },
                 "serverID": {
                     "type": "integer"
                 },
@@ -26874,6 +26947,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "toolKind": {
                     "type": "string"
                 },
                 "updatedAt": {
@@ -27337,6 +27413,10 @@ const docTemplate = `{
         },
         "UpdateToolRequest": {
             "type": "object",
+            "required": [
+                "defaultEnabled",
+                "requiresConfirmation"
+            ],
             "properties": {
                 "attachmentArgument": {
                     "type": "string"
@@ -27358,11 +27438,17 @@ const docTemplate = `{
                 "attachmentPromptArgument": {
                     "type": "string"
                 },
+                "defaultEnabled": {
+                    "type": "boolean"
+                },
                 "description": {
                     "type": "string"
                 },
                 "displayName": {
                     "type": "string"
+                },
+                "requiresConfirmation": {
+                    "type": "boolean"
                 },
                 "status": {
                     "type": "string"
