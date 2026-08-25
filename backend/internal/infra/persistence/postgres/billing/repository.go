@@ -1268,20 +1268,20 @@ func (r *Repo) SetCheckInRewardNanousd(ctx context.Context, rewardNanousd int64)
 // GetAdminCheckInStats returns aggregate check-in metrics for admin pages.
 func (r *Repo) GetAdminCheckInStats(ctx context.Context, activeSince time.Time) (*domainbilling.AdminCheckInStats, error) {
 	stats := &domainbilling.AdminCheckInStats{}
-	todaySQL := `
-		SELECT COALESCE(count(DISTINCT user_id), 0)
-		FROM billing_checkin_records
-		WHERE deleted_at IS NULL
-		  AND check_in_date = CAST(? AS date)`
-	if err := r.db.WithContext(ctx).Raw(todaySQL, activeSince.AddDate(0, 0, 6)).Scan(&stats.TodayCheckIns).Error; err != nil {
+	activeStart := dateOnly(activeSince)
+	todayStart := activeStart.AddDate(0, 0, 6)
+	if err := r.db.WithContext(ctx).
+		Model(&model.CheckInRecord{}).
+		Where("check_in_date >= ? AND check_in_date < ?", todayStart, todayStart.AddDate(0, 0, 1)).
+		Distinct("user_id").
+		Count(&stats.TodayCheckIns).Error; err != nil {
 		return nil, translateError(err)
 	}
-	activeSQL := `
-		SELECT COALESCE(count(DISTINCT user_id), 0)
-		FROM billing_checkin_records
-		WHERE deleted_at IS NULL
-		  AND check_in_date >= ?`
-	if err := r.db.WithContext(ctx).Raw(activeSQL, activeSince).Scan(&stats.ActiveUsersLast7Days).Error; err != nil {
+	if err := r.db.WithContext(ctx).
+		Model(&model.CheckInRecord{}).
+		Where("check_in_date >= ?", activeStart).
+		Distinct("user_id").
+		Count(&stats.ActiveUsersLast7Days).Error; err != nil {
 		return nil, translateError(err)
 	}
 	totalSQL := `
