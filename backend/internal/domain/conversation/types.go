@@ -233,6 +233,7 @@ type Message struct {
 	BilledNanousd            int64
 	PricingSnapshot          string
 	Status                   string
+	Bookmarked               bool
 	ErrorCode                string
 	ErrorMessage             string
 	ModerationEventID        string

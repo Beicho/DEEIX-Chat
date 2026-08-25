@@ -100,6 +100,11 @@ const (
 	BalanceTransactionTypeAdminSet = "admin_set"
 	// BalanceTransactionTypeRedemption 表示兑换码入账。
 	BalanceTransactionTypeRedemption = "redemption"
+	// BalanceTransactionTypeCheckIn 表示每日签到奖励入账。
+	BalanceTransactionTypeCheckIn = "checkin"
+
+	// BalanceTransactionRefTypeCheckIn 表示余额流水关联签到记录。
+	BalanceTransactionRefTypeCheckIn = "checkin"
 
 	// UsageReservationStatusActive 表示用量预算仍被当前请求占用。
 	UsageReservationStatusActive = "active"

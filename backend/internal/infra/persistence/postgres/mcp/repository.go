@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -56,7 +57,6 @@ func (r *Repo) CreateServer(ctx context.Context, input repository.CreateMCPServe
 	}
 	return &result, nil
 }
-
 
 func (r *Repo) UpdateServer(ctx context.Context, serverID uint, input repository.UpdateMCPServerInput) (*domainmcp.Server, error) {
 	updates := map[string]interface{}{}
@@ -124,7 +124,6 @@ func (r *Repo) listServers(ctx context.Context, db *gorm.DB) ([]domainmcp.Server
 	}
 	return r.hydrateServerActiveCounts(ctx, db, rows)
 }
-
 
 func (r *Repo) ListServersForUser(ctx context.Context, userID uint, includePlatform bool) ([]domainmcp.Server, error) {
 	var rows []model.MCPServer
@@ -632,7 +631,6 @@ func toDomainServer(row model.MCPServer) domainmcp.Server {
 	}
 }
 
-
 func toDomainTool(row model.MCPTool) domainmcp.Tool {
 	return domainmcp.Tool{
 		ID:                       row.ID,
@@ -651,7 +649,6 @@ func toDomainTool(row model.MCPTool) domainmcp.Tool {
 		UpdatedAt:                row.UpdatedAt,
 	}
 }
-
 
 func toDomainToolPreference(row model.MCPToolPreference) domainmcp.ToolPreference {
 	return domainmcp.ToolPreference{

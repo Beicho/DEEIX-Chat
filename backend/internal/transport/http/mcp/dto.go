@@ -4,11 +4,19 @@ import "time"
 
 type ServerResponse struct {
 	ID                                   uint       `json:"id"`
+	OwnerUserID                          uint       `json:"ownerUserID"`
+	Scope                                string     `json:"scope"`
 	Name                                 string     `json:"name"`
 	BaseURL                              string     `json:"baseURL"`
 	HeadersJSON                          string     `json:"headersJSON"`
 	Status                               string     `json:"status"`
 	SortOrder                            int        `json:"sortOrder"`
+	TimeoutSeconds                       int        `json:"timeoutSeconds"`
+	OAuthClientID                        string     `json:"oauthClientID"`
+	OAuthAuthURL                         string     `json:"oauthAuthURL"`
+	OAuthTokenURL                        string     `json:"oauthTokenURL"`
+	OAuthScopes                          string     `json:"oauthScopes"`
+	OAuthStatus                          string     `json:"oauthStatus"`
 	ToolCount                            int        `json:"toolCount"`
 	ActiveToolCount                      int        `json:"activeToolCount"`
 	RequiresToolMetadataSyncConfirmation bool       `json:"requiresToolMetadataSyncConfirmation"`
@@ -32,16 +40,27 @@ type ToolResponse struct {
 	AttachmentPromptArgument string    `json:"attachmentPromptArgument"`
 	Status                   string    `json:"status"`
 	SortOrder                int       `json:"sortOrder"`
+	DefaultEnabled           bool      `json:"defaultEnabled"`
+	RequiresConfirm          bool      `json:"requiresConfirmation"`
+	ToolKind                 string    `json:"toolKind"`
 	CreatedAt                time.Time `json:"createdAt"`
 	UpdatedAt                time.Time `json:"updatedAt"`
 }
 
 type CreateServerRequest struct {
-	Name        string `json:"name"`
-	BaseURL     string `json:"baseURL"`
-	AuthToken   string `json:"authToken,omitempty"`
-	HeadersJSON string `json:"headersJSON,omitempty"`
-	Status      string `json:"status,omitempty"`
+	Name              string `json:"name"`
+	BaseURL           string `json:"baseURL"`
+	AuthToken         string `json:"authToken,omitempty"`
+	HeadersJSON       string `json:"headersJSON,omitempty"`
+	Status            string `json:"status,omitempty"`
+	TimeoutSeconds    int    `json:"timeoutSeconds"`
+	OAuthClientID     string `json:"oauthClientID"`
+	OAuthClientSecret string `json:"oauthClientSecret"`
+	OAuthAuthURL      string `json:"oauthAuthURL"`
+	OAuthTokenURL     string `json:"oauthTokenURL"`
+	OAuthScopes       string `json:"oauthScopes"`
+	OAuthAccessToken  string `json:"oauthAccessToken"`
+	OAuthRefreshToken string `json:"oauthRefreshToken"`
 }
 
 type UpdateToolRequest struct {
@@ -52,6 +71,8 @@ type UpdateToolRequest struct {
 	AttachmentEncoding       *string `json:"attachmentEncoding,omitempty" enums:"base64,data_url"`
 	AttachmentPromptArgument *string `json:"attachmentPromptArgument,omitempty"`
 	Status                   *string `json:"status,omitempty"`
+	DefaultEnabled           *bool   `json:"defaultEnabled"`
+	RequiresConfirm          *bool   `json:"requiresConfirmation"`
 }
 
 type UpdateServerToolsStatusRequest struct {
