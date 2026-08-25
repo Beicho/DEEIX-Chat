@@ -34,11 +34,18 @@ type Cache struct {
 	rateLimits   map[uint]rateLimitState
 	keyCounters  map[uint]int64
 
-	slidingHTTP map[string][]time.Time
-	fixedHTTP   map[string]fixedWindowCounter
+	slidingHTTP        map[string][]time.Time
+	fixedHTTP          map[string]fixedWindowCounter
+	rateLimitOverrides map[uint]rateLimitOverride
+	concurrencySlots   map[string]concurrencySlot
 
 	providerAuthTransactions map[string]expiringProviderAuthTransaction
 	providerAuthGrants       map[string]expiringProviderAuthGrant
+}
+
+type rateLimitOverride struct {
+	rpm       int
+	expiresAt time.Time
 }
 
 type expiringString struct {
@@ -69,6 +76,8 @@ func New() *Cache {
 		keyCounters:              map[uint]int64{},
 		slidingHTTP:              map[string][]time.Time{},
 		fixedHTTP:                map[string]fixedWindowCounter{},
+		rateLimitOverrides:       map[uint]rateLimitOverride{},
+		concurrencySlots:         map[string]concurrencySlot{},
 		providerAuthTransactions: map[string]expiringProviderAuthTransaction{},
 		providerAuthGrants:       map[string]expiringProviderAuthGrant{},
 	}
