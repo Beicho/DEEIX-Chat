@@ -428,12 +428,6 @@ func (r *billingRepositoryStub) GetLatestCheckIn(context.Context, uint) (*domain
 	panic("not used")
 }
 func (r *billingRepositoryStub) GetCheckInRewardNanousd(context.Context) (int64, error) {
-	if r.checkInRewardErr != nil {
-		return 0, r.checkInRewardErr
-	}
-	if r.checkInRewardNanousd != 0 {
-		return r.checkInRewardNanousd, nil
-	}
 	return defaultCheckInRewardNanousd, nil
 }
 func (r *billingRepositoryStub) SetCheckInRewardNanousd(context.Context, int64) error {

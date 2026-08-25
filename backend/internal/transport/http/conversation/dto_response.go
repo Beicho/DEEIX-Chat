@@ -159,6 +159,30 @@ func toConversationSearchResultResponse(item appconversation.ConversationSearchR
 	}
 }
 
+func toConversationDraftResponse(item *model.ConversationDraft) ConversationDraftResponse {
+	if item == nil {
+		return ConversationDraftResponse{Attachments: json.RawMessage("[]")}
+	}
+	attachments := strings.TrimSpace(item.AttachmentsJSON)
+	if attachments == "" || !json.Valid([]byte(attachments)) {
+		attachments = "[]"
+	}
+	return ConversationDraftResponse{
+		ConversationPublicID: item.ConversationPublicID,
+		Draft:                item.Draft,
+		Attachments:          json.RawMessage(attachments),
+		CreatedAt:            nullableResponseTime(item.CreatedAt),
+		UpdatedAt:            nullableResponseTime(item.UpdatedAt),
+	}
+}
+
+func nullableResponseTime(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
+}
+
 func toConversationPreviewMessageResponse(item model.Message) ConversationPreviewMessageResponse {
 	return ConversationPreviewMessageResponse{
 		PublicID:     item.PublicID,
