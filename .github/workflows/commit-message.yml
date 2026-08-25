@@ -28,7 +28,13 @@ jobs:
 
           pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test): [A-Za-z0-9 ._-]+$'
 
-          range="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            range="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          elif [[ "${{ github.event.created }}" == "true" || "${{ github.event.before }}" =~ ^0+$ ]]; then
+            range="${{ github.sha }}^..${{ github.sha }}"
+          else
+            range="${{ github.event.before }}..${{ github.sha }}"
+          fi
 
           invalid=0
           while IFS= read -r line; do

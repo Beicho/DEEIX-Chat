@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - "integrate/**"
     tags:
       - "v*.*.*"
   pull_request:
