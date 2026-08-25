@@ -16,6 +16,7 @@ type BrowserSpeechRecognitionResultList = {
 };
 
 type BrowserSpeechRecognitionEvent = Event & {
+  resultIndex: number;
   results: BrowserSpeechRecognitionResultList;
 };
 
@@ -42,37 +43,13 @@ type BrowserWindowWithSpeechRecognition = Window & {
   webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
 };
 
-export type SpeechInputStatus = "idle" | "starting" | "listening";
-
-export type SpeechInputErrorCode =
-  | "audioUnavailable"
-  | "interrupted"
-  | "languageUnsupported"
-  | "network"
-  | "noSpeech"
-  | "permissionDenied"
-  | "serviceUnavailable"
-  | "startFailed"
-  | "unavailable";
-
-const MAX_EMPTY_RESTARTS = 2;
-const RESTART_DELAY_MS = 250;
-const SPEECH_RECOGNITION_ERROR_CODES: Readonly<Record<string, SpeechInputErrorCode>> = {
-  "audio-capture": "audioUnavailable",
-  "language-not-supported": "languageUnsupported",
-  network: "network",
-  "not-allowed": "permissionDenied",
-  "service-not-allowed": "serviceUnavailable",
-};
+export type SpeechInputStatus = "idle" | "listening";
 
 type UseChatSpeechInputParams = {
   draft: string;
-  language: string;
   listeningPlaceholder: string;
   onDraftChange: (value: string) => void;
-  onError: (error: SpeechInputErrorCode) => void;
   placeholder: string;
-  startingPlaceholder: string;
 };
 
 type UseChatSpeechInputState = {
@@ -85,31 +62,20 @@ type UseChatSpeechInputState = {
 
 export function useChatSpeechInput({
   draft,
-  language,
   listeningPlaceholder,
   onDraftChange,
-  onError,
   placeholder,
-  startingPlaceholder,
 }: UseChatSpeechInputParams): UseChatSpeechInputState {
   const [supported, setSupported] = React.useState(false);
   const [status, setStatus] = React.useState<SpeechInputStatus>("idle");
   const recognitionRef = React.useRef<BrowserSpeechRecognition | null>(null);
   const draftRef = React.useRef(draft);
   const baseDraftRef = React.useRef("");
-  const renderedDraftRef = React.useRef("");
   const cancelledRef = React.useRef(false);
-  const emptyRestartCountRef = React.useRef(0);
-  const sessionHadResultRef = React.useRef(false);
-  const recoverableErrorRef = React.useRef<"aborted" | "no-speech" | null>(null);
   const restartTimerRef = React.useRef<number | null>(null);
 
   const active = status !== "idle";
-  const resolvedPlaceholder = status === "starting"
-    ? startingPlaceholder
-    : status === "listening"
-      ? listeningPlaceholder
-      : placeholder;
+  const resolvedPlaceholder = active ? listeningPlaceholder : placeholder;
 
   React.useEffect(() => {
     draftRef.current = draft;
@@ -117,8 +83,7 @@ export function useChatSpeechInput({
 
   React.useEffect(() => {
     const browserWindow = window as BrowserWindowWithSpeechRecognition;
-    const RecognitionConstructor = browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition;
-    setSupported(window.isSecureContext && Boolean(RecognitionConstructor));
+    setSupported(Boolean(browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition));
 
     return () => {
       if (restartTimerRef.current !== null) {
@@ -126,22 +91,19 @@ export function useChatSpeechInput({
         restartTimerRef.current = null;
       }
       cancelledRef.current = true;
-      const recognition = recognitionRef.current;
+      recognitionRef.current?.stop();
       recognitionRef.current = null;
-      recognition?.stop();
     };
   }, []);
 
   const commitTranscript = React.useCallback(
     (finalTranscript: string, interimTranscript: string) => {
-      const nextDraft = [
+      const fragments = [
         baseDraftRef.current,
         finalTranscript.trim(),
         interimTranscript.trim(),
-      ].filter(Boolean).join(" ");
-      renderedDraftRef.current = nextDraft;
-      draftRef.current = nextDraft;
-      onDraftChange(nextDraft);
+      ].filter(Boolean);
+      onDraftChange(fragments.join(" "));
     },
     [onDraftChange],
   );
@@ -152,15 +114,12 @@ export function useChatSpeechInput({
       window.clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
-    const recognition = recognitionRef.current;
-    recognitionRef.current = null;
-    recognition?.stop();
+    recognitionRef.current?.stop();
     setStatus("idle");
   }, []);
 
   const toggle = React.useCallback(() => {
     if (!supported) {
-      onError("unavailable");
       return;
     }
     if (active) {
@@ -172,57 +131,22 @@ export function useChatSpeechInput({
     const RecognitionConstructor = browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition;
     if (!RecognitionConstructor) {
       setSupported(false);
-      onError("unavailable");
       return;
     }
 
     cancelledRef.current = false;
-    emptyRestartCountRef.current = 0;
     baseDraftRef.current = draftRef.current.trimEnd();
-    renderedDraftRef.current = baseDraftRef.current;
-
-    const failStart = () => {
-      cancelledRef.current = true;
-      recognitionRef.current = null;
-      setStatus("idle");
-      onError("startFailed");
-    };
 
     const startRecognition = () => {
-      let recognition: BrowserSpeechRecognition;
-      try {
-        recognition = new RecognitionConstructor();
-      } catch {
-        failStart();
-        return;
-      }
-
-      sessionHadResultRef.current = false;
-      recoverableErrorRef.current = null;
-      recognition.continuous = false;
+      const recognition = new RecognitionConstructor();
+      recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = language;
-
-      const finishWithError = (error: SpeechInputErrorCode) => {
-        if (recognitionRef.current !== recognition) {
-          return;
-        }
-        cancelledRef.current = true;
-        recognitionRef.current = null;
-        setStatus("idle");
-        onError(error);
-      };
-
+      recognition.lang = navigator.language || "zh-CN";
       recognition.onstart = () => {
-        if (!cancelledRef.current && recognitionRef.current === recognition) {
-          setStatus("listening");
-        }
+        setStatus("listening");
       };
       recognition.onresult = (event) => {
-        if (cancelledRef.current || recognitionRef.current !== recognition) {
-          return;
-        }
-
+        setStatus("listening");
         const finalTranscripts: string[] = [];
         const interimTranscripts: string[] = [];
         for (let resultIndex = 0; resultIndex < event.results.length; resultIndex += 1) {
@@ -240,68 +164,54 @@ export function useChatSpeechInput({
             interimTranscripts.push(transcript);
           }
         }
-        if (finalTranscripts.length === 0 && interimTranscripts.length === 0) {
-          return;
-        }
-
-        sessionHadResultRef.current = true;
-        emptyRestartCountRef.current = 0;
-        recoverableErrorRef.current = null;
-        setStatus("listening");
         commitTranscript(finalTranscripts.join(" "), interimTranscripts.join(" "));
       };
       recognition.onerror = (event) => {
-        if (cancelledRef.current || recognitionRef.current !== recognition) {
-          return;
-        }
-        if (event.error === "no-speech" || event.error === "aborted") {
-          recoverableErrorRef.current = event.error;
-          setStatus("starting");
-          return;
-        }
-
-        finishWithError(SPEECH_RECOGNITION_ERROR_CODES[event.error] ?? "unavailable");
-      };
-      recognition.onend = () => {
-        if (recognitionRef.current !== recognition) {
-          return;
-        }
         if (cancelledRef.current) {
-          recognitionRef.current = null;
           setStatus("idle");
           return;
         }
-
-        baseDraftRef.current = renderedDraftRef.current.trimEnd();
-        if (!sessionHadResultRef.current) {
-          emptyRestartCountRef.current += 1;
-          if (emptyRestartCountRef.current > MAX_EMPTY_RESTARTS) {
-            finishWithError(recoverableErrorRef.current === "aborted" ? "interrupted" : "noSpeech");
-            return;
-          }
+        if (event.error === "no-speech" || event.error === "aborted") {
+          setStatus("listening");
+          return;
         }
-
-        setStatus("starting");
-        restartTimerRef.current = window.setTimeout(() => {
-          restartTimerRef.current = null;
-          if (cancelledRef.current || recognitionRef.current !== recognition) {
+        cancelledRef.current = true;
+        recognitionRef.current = null;
+        setStatus("idle");
+      };
+      recognition.onend = () => {
+        if (!cancelledRef.current) {
+          if (recognitionRef.current !== recognition) {
             return;
           }
-          startRecognition();
-        }, RESTART_DELAY_MS);
+          setStatus("listening");
+          restartTimerRef.current = window.setTimeout(() => {
+            restartTimerRef.current = null;
+            if (cancelledRef.current || recognitionRef.current !== recognition) {
+              return;
+            }
+            startRecognition();
+          }, 180);
+          return;
+        }
+        if (recognitionRef.current === recognition) {
+          recognitionRef.current = null;
+        }
+        setStatus("idle");
       };
 
       recognitionRef.current = recognition;
-      setStatus("starting");
       try {
         recognition.start();
+        setStatus("listening");
       } catch {
-        failStart();
+        recognitionRef.current = null;
+        setStatus("idle");
       }
     };
 
     startRecognition();
-  }, [active, commitTranscript, language, onError, stop, supported]);
+  }, [active, commitTranscript, stop, supported]);
 
   return {
     supported,

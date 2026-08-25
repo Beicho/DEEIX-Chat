@@ -20,9 +20,11 @@ import { cn } from "@/lib/utils";
 
 const ADMIN_SECTION_LABEL_KEYS: Record<AdminSection, string> = {
   dashboard: "sections.dashboard",
+  statistics: "sections.statistics",
   accounts: "sections.accounts",
   security: "sections.security",
   invitations: "sections.invitations",
+  groups: "sections.groups",
   upstreams: "sections.upstreams",
   models: "sections.models",
   "tool-settings": "sections.toolSettings",
@@ -32,11 +34,13 @@ const ADMIN_SECTION_LABEL_KEYS: Record<AdminSection, string> = {
   arena: "sections.arena",
   announcements: "sections.announcements",
   moderation: "sections.moderation",
+  "content-moderation": "sections.contentModeration",
   branding: "sections.branding",
   logs: "sections.logs",
   "login-settings": "sections.loginSettings",
   "conversation-settings": "sections.conversationSettings",
   "chat-files": "sections.chatFiles",
+  "knowledge-bases": "sections.knowledgeBases",
   about: "sections.about",
 };
 

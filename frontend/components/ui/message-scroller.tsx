@@ -12,20 +12,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon } from "lucide-react";
 
-const MESSAGE_SCROLLER_EDGE_THRESHOLD_PX = 48;
-
-function MessageScrollerProvider({
-  autoScroll = true,
-  scrollEdgeThreshold = MESSAGE_SCROLLER_EDGE_THRESHOLD_PX,
-  ...props
-}: React.ComponentProps<typeof MessageScrollerPrimitive.Provider>) {
-  return (
-    <MessageScrollerPrimitive.Provider
-      autoScroll={autoScroll}
-      scrollEdgeThreshold={scrollEdgeThreshold}
-      {...props}
-    />
-  );
+function MessageScrollerProvider(props: React.ComponentProps<typeof MessageScrollerPrimitive.Provider>) {
+  return <MessageScrollerPrimitive.Provider {...props} />;
 }
 
 function MessageScroller({
@@ -64,19 +52,15 @@ function MessageScroller({
 
 function MessageScrollerViewport({
   className,
-  // Browser scroll anchoring can move the conversation when asynchronously
-  // rendered content changes height. Only compensate for actual history prepends.
-  preserveScrollOnPrepend = true,
   ...props
 }: React.ComponentProps<typeof MessageScrollerPrimitive.Viewport>) {
   return (
     <MessageScrollerPrimitive.Viewport
       data-slot="message-scroller-viewport"
       className={cn(
-        "size-full min-h-0 min-w-0 scrollbar-none overflow-y-auto overscroll-contain contain-content [overflow-anchor:none]",
+        "size-full min-h-0 min-w-0 scrollbar-thin scrollbar-gutter-stable overflow-y-auto overscroll-contain contain-content data-autoscrolling:scrollbar-none",
         className,
       )}
-      preserveScrollOnPrepend={preserveScrollOnPrepend}
       {...props}
     />
   );
@@ -95,18 +79,15 @@ function MessageScrollerContent({
   );
 }
 
-type MessageScrollerItemProps = Omit<
-  React.ComponentProps<typeof MessageScrollerPrimitive.Item>,
-  "scrollAnchor"
->;
-
 function MessageScrollerItem({
   className,
+  scrollAnchor = false,
   ...props
-}: MessageScrollerItemProps) {
+}: React.ComponentProps<typeof MessageScrollerPrimitive.Item>) {
   return (
     <MessageScrollerPrimitive.Item
       data-slot="message-scroller-item"
+      scrollAnchor={scrollAnchor}
       className={cn("min-w-0 shrink-0", className)}
       {...props}
     />

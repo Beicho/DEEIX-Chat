@@ -3,6 +3,7 @@ import type { UserDTO } from "@/shared/api/auth.types";
 
 export type AdminUserStatus = "pending_activation" | "active" | "locked" | "suspended" | "deactivated";
 export type AdminUserRole = "user" | "admin" | "superadmin";
+export type AdminUserDTO = UserDTO;
 
 export type CreateAdminUserRequest = {
   username: string;
@@ -221,6 +222,8 @@ export type AdminUsageLogDTO = {
   billedCurrency: string;
   billedNanousd: number;
   billedUSD: number;
+  balanceAfterNanousd: number | null;
+  balanceAfterUSD: number | null;
   pricingSnapshotJSON: string;
   createdAt: string;
   updatedAt: string;
@@ -277,6 +280,13 @@ export type AdminConversationEventDTO = {
   summary: string;
   contentMarkdown: string;
   payloadJSON: string;
+  payloadOmitted: boolean;
+  payloadSizeBytes: number;
+  platformModelName: string;
+  providerProtocol: string;
+  routedBindingCode: string;
+  upstreamModelName: string;
+  upstreamName: string;
   seq: number;
   toolCallID: string;
   toolName: string;

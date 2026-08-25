@@ -86,12 +86,12 @@ func (s *Service) UpsertUpstreamModel(ctx context.Context, upstreamID uint, inpu
 		if txErr != nil {
 			return txErr
 		}
-		if platformModelCreated {
-			createdPlatformModelName = platformModel.PlatformModelName
-		}
 		protocols, txErr := resolveRouteProtocols(input.Protocols, upstream.Compatible, upstream.ProtocolDefaultsJSON, kindsJSON)
 		if txErr != nil {
 			return txErr
+		}
+		if platformModelCreated {
+			createdPlatformModelName = platformModel.PlatformModelName
 		}
 
 		platformModel, platformModelCreated, txErr := ensurePlatformModel(ctx, txRepo, platformModelName, kindsJSON, upstreamModelName)

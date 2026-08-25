@@ -42,25 +42,6 @@ export function resolvePersistedPublicID(value: string | null | undefined): stri
   return normalized;
 }
 
-export function resolveAssistantInputSideUsageValue(
-  assistantOwnsUsage: boolean,
-  assistantValue: number | null | undefined,
-  userValue: number | null | undefined,
-  liveValue: number | null | undefined,
-): number {
-  if (assistantOwnsUsage) {
-    return typeof assistantValue === "number" && Number.isFinite(assistantValue) && assistantValue >= 0
-      ? assistantValue
-      : 0;
-  }
-  for (const value of [assistantValue, userValue, liveValue]) {
-    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-      return value;
-    }
-  }
-  return 0;
-}
-
 function isSuccessfulContextMessage(message: ChatAreaMessage): boolean {
   const status = message.status?.trim().toLowerCase() || "success";
   return (
@@ -99,7 +80,6 @@ function toPendingTraceBlock(block: TraceBlockDTO | undefined) {
     stage: block.stage,
     roundID: block.roundID,
     parentEventID: block.parentEventID,
-    startedAt: block.startedAt,
     updatedAt: block.updatedAt,
     payloadJson: block.payloadJSON,
   };

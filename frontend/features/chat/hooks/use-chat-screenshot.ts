@@ -6,22 +6,18 @@ import { toast } from "sonner";
 import {
   captureElementToPngBlob,
   ConversationScreenshotTooLargeError,
-  isScreenshotCaptureAbort,
-  MAX_SCREENSHOT_MESSAGES,
-} from "@/features/chat/model/conversation-screenshot";
-import {
   copyPngBlobToClipboard,
   downloadPngBlob,
   isClipboardImageWriteSupported,
   resolveConversationScreenshotFileName,
-} from "@/features/chat/model/conversation-screenshot-output";
+} from "@/features/chat/model/conversation-screenshot";
 
 export type ChatScreenshotMessages = {
   emptySelection: string;
-  selectionLimitReached: string;
   generating: string;
   ready: string;
   failed: string;
+  loadLimitReached: string;
   tooLarge: string;
   downloaded: string;
   copied: string;
@@ -39,6 +35,7 @@ type UseChatScreenshotOptions = {
   conversationID: string | null;
   messageContentRef: React.RefObject<HTMLDivElement | null>;
   conversationTitle: string;
+  onLoadAllMessages?: (options?: { maxPages?: number }) => Promise<boolean>;
   messages: ChatScreenshotMessages;
 };
 
@@ -84,56 +81,56 @@ function prepareConversationScreenshotDom(
   const restoreMaxHeights: Array<{ element: HTMLElement; maxHeight: string }> = [];
   const restoreMetaDisplays: Array<{ element: HTMLElement; display: string }> = [];
   const restoreScreenshotOnlyDisplays: Array<{ element: HTMLElement; display: string }> = [];
+  let screenshotRoots = [target];
+
   target.dataset.screenshotCapturing = "true";
-  const rows = Array.from(target.querySelectorAll<HTMLElement>("[data-screenshot-message-row='true']"));
-  const includedRows = selectedOnly
-    ? rows.filter((row) => selectedIDs.has(row.dataset.messagePublicId ?? "")).slice(-MAX_SCREENSHOT_MESSAGES)
-    : rows.slice(-MAX_SCREENSHOT_MESSAGES);
-  const includedRowSet = new Set(includedRows);
 
-  rows.forEach((row) => {
-    if (includedRowSet.has(row)) {
-      return;
-    }
-    restoreDisplays.push({ element: row, display: row.style.display });
-    restoreExcludeAttributes.push({ element: row, value: row.getAttribute("data-screenshot-exclude") });
-    row.style.display = "none";
-    row.setAttribute("data-screenshot-exclude", "true");
+  if (selectedOnly) {
+    const selectedRows: HTMLElement[] = [];
+    const rows = target.querySelectorAll<HTMLElement>("[data-message-public-id]");
+    rows.forEach((row) => {
+      const publicID = row.dataset.messagePublicId ?? "";
+      if (selectedIDs.has(publicID)) {
+        selectedRows.push(row);
+        return;
+      }
+
+      restoreDisplays.push({ element: row, display: row.style.display });
+      restoreExcludeAttributes.push({ element: row, value: row.getAttribute("data-screenshot-exclude") });
+      row.style.display = "none";
+      row.setAttribute("data-screenshot-exclude", "true");
+    });
+    screenshotRoots = selectedRows;
+  }
+
+  forEachElementInRoots(screenshotRoots, ".chat-user-message-collapsible", (element) => {
+    restoreMaxHeights.push({ element, maxHeight: element.style.maxHeight });
+    element.style.maxHeight = "none";
   });
 
-  const screenshotRoots = includedRows;
-
-  const mutableElementSelector = [
-    ".chat-user-message-collapsible",
-    ".chat-message-meta",
-    "[data-screenshot-only='true']",
-    selectedOnly ? ".chat-screenshot-selectable-content" : "",
-  ]
-    .filter(Boolean)
-    .join(",");
-  forEachElementInRoots(screenshotRoots, mutableElementSelector, (element) => {
-    if (element.matches(".chat-user-message-collapsible")) {
-      restoreMaxHeights.push({ element, maxHeight: element.style.maxHeight });
-      element.style.maxHeight = "none";
-    }
-    if (element.matches(".chat-message-meta")) {
-      restoreMetaDisplays.push({ element, display: element.style.display });
-      element.style.display = "none";
-    }
-    if (element.matches("[data-screenshot-only='true']")) {
-      restoreScreenshotOnlyDisplays.push({ element, display: element.style.display });
-      element.style.display = "flex";
-    }
-    if (selectedOnly && element.matches(".chat-screenshot-selectable-content")) {
-      restorePaddings.push({ element, paddingLeft: element.style.paddingLeft });
-      element.style.paddingLeft = "0px";
-    }
+  forEachElementInRoots(screenshotRoots, ".chat-message-meta", (element) => {
+    restoreMetaDisplays.push({ element, display: element.style.display });
+    element.style.display = "none";
   });
 
-  target.querySelectorAll<HTMLElement>(".chat-screenshot-brand").forEach((element) => {
+  forEachElementInRoots(screenshotRoots, "[data-screenshot-only='true']", (element) => {
     restoreScreenshotOnlyDisplays.push({ element, display: element.style.display });
     element.style.display = "flex";
   });
+
+  if (selectedOnly) {
+    target.querySelectorAll<HTMLElement>(".chat-screenshot-brand").forEach((element) => {
+      restoreScreenshotOnlyDisplays.push({ element, display: element.style.display });
+      element.style.display = "flex";
+    });
+  }
+
+  if (selectedOnly) {
+    forEachElementInRoots(screenshotRoots, ".chat-screenshot-selectable-content", (content) => {
+      restorePaddings.push({ element: content, paddingLeft: content.style.paddingLeft });
+      content.style.paddingLeft = "0px";
+    });
+  }
 
   return {
     restore: () => {
@@ -168,16 +165,20 @@ function prepareConversationScreenshotDom(
   };
 }
 
+const MAX_SCREENSHOT_LOAD_PAGES = 50;
+
 export function useChatScreenshot({
   conversationID,
   messageContentRef,
   conversationTitle,
+  onLoadAllMessages,
   messages,
 }: UseChatScreenshotOptions) {
   const [selectionMode, setSelectionMode] = React.useState(false);
   const [selectedIDs, setSelectedIDs] = React.useState<Set<string>>(() => new Set());
   const [capturing, setCapturing] = React.useState(false);
-  const captureControllerRef = React.useRef<AbortController | null>(null);
+  const capturingRef = React.useRef(false);
+  const captureRunIDRef = React.useRef(0);
   const [preview, setPreview] = React.useState<ChatScreenshotPreview | null>(null);
   const previewRef = React.useRef<ChatScreenshotPreview | null>(null);
 
@@ -185,14 +186,18 @@ export function useChatScreenshot({
   messagesRef.current = messages;
   const titleRef = React.useRef(conversationTitle);
   titleRef.current = conversationTitle;
+  const conversationIDRef = React.useRef(conversationID);
+  conversationIDRef.current = conversationID;
+
   React.useEffect(() => {
     previewRef.current = preview;
   }, [preview]);
 
   React.useEffect(() => {
-    captureControllerRef.current?.abort();
+    captureRunIDRef.current += 1;
     setSelectionMode(false);
     setSelectedIDs(new Set());
+    capturingRef.current = false;
     setCapturing(false);
     setPreview((current) => {
       if (current) {
@@ -204,7 +209,6 @@ export function useChatScreenshot({
 
   React.useEffect(() => {
     return () => {
-      captureControllerRef.current?.abort();
       if (previewRef.current) {
         URL.revokeObjectURL(previewRef.current.url);
       }
@@ -230,12 +234,6 @@ export function useChatScreenshot({
       if (next.has(publicID)) {
         next.delete(publicID);
       } else {
-        if (next.size >= MAX_SCREENSHOT_MESSAGES) {
-          toast.error(messagesRef.current.selectionLimitReached, {
-            id: "chat-screenshot-selection-limit",
-          });
-          return previous;
-        }
         next.add(publicID);
       }
       return next;
@@ -243,7 +241,7 @@ export function useChatScreenshot({
   }, []);
 
   const selectMany = React.useCallback((publicIDs: string[]) => {
-    setSelectedIDs(new Set(publicIDs.filter(Boolean).slice(-MAX_SCREENSHOT_MESSAGES)));
+    setSelectedIDs(new Set(publicIDs.filter(Boolean)));
   }, []);
 
   const clearSelection = React.useCallback(() => {
@@ -279,21 +277,48 @@ export function useChatScreenshot({
 
   const runCapture = React.useCallback(
     async (selectedOnly: boolean) => {
-      if (captureControllerRef.current) {
+      if (capturingRef.current) {
         return;
       }
       const selected = selectedIDs;
+      const startedConversationID = conversationIDRef.current;
+      const captureRunID = captureRunIDRef.current + 1;
       if (selectedOnly && selected.size === 0) {
         toast.error(messagesRef.current.emptySelection);
         return;
       }
 
-      const controller = new AbortController();
-      captureControllerRef.current = controller;
+      captureRunIDRef.current = captureRunID;
+      capturingRef.current = true;
       setCapturing(true);
       const loadingToast = toast.loading(messagesRef.current.generating);
       let preparedDom: PreparedScreenshotDom | null = null;
+      const cancelCapture = () => {
+        toast.dismiss(loadingToast);
+      };
+      const isCurrentCapture = () =>
+        captureRunIDRef.current === captureRunID && startedConversationID === conversationIDRef.current;
+
       try {
+        if (!selectedOnly && onLoadAllMessages) {
+          const loadedAll = await onLoadAllMessages({ maxPages: MAX_SCREENSHOT_LOAD_PAGES });
+          if (!isCurrentCapture()) {
+            cancelCapture();
+            return;
+          }
+          if (!loadedAll) {
+            toast.error(messagesRef.current.loadLimitReached, { id: loadingToast });
+            return;
+          }
+        }
+
+        if (!isCurrentCapture()) {
+          cancelCapture();
+          return;
+        }
+
+        await nextAnimationFrame();
+
         const target = messageContentRef.current;
         if (!target) {
           throw new Error("Message content is not available");
@@ -305,41 +330,44 @@ export function useChatScreenshot({
         });
 
         await nextAnimationFrame();
-        controller.signal.throwIfAborted();
 
-        const blob = await captureElementToPngBlob(target, { signal: controller.signal });
-        controller.signal.throwIfAborted();
+        if (!isCurrentCapture()) {
+          cancelCapture();
+          return;
+        }
+
+        const blob = await captureElementToPngBlob(target);
+        if (!isCurrentCapture()) {
+          cancelCapture();
+          return;
+        }
         setPreviewBlob(blob);
         toast.success(messagesRef.current.ready, { id: loadingToast });
         if (selectedOnly) {
           exitSelectionMode();
         }
       } catch (error) {
-        if (isScreenshotCaptureAbort(error)) {
-          toast.dismiss(loadingToast);
-        } else {
-          toast.error(messagesRef.current.failed, {
-            id: loadingToast,
-            description:
-              error instanceof ConversationScreenshotTooLargeError
-                ? messagesRef.current.tooLarge
-                : error instanceof Error
-                  ? error.message
-                  : undefined,
-          });
-        }
+        toast.error(messagesRef.current.failed, {
+          id: loadingToast,
+          description:
+            error instanceof ConversationScreenshotTooLargeError
+              ? messagesRef.current.tooLarge
+              : error instanceof Error
+                ? error.message
+                : undefined,
+        });
       } finally {
         preparedDom?.restore();
-        if (captureControllerRef.current === controller) {
-          captureControllerRef.current = null;
+        if (captureRunIDRef.current === captureRunID) {
+          capturingRef.current = false;
           setCapturing(false);
         }
       }
     },
-    [exitSelectionMode, messageContentRef, selectedIDs, setPreviewBlob],
+    [exitSelectionMode, messageContentRef, onLoadAllMessages, selectedIDs, setPreviewBlob],
   );
 
-  const captureLatestMessages = React.useCallback(() => {
+  const captureFullConversation = React.useCallback(() => {
     void runCapture(false);
   }, [runCapture]);
 
@@ -395,7 +423,7 @@ export function useChatScreenshot({
     clearSelection,
     pruneSelection,
     startSelectionScreenshot: enterSelectionMode,
-    captureLatestMessages,
+    captureFullConversation,
     captureSelectedMessages,
     closePreview,
     downloadPreview,

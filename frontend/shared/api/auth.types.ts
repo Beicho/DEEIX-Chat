@@ -1,3 +1,7 @@
+import type { AuthUserIdentityProviderSummaryResponse, ProviderAuthBridgeResponse } from "@deeix/api-contract";
+
+export type UserIdentityProviderSummaryDTO = AuthUserIdentityProviderSummaryResponse;
+
 export type UserDTO = {
   id: number;
   publicID: string;
@@ -173,6 +177,7 @@ export type LoginOptionsData = {
   turnstileRegistrationEnabled: boolean;
   turnstileSiteKey: string;
   providers: IdentityProviderDTO[];
+  providerAuthBridge: ProviderAuthBridgeResponse;
 };
 
 export type CompleteEmailRegistrationOptions = {

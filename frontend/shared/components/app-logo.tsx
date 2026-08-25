@@ -1,6 +1,8 @@
 "use client";
 
-import { useBranding } from "@/shared/components/branding-provider";
+import Image from "next/image";
+
+import { useBranding } from "@/shared/config/branding-provider";
 import { useTheme } from "@/shared/components/theme-provider";
 
 type AppLogoProps = {
@@ -18,20 +20,37 @@ export function AppLogo({
   priority,
   className,
 }: AppLogoProps) {
-  const { resolvedTheme } = useTheme();
   const branding = useBranding();
-  const src = resolvedTheme === "dark"
-    ? branding.logoDarkURL || branding.logoURL || "/logo-white.svg"
-    : branding.logoURL || "/logo.svg";
+  const { resolvedTheme } = useTheme();
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element -- Branding logos can be arbitrary admin-configured URLs.
-    <img
-      src={src}
-      alt={alt || branding.appName}
+    <Image
+      src={branding.logoURL || (resolvedTheme === "dark" ? "/logo-white.svg" : "/logo.svg")}
+      alt={alt ?? branding.title}
       width={width}
       height={height}
-      loading={priority ? "eager" : "lazy"}
+      priority={priority}
+      className={className}
+    />
+  );
+}
+
+export function DeeixLogo({
+  alt = "DEEIX Chat",
+  width,
+  height,
+  priority,
+  className,
+}: AppLogoProps) {
+  const { resolvedTheme } = useTheme();
+
+  return (
+    <Image
+      src={resolvedTheme === "dark" ? "/logo-white.svg" : "/logo.svg"}
+      alt={alt}
+      width={width}
+      height={height}
+      priority={priority}
       className={className}
     />
   );

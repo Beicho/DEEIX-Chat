@@ -1,3 +1,8 @@
+import type {
+  NativeToolPricingRequest,
+  OpenRouterOfficialPricingDataResponse,
+  OpenRouterOfficialPricingItemResponse,
+} from "@deeix/api-contract";
 import type { PagePayload } from "@/shared/api/common.types";
 
 export type AdminBillingPlanPriceDTO = {
@@ -21,7 +26,14 @@ export type AdminBillingPlanDTO = {
   discountPercent: number;
   sortOrder: number;
   isActive: boolean;
+  permissionGroupID?: number | null;
   prices: AdminBillingPlanPriceDTO[];
+};
+
+export type AdminOfficialPricingCatalogItemDTO = OpenRouterOfficialPricingItemResponse;
+
+export type AdminOfficialPricingCatalogData = Omit<OpenRouterOfficialPricingDataResponse, "items"> & {
+  items: AdminOfficialPricingCatalogItemDTO[];
 };
 
 export type AdminModelPricingDTO = {
@@ -75,6 +87,7 @@ export type UpdateAdminBillingPlanRequest = {
   currency?: string;
   amountUSD: number;
   billingInterval: "month" | "year" | "lifetime" | string;
+  permissionGroupID?: number | null;
 };
 
 export type CreateAdminBillingPlanRequest = UpdateAdminBillingPlanRequest & {
@@ -98,6 +111,8 @@ export type NativeToolPricingDTO = {
   priceLabel: "included" | "notMetered" | string;
   billable: boolean;
 };
+
+export type AdminNativeToolPricingPayload = NativeToolPricingRequest;
 
 export type AdminBillingConfigDTO = {
   mode: AdminBillingMode;

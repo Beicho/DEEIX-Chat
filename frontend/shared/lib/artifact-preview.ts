@@ -1,4 +1,4 @@
-export type ArtifactPreviewKind = "html" | "css" | "javascript" | "svg";
+export type ArtifactPreviewKind = "html" | "css" | "javascript" | "svg" | "mermaid" | "markdown" | "react";
 
 const HTML_LIKE_RE = /^\s*(?:<!doctype\s+html|<html\b|<head\b|<body\b|<(?:article|canvas|div|main|section|style|script)\b)/i;
 const SVG_DOCTYPE_RE = /^<!doctype\s+svg(?:\s|\[|>)/i;
@@ -90,6 +90,9 @@ export function resolveArtifactPreviewKind(language: string, code: string): Arti
   if (["css", "scss", "sass", "less"].includes(normalized)) return "css";
   if (["js", "javascript", "mjs", "cjs"].includes(normalized)) return "javascript";
   if (["svg", "svg+xml", "image/svg+xml"].includes(normalized)) return "svg";
+  if (["mermaid", "mmd"].includes(normalized)) return "mermaid";
+  if (["md", "markdown"].includes(normalized)) return "markdown";
+  if (["jsx", "tsx", "react"].includes(normalized)) return "react";
   if (
     ["", "markdown", "xml", "text/xml", "application/xml"].includes(normalized) &&
     hasSVGDocumentRoot(code)

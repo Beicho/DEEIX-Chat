@@ -8,7 +8,7 @@ import type { ChatAreaMessage } from "@/features/chat/types/messages";
 import type {
   ChatModelOption,
   PendingAttachment,
-  PendingExchangeMap,
+  PendingExchange,
 } from "@/features/chat/types/chat-runtime";
 import type {
   ConversationDTO,
@@ -19,7 +19,7 @@ import type { SkillSummaryDTO } from "@/shared/api/skills.types";
 
 export function useChatSubmitStream({
   conversationID,
-  conversationScopeKey,
+  resetToken,
   activeConversation,
   selectedPlatformModelName,
   modelOptions,
@@ -30,27 +30,24 @@ export function useChatSubmitStream({
   researchMaxLLMCalls,
   researchMaxToolCalls,
   selectedSkills,
-  selectedKnowledgeBaseIDs,
   htmlVisualPromptEnabled,
+  htmlVisualColorMode,
   options,
   draft,
   attachments,
   maxFilesPerMessage,
   uploading,
   restoreDraftOnFailure,
-  autoGenerateLabels,
   prependNewConversation,
   onConversationCreated,
-  onConversationForked,
   touchByPublicID,
   reload,
   replaceMessage,
   setDraft,
   setAttachments,
   releaseAttachments,
-  getPendingExchanges,
-  pendingExchanges,
-  setPendingExchanges,
+  pendingExchange,
+  setPendingExchange,
   setBranchSelections,
   showConversationLayout,
   setShowConversationLayout,
@@ -60,15 +57,11 @@ export function useChatSubmitStream({
   combinedMessages,
   serverMessagePublicIDs,
   activeGenerationRunsRef,
-  activeGenerationRunsRevision,
-  onActiveGenerationRunsChange,
-  onConversationRunDetached,
-  onConversationRunFinished,
-  onConversationRunStarted,
+  failedGenerationRunsRef,
   resumeGenerationActive,
 }: {
   conversationID: string | null;
-  conversationScopeKey: string;
+  resetToken: number;
   activeConversation: ConversationDTO | null;
   selectedPlatformModelName: string;
   modelOptions: ChatModelOption[];
@@ -79,27 +72,24 @@ export function useChatSubmitStream({
   researchMaxLLMCalls: number;
   researchMaxToolCalls: number;
   selectedSkills: SkillSummaryDTO[];
-  selectedKnowledgeBaseIDs: string[];
   htmlVisualPromptEnabled: boolean;
+  htmlVisualColorMode: "light" | "dark";
   options: ConversationOptions;
   draft: string;
   attachments: PendingAttachment[];
   maxFilesPerMessage: number;
   uploading: boolean;
   restoreDraftOnFailure: boolean;
-  autoGenerateLabels: boolean;
   prependNewConversation: (platformModelName: string) => Promise<ConversationDTO | null | undefined>;
   onConversationCreated?: (conversationPublicID: string) => void;
-  onConversationForked?: (conversation: ConversationDTO) => Promise<void> | void;
   touchByPublicID: (publicID: string, patch?: Partial<ConversationDTO>) => void;
   reload: () => void;
   replaceMessage: (message: MessageDTO) => void;
   setDraft: React.Dispatch<React.SetStateAction<string>>;
   setAttachments: React.Dispatch<React.SetStateAction<PendingAttachment[]>>;
   releaseAttachments: (items: PendingAttachment[]) => void;
-  getPendingExchanges: () => PendingExchangeMap;
-  pendingExchanges: PendingExchangeMap;
-  setPendingExchanges: React.Dispatch<React.SetStateAction<PendingExchangeMap>>;
+  pendingExchange: PendingExchange | null;
+  setPendingExchange: React.Dispatch<React.SetStateAction<PendingExchange | null>>;
   setBranchSelections: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   showConversationLayout: boolean;
   setShowConversationLayout: React.Dispatch<React.SetStateAction<boolean>>;
@@ -109,20 +99,15 @@ export function useChatSubmitStream({
   combinedMessages: ChatAreaMessage[];
   serverMessagePublicIDs: Set<string>;
   activeGenerationRunsRef?: React.RefObject<Set<string>>;
-  activeGenerationRunsRevision: number;
-  onActiveGenerationRunsChange?: () => void;
-  onConversationRunDetached?: (runID: string) => void;
-  onConversationRunFinished?: (runID: string) => void;
-  onConversationRunStarted?: (runID: string, conversationPublicID: string) => void;
+  failedGenerationRunsRef?: React.RefObject<Set<string>>;
   resumeGenerationActive?: boolean;
 }) {
   const streamBuffer = useChatStreamBuffer({
-    setPendingExchanges,
+    setPendingExchange,
   });
 
   const messageSubmit = useChatMessageSubmit({
     conversationID,
-    conversationScopeKey,
     activeConversation,
     selectedPlatformModelName,
     modelOptions,
@@ -133,27 +118,24 @@ export function useChatSubmitStream({
     researchMaxLLMCalls,
     researchMaxToolCalls,
     selectedSkills,
-    selectedKnowledgeBaseIDs,
     htmlVisualPromptEnabled,
+    htmlVisualColorMode,
     options,
     draft,
     attachments,
     maxFilesPerMessage,
     uploading,
     restoreDraftOnFailure,
-    autoGenerateLabels,
     prependNewConversation,
     onConversationCreated,
-    onConversationForked,
     touchByPublicID,
     reload,
     replaceMessage,
     setDraft,
     setAttachments,
     releaseAttachments,
-    getPendingExchanges,
-    pendingExchanges,
-    setPendingExchanges,
+    pendingExchange,
+    setPendingExchange,
     setBranchSelections,
     showConversationLayout,
     setShowConversationLayout,
@@ -162,20 +144,18 @@ export function useChatSubmitStream({
     visibleMessages,
     combinedMessages,
     serverMessagePublicIDs,
-    enqueueUpstreamThinkDelta: streamBuffer.enqueueUpstreamThinkDelta,
     enqueueStreamText: streamBuffer.enqueueStreamText,
     flushStreamTextNow: streamBuffer.flushStreamTextNow,
-    flushUpstreamThinkNow: streamBuffer.flushUpstreamThinkNow,
     resetStreamBuffer: streamBuffer.resetStreamBuffer,
     startStream: streamBuffer.startStream,
+    resetToken,
     activeGenerationRunsRef,
-    activeGenerationRunsRevision,
-    onActiveGenerationRunsChange,
-    onConversationRunDetached,
-    onConversationRunFinished,
-    onConversationRunStarted,
+    failedGenerationRunsRef,
     resumeGenerationActive,
   });
 
-  return messageSubmit;
+  return {
+    ...messageSubmit,
+    pendingExchange,
+  };
 }

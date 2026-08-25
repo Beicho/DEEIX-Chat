@@ -27,9 +27,10 @@ import {
   parseRAGCitations,
   parseStructuredTraceStages,
   parseTraceStages,
+  type TraceStage,
 } from "@/features/chat/model/message-process-trace";
 
-export { MessageAgentTrace } from "@/features/chat/components/message/message-agent-trace";
+export { MessageTraceEventBlocks, MessageUpstreamThink } from "@/features/chat/components/message/message-thinking-trace";
 
 function buildProcessSummary(trace: ChatMessageProcessTrace): string {
   if (trace.process?.summary) {
@@ -101,7 +102,7 @@ export function MessageProcessTrace({
                     !processStreaming && "text-muted-foreground group-hover/trace:text-foreground",
                   )}
                 >
-                  <MarkerContent className="min-w-0">
+                  <MarkerContent className={cn("min-w-0", processStreaming && "shimmer")}>
                     {processStreaming ? labels.process.titleActive : labels.process.titleDone}
                   </MarkerContent>
                 </Marker>
