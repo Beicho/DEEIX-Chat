@@ -37,7 +37,7 @@ export function toServerConversationSearchResult(
     resultID: messagePublicID ? `${conversation.publicID}:${messagePublicID}` : `${conversation.publicID}:title`,
     publicID: conversation.publicID,
     title,
-    searchText: [conversationSearchText(conversation), snippet, messagePublicID].filter(Boolean).join(" "),
+    searchText: [conversationSearchText(conversation as ConversationDTO), snippet, messagePublicID].filter(Boolean).join(" "),
     href: `/chat?conversation_id=${conversation.publicID}`,
     snippet,
     messagePublicID,

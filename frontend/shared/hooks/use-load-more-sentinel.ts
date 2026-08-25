@@ -6,6 +6,7 @@ type UseLoadMoreSentinelOptions = {
   enabled: boolean;
   rootMargin?: string;
   rootRef?: React.RefObject<HTMLElement | null>;
+  targetRef?: React.RefObject<Element | null>;
   onLoadMore: () => void | Promise<void>;
 };
 
@@ -23,6 +24,7 @@ export function useLoadMoreSentinel<T extends Element = HTMLElement>({
   enabled,
   rootMargin = "120px",
   rootRef,
+  targetRef: externalTargetRef,
   onLoadMore,
 }: UseLoadMoreSentinelOptions): React.RefCallback<T> {
   const [target, setTarget] = React.useState<T | null>(null);
@@ -40,11 +42,12 @@ export function useLoadMoreSentinel<T extends Element = HTMLElement>({
       return;
     }
 
-    if (!target) {
+    const resolvedTarget = externalTargetRef?.current ?? target;
+    if (!resolvedTarget) {
       return;
     }
 
-    const root = rootRef?.current ?? target.parentElement?.closest<HTMLElement>("[data-sidebar-scroll-root='true']") ?? null;
+    const root = rootRef?.current ?? resolvedTarget.parentElement?.closest<HTMLElement>("[data-sidebar-scroll-root='true']") ?? null;
     const marginPx = rootMarginToPixels(rootMargin);
     let animationFrame: number | null = null;
     let disposed = false;
@@ -53,7 +56,7 @@ export function useLoadMoreSentinel<T extends Element = HTMLElement>({
       if (root) {
         return root.scrollHeight - root.scrollTop - root.clientHeight <= marginPx;
       }
-      return target.getBoundingClientRect().top <= window.innerHeight + marginPx;
+      return resolvedTarget.getBoundingClientRect().top <= window.innerHeight + marginPx;
     };
 
     const check = () => {
@@ -81,13 +84,13 @@ export function useLoadMoreSentinel<T extends Element = HTMLElement>({
       { root, rootMargin },
     );
 
-    observer.observe(target);
+    observer.observe(resolvedTarget);
     const scrollTarget: HTMLElement | Window = root ?? window;
     scrollTarget.addEventListener("scroll", scheduleCheck, { passive: true });
     window.addEventListener("resize", scheduleCheck);
 
     const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleCheck);
-    resizeObserver?.observe(target);
+    resizeObserver?.observe(resolvedTarget);
     if (root) {
       resizeObserver?.observe(root);
     }
@@ -104,7 +107,7 @@ export function useLoadMoreSentinel<T extends Element = HTMLElement>({
         window.cancelAnimationFrame(animationFrame);
       }
     };
-  }, [enabled, rootMargin, rootRef, target]);
+  }, [enabled, externalTargetRef, rootMargin, rootRef, target]);
 
   return targetRef;
 }

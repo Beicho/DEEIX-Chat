@@ -92,7 +92,7 @@ export type PendingExchange = {
   platformModelName?: string;
   parentPublicID: string | null;
   sourcePublicID: string | null;
-  branchReason: "default" | "retry" | "edit";
+  branchReason: "default" | "retry" | "edit" | "arena";
   reuseUserMessage: boolean;
   userContent: string;
   userAttachments?: PendingAttachment[];

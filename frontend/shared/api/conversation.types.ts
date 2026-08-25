@@ -151,11 +151,19 @@ export type TraceEventDTO = MessageTraceEventResponse;
 
 export type CreateConversationRequest = ContractCreateConversationRequest;
 
-export type CreateConversationProjectRequest = Omit<ContractCreateConversationProjectRequest, "mcpDefaultMode"> & {
+export type CreateConversationProjectRequest = Omit<
+  ContractCreateConversationProjectRequest,
+  "defaultKnowledgeBaseIDs" | "mcpDefaultMode"
+> & {
+  defaultKnowledgeBaseIDs?: string[];
   mcpDefaultMode?: ConversationProjectMCPDefaultMode;
 };
 
-export type UpdateConversationProjectRequest = Omit<ContractUpdateConversationProjectRequest, "mcpDefaultMode"> & {
+export type UpdateConversationProjectRequest = Omit<
+  ContractUpdateConversationProjectRequest,
+  "defaultKnowledgeBaseIDs" | "mcpDefaultMode"
+> & {
+  defaultKnowledgeBaseIDs?: string[];
   mcpDefaultMode?: ConversationProjectMCPDefaultMode;
 };
 
@@ -218,7 +226,11 @@ export type MessageFeedbackResult = Omit<MessageFeedbackResponse, "myFeedback"> 
   myFeedback: "up" | "down" | "";
 };
 
-export type SendMessageRequest = Omit<ContractSendMessageRequest, "branchReason" | "options"> & {
+export type SendMessageRequest = Omit<
+  ContractSendMessageRequest,
+  "branchReason" | "knowledgeBaseIDs" | "options"
+> & {
+  knowledgeBaseIDs?: string[];
   options?: ConversationOptions;
   selectedToolIDs?: number[];
   confirmedToolIDs?: number[];

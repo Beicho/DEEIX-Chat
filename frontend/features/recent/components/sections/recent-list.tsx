@@ -121,6 +121,7 @@ function RecentConversationRow({
   onToggleSelected: (publicID: string) => void;
   onToggleStar: (publicID: string, nextStarred: boolean) => void;
   onRename: (item: ConversationDTO) => void;
+  onManageLabels: (item: ConversationDTO) => void;
   onArchive: (publicID: string, archived: boolean) => void;
   onShare: (item: ConversationDTO) => void;
   onRevokeShare: (publicID: string) => void | Promise<void>;
