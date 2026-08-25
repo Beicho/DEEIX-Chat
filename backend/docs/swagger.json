@@ -8,6 +8,109 @@
     },
     "basePath": "/api/v1",
     "paths": {
+        "/admin/alerting/config": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin/alerting"
+                ],
+                "summary": "查询告警配置",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin/alerting"
+                ],
+                "summary": "更新告警配置",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/alerting/test-telegram": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin/alerting"
+                ],
+                "summary": "测试 Telegram 告警",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/alerting/test-webhook": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin/alerting"
+                ],
+                "summary": "测试 Webhook 告警",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Envelope"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/announcements": {
             "get": {
                 "security": [
@@ -29,7 +132,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "状态：active/inactive",
+                        "description": "状态：active/inactive/draft",
                         "name": "status",
                         "in": "query"
                     },
@@ -241,6 +344,39 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/AnnouncementErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/arena/leaderboard": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "聚合各模型的胜场、总对局数与胜率，按胜率降序",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "竞技场偏好榜",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "返回条数上限",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/SuccessDoc"
                         }
                     }
                 }
@@ -627,6 +763,84 @@
                 }
             }
         },
+        "/admin/billing/accounts/{user_id}/balance-delta": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "管理员原子增减用户余额",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "用户ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "余额增减",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/AdjustBillingAccountBalanceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/BalanceDeltaResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BillingErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/billing/balance-transactions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "管理员查询余额流水",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/BalanceTransactionListResponseDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/billing/config": {
             "get": {
                 "security": [
@@ -861,7 +1075,169 @@
                 }
             }
         },
+        "/admin/billing/payment-orders": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "管理员查询支付单",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/BillingPaymentOrderListResponseDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/billing/payment-orders/{order_no}/actions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "管理员处理支付单",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "支付单号",
+                        "name": "order_no",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "动作",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/PaymentOrderActionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/PaymentOrderResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BillingErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/billing/plans": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "管理员创建周期套餐",
+                "parameters": [
+                    {
+                        "description": "套餐配置",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/CreateBillingPlanRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/BillingPlanResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BillingErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/billing/plans/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "管理员删除周期套餐",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "套餐ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/BillingPlanDeleteResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BillingErrorDoc"
+                        }
+                    }
+                }
+            },
             "patch": {
                 "security": [
                     {
@@ -1255,6 +1631,50 @@
                         }
                     }
                 }
+            }
+        },
+        "/admin/billing/risk-summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "管理员查询计费风控摘要",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/BillingRiskSummaryResponseDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/billing/usage.csv": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "管理员导出调用日志 CSV",
+                "responses": {}
             }
         },
         "/admin/call-logs": {
@@ -5867,7 +6287,7 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/PaymentOrderListResponseDoc"
+                            "$ref": "#/definitions/AdminPaymentOrderListResponseDoc"
                         }
                     },
                     "400": {
@@ -8179,6 +8599,26 @@
                 }
             }
         },
+        "/api/v1/status/models": {
+            "get": {
+                "description": "返回所有模型的可用性状态（基于最近 24 小时调用数据）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Status"
+                ],
+                "summary": "查询模型可用性状态",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/ModelsStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/login": {
             "post": {
                 "description": "登录后返回JWT访问令牌",
@@ -8827,6 +9267,197 @@
                 }
             }
         },
+        "/billing/balance-transactions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "查询当前用户余额流水",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/BalanceTransactionListResponseDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/billing/checkin": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "查询每日签到状态",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/CheckInStatusDataResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "领取每日签到奖励",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/CheckInClaimDataResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/billing/external/newapi/balance": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "查询 NewAPI 绑定与余额",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/NewAPIBalanceDataResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/billing/external/newapi/link": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "绑定 NewAPI 账号",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/NewAPIBalanceDataResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/billing/external/newapi/transfer": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "从 NewAPI 转入余额",
+                "parameters": [
+                    {
+                        "description": "转入金额",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/NewAPITransferRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/NewAPITransferDataResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/billing/external/newapi/transfers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "查询 NewAPI 转入历史",
+                "responses": {}
+            }
+        },
         "/billing/overview": {
             "get": {
                 "security": [
@@ -8850,6 +9481,65 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/BillingOverviewResponseDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/BillingErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/billing/payments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "查询当前用户支付单",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页数量",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "订单类型",
+                        "name": "order_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/BillingPaymentOrderListResponseDoc"
                         }
                     },
                     "500": {
@@ -8953,6 +9643,48 @@
                 }
             }
         },
+        "/billing/payments/{order_no}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "查询当前用户支付单状态",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "支付单号",
+                        "name": "order_no",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/PaymentOrderResponseDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/BillingErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/billing/plans": {
             "get": {
                 "security": [
@@ -8988,6 +9720,31 @@
             }
         },
         "/billing/redemptions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "查询当前用户兑换记录",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/RedemptionListResponseDoc"
+                        }
+                    }
+                }
+            },
             "post": {
                 "security": [
                     {
@@ -9153,6 +9910,23 @@
                         }
                     }
                 }
+            }
+        },
+        "/billing/usage.csv": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "text/csv"
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "summary": "导出当前用户用量 CSV",
+                "responses": {}
             }
         },
         "/billing/usage/daily": {
@@ -10269,6 +11043,70 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/conversations/{id}/arena-vote": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "对一组并排对比的模型分支投票，同组同用户只能投一次",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "竞技场投票",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "会话 public_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "投票参数",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ArenaVoteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/SuccessDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/ConversationErrorDoc"
                         }
@@ -12601,7 +13439,114 @@
                 }
             }
         },
+        "/message-bookmarks": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "查询当前用户收藏的消息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "收藏消息列表",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "搜索关键词",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页数量",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/MessageBookmarkListResponseDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
         "/messages/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "将当前用户的一条消息标记为已删除；后续列表、导出和分享默认不再返回",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "删除消息",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "消息 public_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/MessageResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            },
             "patch": {
                 "security": [
                     {
@@ -12642,6 +13587,123 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/MessageResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/messages/{id}/bookmark": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "收藏或取消收藏当前用户消息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "设置消息收藏",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "消息 public_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "收藏参数",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SetMessageBookmarkRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/MessageBookmarkResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/ConversationErrorDoc"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "取消收藏当前用户消息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "取消消息收藏",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "消息 public_id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/MessageBookmarkResponseDoc"
                         }
                     },
                     "400": {
@@ -12758,6 +13820,201 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/ChannelErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "登录用户分页查询站内通知；公告会作为虚拟通知合入",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "查询通知列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页数量",
+                        "name": "page_size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "仅未读",
+                        "name": "unread",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationListResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/read-all": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "登录用户标记全部站内通知已读",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "标记全部通知已读",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationReadResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/unread-count": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "登录用户查询站内未读通知数",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "查询未读通知数",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/UnreadCountResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationErrorDoc"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/{id}/read": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "登录用户标记单条通知已读",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "标记通知已读",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "通知ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationReadResponseDoc"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationErrorDoc"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationErrorDoc"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/NotificationErrorDoc"
                         }
                     }
                 }
@@ -14008,6 +15265,22 @@
                 }
             }
         },
+        "AdjustBillingAccountBalanceRequest": {
+            "type": "object",
+            "required": [
+                "deltaUSD",
+                "description"
+            ],
+            "properties": {
+                "deltaUSD": {
+                    "type": "number"
+                },
+                "description": {
+                    "type": "string",
+                    "maxLength": 255
+                }
+            }
+        },
         "AdminAnnouncementListResponseDoc": {
             "type": "object",
             "required": [
@@ -14054,6 +15327,155 @@
                     "type": "string"
                 },
                 "requestId": {
+                    "type": "string"
+                }
+            }
+        },
+        "AdminPaymentOrderListResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "required": [
+                        "results",
+                        "total"
+                    ],
+                    "properties": {
+                        "results": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/AdminPaymentOrderResponse"
+                            }
+                        },
+                        "total": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "AdminPaymentOrderResponse": {
+            "type": "object",
+            "required": [
+                "baseAmountCents",
+                "baseCurrency",
+                "billingInterval",
+                "createdAt",
+                "creditNanousd",
+                "creditUSD",
+                "cycles",
+                "expiredAt",
+                "externalCheckoutID",
+                "externalPaymentID",
+                "fxRate",
+                "id",
+                "orderNo",
+                "orderType",
+                "paidAt",
+                "payAmountCents",
+                "payCurrency",
+                "planID",
+                "priceID",
+                "provider",
+                "snapshotJSON",
+                "status",
+                "updatedAt",
+                "userDisplayName",
+                "userID",
+                "userLabel",
+                "username"
+            ],
+            "properties": {
+                "baseAmountCents": {
+                    "type": "integer"
+                },
+                "baseCurrency": {
+                    "type": "string"
+                },
+                "billingInterval": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "creditNanousd": {
+                    "type": "integer"
+                },
+                "creditUSD": {
+                    "type": "number"
+                },
+                "cycles": {
+                    "type": "integer"
+                },
+                "expiredAt": {
+                    "type": "string",
+                    "x-nullable": true,
+                    "x-omitempty": false
+                },
+                "externalCheckoutID": {
+                    "type": "string"
+                },
+                "externalPaymentID": {
+                    "type": "string"
+                },
+                "fxRate": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "orderNo": {
+                    "type": "string"
+                },
+                "orderType": {
+                    "type": "string"
+                },
+                "paidAt": {
+                    "type": "string",
+                    "x-nullable": true,
+                    "x-omitempty": false
+                },
+                "payAmountCents": {
+                    "type": "integer"
+                },
+                "payCurrency": {
+                    "type": "string"
+                },
+                "planID": {
+                    "type": "integer"
+                },
+                "priceID": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "snapshotJSON": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "userDisplayName": {
+                    "type": "string"
+                },
+                "userID": {
+                    "type": "integer"
+                },
+                "userLabel": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }
@@ -14460,6 +15882,27 @@
                 }
             }
         },
+        "ArenaVoteRequest": {
+            "type": "object",
+            "required": [
+                "blindMode",
+                "messageGroupID",
+                "winnerModel"
+            ],
+            "properties": {
+                "blindMode": {
+                    "type": "boolean"
+                },
+                "messageGroupID": {
+                    "type": "string",
+                    "maxLength": 64
+                },
+                "winnerModel": {
+                    "type": "string",
+                    "maxLength": 128
+                }
+            }
+        },
         "AuditLogListResponseDoc": {
             "type": "object",
             "required": [
@@ -14850,6 +16293,129 @@
                     "type": "string",
                     "x-nullable": true,
                     "x-omitempty": false
+                }
+            }
+        },
+        "BalanceDeltaDataResponse": {
+            "type": "object",
+            "required": [
+                "account",
+                "transaction"
+            ],
+            "properties": {
+                "account": {
+                    "$ref": "#/definitions/BillingAccountResponse"
+                },
+                "transaction": {
+                    "$ref": "#/definitions/BalanceTransactionResponse"
+                }
+            }
+        },
+        "BalanceDeltaResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/BalanceDeltaDataResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "BalanceTransactionListResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "required": [
+                        "results",
+                        "total"
+                    ],
+                    "properties": {
+                        "results": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/BalanceTransactionResponse"
+                            }
+                        },
+                        "total": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "BalanceTransactionResponse": {
+            "type": "object",
+            "required": [
+                "accountID",
+                "amountNanousd",
+                "amountUSD",
+                "balanceAfterNanousd",
+                "balanceAfterUSD",
+                "createdAt",
+                "description",
+                "id",
+                "refID",
+                "refNo",
+                "refType",
+                "type",
+                "updatedAt",
+                "userID"
+            ],
+            "properties": {
+                "accountID": {
+                    "type": "integer"
+                },
+                "amountNanousd": {
+                    "type": "integer"
+                },
+                "amountUSD": {
+                    "type": "number"
+                },
+                "balanceAfterNanousd": {
+                    "type": "integer"
+                },
+                "balanceAfterUSD": {
+                    "type": "number"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "refID": {
+                    "type": "integer"
+                },
+                "refNo": {
+                    "type": "string"
+                },
+                "refType": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "userID": {
+                    "type": "integer"
                 }
             }
         },
@@ -15348,6 +16914,132 @@
                 }
             }
         },
+        "BillingPaymentOrderListResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "required": [
+                        "results",
+                        "total"
+                    ],
+                    "properties": {
+                        "results": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/BillingPaymentOrderResponse"
+                            }
+                        },
+                        "total": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "BillingPaymentOrderResponse": {
+            "type": "object",
+            "required": [
+                "baseAmountCents",
+                "baseCurrency",
+                "billingInterval",
+                "createdAt",
+                "creditNanousd",
+                "creditUSD",
+                "cycles",
+                "expiredAt",
+                "fxRate",
+                "orderNo",
+                "orderType",
+                "paidAt",
+                "payAmountCents",
+                "payCurrency",
+                "planID",
+                "priceID",
+                "provider",
+                "status",
+                "updatedAt",
+                "userID"
+            ],
+            "properties": {
+                "baseAmountCents": {
+                    "type": "integer"
+                },
+                "baseCurrency": {
+                    "type": "string"
+                },
+                "billingInterval": {
+                    "type": "string"
+                },
+                "checkoutURL": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "creditNanousd": {
+                    "type": "integer"
+                },
+                "creditUSD": {
+                    "type": "number"
+                },
+                "cycles": {
+                    "type": "integer"
+                },
+                "expiredAt": {
+                    "type": "string"
+                },
+                "externalCheckoutID": {
+                    "type": "string"
+                },
+                "externalPaymentID": {
+                    "type": "string"
+                },
+                "fxRate": {
+                    "type": "string"
+                },
+                "orderNo": {
+                    "type": "string"
+                },
+                "orderType": {
+                    "type": "string"
+                },
+                "paidAt": {
+                    "type": "string"
+                },
+                "payAmountCents": {
+                    "type": "integer"
+                },
+                "payCurrency": {
+                    "type": "string"
+                },
+                "planID": {
+                    "type": "integer"
+                },
+                "priceID": {
+                    "type": "integer"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "userID": {
+                    "type": "integer"
+                }
+            }
+        },
         "BillingPlanDataResponse": {
             "type": "object",
             "required": [
@@ -15356,6 +17048,32 @@
             "properties": {
                 "plan": {
                     "$ref": "#/definitions/BillingPlanResponse"
+                }
+            }
+        },
+        "BillingPlanDeleteDataResponse": {
+            "type": "object",
+            "required": [
+                "deleted"
+            ],
+            "properties": {
+                "deleted": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "BillingPlanDeleteResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/BillingPlanDeleteDataResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
                 }
             }
         },
@@ -15466,6 +17184,63 @@
                 },
                 "planID": {
                     "type": "integer"
+                }
+            }
+        },
+        "BillingRiskSummaryDataResponse": {
+            "type": "object",
+            "required": [
+                "risk"
+            ],
+            "properties": {
+                "risk": {
+                    "$ref": "#/definitions/BillingRiskSummaryResponse"
+                }
+            }
+        },
+        "BillingRiskSummaryResponse": {
+            "type": "object",
+            "required": [
+                "generatedAt",
+                "highRiskClusterCount",
+                "ignoredClusterCount",
+                "multiAccountClusterCount",
+                "uniqueFingerprintCount",
+                "uniqueIPCount"
+            ],
+            "properties": {
+                "generatedAt": {
+                    "type": "string"
+                },
+                "highRiskClusterCount": {
+                    "type": "integer"
+                },
+                "ignoredClusterCount": {
+                    "type": "integer"
+                },
+                "multiAccountClusterCount": {
+                    "type": "integer"
+                },
+                "uniqueFingerprintCount": {
+                    "type": "integer"
+                },
+                "uniqueIPCount": {
+                    "type": "integer"
+                }
+            }
+        },
+        "BillingRiskSummaryResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/BillingRiskSummaryDataResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
                 }
             }
         },
@@ -15672,6 +17447,108 @@
                 },
                 "requestId": {
                     "type": "string"
+                }
+            }
+        },
+        "CheckInClaimDataResponse": {
+            "type": "object",
+            "required": [
+                "checkIn"
+            ],
+            "properties": {
+                "checkIn": {
+                    "$ref": "#/definitions/CheckInClaimResponse"
+                }
+            }
+        },
+        "CheckInClaimResponse": {
+            "type": "object",
+            "required": [
+                "account",
+                "alreadyClaimed",
+                "balanceTransactionID",
+                "checkInDate",
+                "consecutiveDays",
+                "id",
+                "rewardNanousd",
+                "rewardUSD"
+            ],
+            "properties": {
+                "account": {
+                    "$ref": "#/definitions/BillingAccountResponse"
+                },
+                "alreadyClaimed": {
+                    "type": "boolean"
+                },
+                "balanceTransactionID": {
+                    "type": "integer"
+                },
+                "checkInDate": {
+                    "type": "string"
+                },
+                "consecutiveDays": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "rewardNanousd": {
+                    "type": "integer"
+                },
+                "rewardUSD": {
+                    "type": "number"
+                },
+                "transaction": {
+                    "$ref": "#/definitions/BalanceTransactionResponse"
+                }
+            }
+        },
+        "CheckInStatusDataResponse": {
+            "type": "object",
+            "required": [
+                "checkIn"
+            ],
+            "properties": {
+                "checkIn": {
+                    "$ref": "#/definitions/CheckInStatusResponse"
+                }
+            }
+        },
+        "CheckInStatusResponse": {
+            "type": "object",
+            "required": [
+                "account",
+                "consecutiveDays",
+                "lastCheckInDate",
+                "nextCheckInDate",
+                "rewardNanousd",
+                "rewardUSD",
+                "todayClaimed"
+            ],
+            "properties": {
+                "account": {
+                    "$ref": "#/definitions/BillingAccountResponse"
+                },
+                "consecutiveDays": {
+                    "type": "integer"
+                },
+                "lastCheckInDate": {
+                    "type": "string"
+                },
+                "latestTransaction": {
+                    "$ref": "#/definitions/BalanceTransactionResponse"
+                },
+                "nextCheckInDate": {
+                    "type": "string"
+                },
+                "rewardNanousd": {
+                    "type": "integer"
+                },
+                "rewardUSD": {
+                    "type": "number"
+                },
+                "todayClaimed": {
+                    "type": "boolean"
                 }
             }
         },
@@ -17411,6 +19288,60 @@
                 }
             }
         },
+        "CreateBillingPlanRequest": {
+            "type": "object",
+            "required": [
+                "amountUSD",
+                "billingInterval",
+                "code",
+                "currency",
+                "description",
+                "discountPercent",
+                "name",
+                "periodCreditUSD"
+            ],
+            "properties": {
+                "amountUSD": {
+                    "type": "number",
+                    "minimum": 0
+                },
+                "billingInterval": {
+                    "type": "string",
+                    "enum": [
+                        "month",
+                        "year",
+                        "lifetime"
+                    ]
+                },
+                "code": {
+                    "type": "string",
+                    "maxLength": 32,
+                    "minLength": 2
+                },
+                "currency": {
+                    "type": "string",
+                    "maxLength": 16
+                },
+                "description": {
+                    "type": "string",
+                    "maxLength": 255
+                },
+                "discountPercent": {
+                    "type": "integer",
+                    "maximum": 100,
+                    "minimum": 0
+                },
+                "name": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "minLength": 1
+                },
+                "periodCreditUSD": {
+                    "type": "number",
+                    "minimum": 0
+                }
+            }
+        },
         "CreateCheckoutRequest": {
             "type": "object",
             "properties": {
@@ -18223,6 +20154,84 @@
                     "type": "string"
                 },
                 "requestId": {
+                    "type": "string"
+                }
+            }
+        },
+        "ExternalAccountLinkResponse": {
+            "type": "object",
+            "required": [
+                "externalDisplayName",
+                "id",
+                "lastSyncedAt",
+                "linkedAt",
+                "platform",
+                "status"
+            ],
+            "properties": {
+                "externalDisplayName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "lastSyncedAt": {
+                    "type": "string"
+                },
+                "linkedAt": {
+                    "type": "string"
+                },
+                "platform": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "ExternalTransferResponse": {
+            "type": "object",
+            "required": [
+                "completedAt",
+                "createdAt",
+                "creditedAmountNanousd",
+                "creditedAmountUSD",
+                "direction",
+                "externalAmountUSD",
+                "id",
+                "platform",
+                "requestedAt",
+                "status"
+            ],
+            "properties": {
+                "completedAt": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "creditedAmountNanousd": {
+                    "type": "integer"
+                },
+                "creditedAmountUSD": {
+                    "type": "number"
+                },
+                "direction": {
+                    "type": "string"
+                },
+                "externalAmountUSD": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "platform": {
+                    "type": "string"
+                },
+                "requestedAt": {
+                    "type": "string"
+                },
+                "status": {
                     "type": "string"
                 }
             }
@@ -19201,9 +21210,12 @@
         "LoginOptionsResponse": {
             "type": "object",
             "required": [
+                "emailCodeLoginEnabled",
                 "emailEnabled",
                 "emailRegistrationEnabled",
                 "emailVerificationEnabled",
+                "inviteProviderRegistration",
+                "inviteRegistrationRequired",
                 "passwordResetEnabled",
                 "providerAuthBridge",
                 "providers",
@@ -19212,6 +21224,9 @@
                 "usernameEnabled"
             ],
             "properties": {
+                "emailCodeLoginEnabled": {
+                    "type": "boolean"
+                },
                 "emailEnabled": {
                     "type": "boolean"
                 },
@@ -19219,6 +21234,12 @@
                     "type": "boolean"
                 },
                 "emailVerificationEnabled": {
+                    "type": "boolean"
+                },
+                "inviteProviderRegistration": {
+                    "type": "boolean"
+                },
+                "inviteRegistrationRequired": {
                     "type": "boolean"
                 },
                 "passwordResetEnabled": {
@@ -19293,6 +21314,13 @@
                     "type": "string"
                 },
                 "expiresAt": {
+                    "type": "string"
+                },
+                "invitationRequired": {
+                    "description": "InvitationRequired 为 true 时前端需引导用户输入邀请码并调用注册完成接口。",
+                    "type": "boolean"
+                },
+                "pendingRegistrationToken": {
                     "type": "string"
                 },
                 "refreshExpiresAt": {
@@ -19483,6 +21511,119 @@
                     "type": "string"
                 },
                 "pricingSnapshotJSON": {
+                    "type": "string"
+                }
+            }
+        },
+        "MessageBookmarkListItemResponse": {
+            "type": "object",
+            "required": [
+                "conversation",
+                "createdAt",
+                "id",
+                "message",
+                "note",
+                "tags",
+                "updatedAt"
+            ],
+            "properties": {
+                "conversation": {
+                    "$ref": "#/definitions/ConversationResponse"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "message": {
+                    "$ref": "#/definitions/MessageResponse"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "MessageBookmarkListResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "required": [
+                        "results",
+                        "total"
+                    ],
+                    "properties": {
+                        "results": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/MessageBookmarkListItemResponse"
+                            }
+                        },
+                        "total": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "MessageBookmarkResponse": {
+            "type": "object",
+            "required": [
+                "bookmarked",
+                "messageID",
+                "messagePublicID",
+                "note",
+                "tags"
+            ],
+            "properties": {
+                "bookmarked": {
+                    "type": "boolean"
+                },
+                "messageID": {
+                    "type": "integer"
+                },
+                "messagePublicID": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "MessageBookmarkResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/MessageBookmarkResponse"
+                },
+                "errorMsg": {
                     "type": "string"
                 }
             }
@@ -20832,6 +22973,31 @@
                 }
             }
         },
+        "ModelStatusDetail": {
+            "type": "object",
+            "required": [
+                "availability",
+                "lastChecked",
+                "modelName",
+                "status"
+            ],
+            "properties": {
+                "availability": {
+                    "description": "0.0-1.0",
+                    "type": "number"
+                },
+                "lastChecked": {
+                    "type": "string"
+                },
+                "modelName": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "\"operational\" | \"degraded\" | \"down\"",
+                    "type": "string"
+                }
+            }
+        },
         "ModelUpstreamSourceDataResponse": {
             "type": "object",
             "required": [
@@ -21144,6 +23310,29 @@
                 }
             }
         },
+        "ModelsStatusResponse": {
+            "type": "object",
+            "required": [
+                "lastUpdated",
+                "models",
+                "overallStatus"
+            ],
+            "properties": {
+                "lastUpdated": {
+                    "type": "string"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ModelStatusDetail"
+                    }
+                },
+                "overallStatus": {
+                    "description": "\"operational\" | \"degraded\" | \"down\"",
+                    "type": "string"
+                }
+            }
+        },
         "NativeToolPricingRequest": {
             "type": "object",
             "properties": {
@@ -21203,6 +23392,207 @@
                     "type": "string"
                 },
                 "unit": {
+                    "type": "string"
+                }
+            }
+        },
+        "NewAPIBalanceDataResponse": {
+            "type": "object",
+            "required": [
+                "balance"
+            ],
+            "properties": {
+                "balance": {
+                    "$ref": "#/definitions/NewAPIBalanceResponse"
+                }
+            }
+        },
+        "NewAPIBalanceResponse": {
+            "type": "object",
+            "required": [
+                "externalBalanceUSD",
+                "link",
+                "linked",
+                "maxDailyTransferUSD",
+                "minTransferUSD",
+                "rate",
+                "transferableUSD"
+            ],
+            "properties": {
+                "externalBalanceUSD": {
+                    "type": "number"
+                },
+                "link": {
+                    "$ref": "#/definitions/ExternalAccountLinkResponse"
+                },
+                "linked": {
+                    "type": "boolean"
+                },
+                "maxDailyTransferUSD": {
+                    "type": "number"
+                },
+                "minTransferUSD": {
+                    "type": "number"
+                },
+                "rate": {
+                    "type": "number"
+                },
+                "transferableUSD": {
+                    "type": "number"
+                }
+            }
+        },
+        "NewAPITransferDataResponse": {
+            "type": "object",
+            "required": [
+                "account",
+                "transfer"
+            ],
+            "properties": {
+                "account": {
+                    "$ref": "#/definitions/BillingAccountResponse"
+                },
+                "transaction": {
+                    "$ref": "#/definitions/BalanceTransactionResponse"
+                },
+                "transfer": {
+                    "$ref": "#/definitions/ExternalTransferResponse"
+                }
+            }
+        },
+        "NewAPITransferRequest": {
+            "type": "object",
+            "required": [
+                "amountUSD",
+                "idempotencyKey"
+            ],
+            "properties": {
+                "amountUSD": {
+                    "type": "number",
+                    "maximum": 500,
+                    "minimum": 1
+                },
+                "idempotencyKey": {
+                    "type": "string",
+                    "maxLength": 128,
+                    "minLength": 8
+                }
+            }
+        },
+        "NotificationErrorDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {},
+                "details": {},
+                "errorCode": {
+                    "type": "string",
+                    "example": "invalid_request"
+                },
+                "errorMsg": {
+                    "type": "string",
+                    "example": "invalid request"
+                },
+                "requestId": {
+                    "type": "string",
+                    "example": ""
+                }
+            }
+        },
+        "NotificationListResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "required": [
+                        "results",
+                        "total"
+                    ],
+                    "properties": {
+                        "results": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/NotificationResponse"
+                            }
+                        },
+                        "total": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "NotificationReadDataResponse": {
+            "type": "object",
+            "required": [
+                "read"
+            ],
+            "properties": {
+                "read": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "NotificationReadResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/NotificationReadDataResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "NotificationResponse": {
+            "type": "object",
+            "required": [
+                "body",
+                "createdAt",
+                "id",
+                "link",
+                "readAt",
+                "title",
+                "type",
+                "updatedAt"
+            ],
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "link": {
+                    "type": "string"
+                },
+                "readAt": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "updatedAt": {
                     "type": "string"
                 }
             }
@@ -21683,7 +24073,42 @@
                 }
             }
         },
-        "PaymentOrderListResponseDoc": {
+        "PaymentOrderActionRequest": {
+            "type": "object",
+            "required": [
+                "action",
+                "externalPaymentID"
+            ],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "complete",
+                        "expire",
+                        "fail"
+                    ]
+                },
+                "externalPaymentID": {
+                    "type": "string",
+                    "maxLength": 128
+                }
+            }
+        },
+        "PaymentOrderDataResponse": {
+            "type": "object",
+            "required": [
+                "order"
+            ],
+            "properties": {
+                "activated": {
+                    "type": "boolean"
+                },
+                "order": {
+                    "$ref": "#/definitions/BillingPaymentOrderResponse"
+                }
+            }
+        },
+        "PaymentOrderResponseDoc": {
             "type": "object",
             "required": [
                 "data",
@@ -21691,143 +24116,9 @@
             ],
             "properties": {
                 "data": {
-                    "type": "object",
-                    "required": [
-                        "results",
-                        "total"
-                    ],
-                    "properties": {
-                        "results": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/PaymentOrderResponse"
-                            }
-                        },
-                        "total": {
-                            "type": "integer"
-                        }
-                    }
+                    "$ref": "#/definitions/PaymentOrderDataResponse"
                 },
                 "errorMsg": {
-                    "type": "string"
-                }
-            }
-        },
-        "PaymentOrderResponse": {
-            "type": "object",
-            "required": [
-                "baseAmountCents",
-                "baseCurrency",
-                "billingInterval",
-                "createdAt",
-                "creditNanousd",
-                "creditUSD",
-                "cycles",
-                "expiredAt",
-                "externalCheckoutID",
-                "externalPaymentID",
-                "fxRate",
-                "id",
-                "orderNo",
-                "orderType",
-                "paidAt",
-                "payAmountCents",
-                "payCurrency",
-                "planID",
-                "priceID",
-                "provider",
-                "snapshotJSON",
-                "status",
-                "updatedAt",
-                "userDisplayName",
-                "userID",
-                "userLabel",
-                "username"
-            ],
-            "properties": {
-                "baseAmountCents": {
-                    "type": "integer"
-                },
-                "baseCurrency": {
-                    "type": "string"
-                },
-                "billingInterval": {
-                    "type": "string"
-                },
-                "createdAt": {
-                    "type": "string"
-                },
-                "creditNanousd": {
-                    "type": "integer"
-                },
-                "creditUSD": {
-                    "type": "number"
-                },
-                "cycles": {
-                    "type": "integer"
-                },
-                "expiredAt": {
-                    "type": "string",
-                    "x-nullable": true,
-                    "x-omitempty": false
-                },
-                "externalCheckoutID": {
-                    "type": "string"
-                },
-                "externalPaymentID": {
-                    "type": "string"
-                },
-                "fxRate": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "orderNo": {
-                    "type": "string"
-                },
-                "orderType": {
-                    "type": "string"
-                },
-                "paidAt": {
-                    "type": "string",
-                    "x-nullable": true,
-                    "x-omitempty": false
-                },
-                "payAmountCents": {
-                    "type": "integer"
-                },
-                "payCurrency": {
-                    "type": "string"
-                },
-                "planID": {
-                    "type": "integer"
-                },
-                "priceID": {
-                    "type": "integer"
-                },
-                "provider": {
-                    "type": "string"
-                },
-                "snapshotJSON": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "updatedAt": {
-                    "type": "string"
-                },
-                "userDisplayName": {
-                    "type": "string"
-                },
-                "userID": {
-                    "type": "integer"
-                },
-                "userLabel": {
-                    "type": "string"
-                },
-                "username": {
                     "type": "string"
                 }
             }
@@ -22497,11 +24788,15 @@
             "required": [
                 "createdAt",
                 "defaultMessagePublicIDs",
+                "expiresAt",
                 "lastAccessedAt",
                 "messages",
                 "model",
+                "requiresPassword",
+                "scope",
                 "shareID",
-                "title"
+                "title",
+                "verified"
             ],
             "properties": {
                 "createdAt": {
@@ -22512,6 +24807,9 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "expiresAt": {
+                    "type": "string"
                 },
                 "lastAccessedAt": {
                     "type": "string",
@@ -22527,11 +24825,20 @@
                 "model": {
                     "type": "string"
                 },
+                "requiresPassword": {
+                    "type": "boolean"
+                },
+                "scope": {
+                    "type": "string"
+                },
                 "shareID": {
                     "type": "string"
                 },
                 "title": {
                     "type": "string"
+                },
+                "verified": {
+                    "type": "boolean"
                 }
             }
         },
@@ -22577,8 +24884,7 @@
                 "sourcePublicID",
                 "status",
                 "tokenUsage",
-                "updatedAt",
-                "upstreamModelName"
+                "updatedAt"
             ],
             "properties": {
                 "attachments": {
@@ -22659,9 +24965,6 @@
                     "type": "integer"
                 },
                 "updatedAt": {
-                    "type": "string"
-                },
-                "upstreamModelName": {
                     "type": "string"
                 }
             }
@@ -22911,6 +25214,36 @@
             "properties": {
                 "data": {
                     "$ref": "#/definitions/RedemptionCodeDataResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "RedemptionListResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "required": [
+                        "results",
+                        "total"
+                    ],
+                    "properties": {
+                        "results": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/RedemptionResponse"
+                            }
+                        },
+                        "total": {
+                            "type": "integer"
+                        }
+                    }
                 },
                 "errorMsg": {
                     "type": "string"
@@ -23225,7 +25558,6 @@
                 "updatedAt",
                 "upstreamID",
                 "upstreamModelID",
-                "upstreamModelName",
                 "userID"
             ],
             "properties": {
@@ -23320,9 +25652,6 @@
                 },
                 "upstreamModelID": {
                     "type": "integer"
-                },
-                "upstreamModelName": {
-                    "type": "string"
                 },
                 "userID": {
                     "type": "integer"
@@ -23675,6 +26004,30 @@
                     "type": "array",
                     "items": {
                         "type": "integer"
+                    }
+                }
+            }
+        },
+        "SetMessageBookmarkRequest": {
+            "type": "object",
+            "required": [
+                "bookmarked",
+                "note",
+                "tags"
+            ],
+            "properties": {
+                "bookmarked": {
+                    "type": "boolean"
+                },
+                "note": {
+                    "type": "string",
+                    "maxLength": 512
+                },
+                "tags": {
+                    "type": "array",
+                    "maxItems": 12,
+                    "items": {
+                        "type": "string"
                     }
                 }
             }
@@ -24530,6 +26883,32 @@
             "properties": {
                 "data": {
                     "$ref": "#/definitions/ToolResponse"
+                },
+                "errorMsg": {
+                    "type": "string"
+                }
+            }
+        },
+        "UnreadCountDataResponse": {
+            "type": "object",
+            "required": [
+                "unreadCount"
+            ],
+            "properties": {
+                "unreadCount": {
+                    "type": "integer"
+                }
+            }
+        },
+        "UnreadCountResponseDoc": {
+            "type": "object",
+            "required": [
+                "data",
+                "errorMsg"
+            ],
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/UnreadCountDataResponse"
                 },
                 "errorMsg": {
                     "type": "string"

@@ -69,6 +69,12 @@ export interface AddKnowledgeBaseFilesRequest {
   fileIDs: string[];
 }
 
+export interface AdjustBillingAccountBalanceRequest {
+  deltaUSD: number;
+  /** @maxLength 255 */
+  description: string;
+}
+
 export interface AdminAnnouncementListResponseDoc {
   data: {
     results: AnnouncementResponse[];
@@ -83,6 +89,44 @@ export interface AdminErrorDoc {
   errorCode?: string;
   errorMsg: string;
   requestId?: string;
+}
+
+export interface AdminPaymentOrderListResponseDoc {
+  data: {
+    results: AdminPaymentOrderResponse[];
+    total: number;
+  };
+  errorMsg: string;
+}
+
+export interface AdminPaymentOrderResponse {
+  baseAmountCents: number;
+  baseCurrency: string;
+  billingInterval: string;
+  createdAt: string;
+  creditNanousd: number;
+  creditUSD: number;
+  cycles: number;
+  expiredAt: string | null;
+  externalCheckoutID: string;
+  externalPaymentID: string;
+  fxRate: string;
+  id: number;
+  orderNo: string;
+  orderType: string;
+  paidAt: string | null;
+  payAmountCents: number;
+  payCurrency: string;
+  planID: number;
+  priceID: number;
+  provider: string;
+  snapshotJSON: string;
+  status: string;
+  updatedAt: string;
+  userDisplayName: string;
+  userID: number;
+  userLabel: string;
+  username: string;
 }
 
 export interface AdminUserIdentityProviderSummaryResponse {
@@ -201,6 +245,14 @@ export interface AnnouncementStateRequest {
   updatedAt: string;
 }
 
+export interface ArenaVoteRequest {
+  blindMode: boolean;
+  /** @maxLength 64 */
+  messageGroupID: string;
+  /** @maxLength 128 */
+  winnerModel: string;
+}
+
 export interface AuditLogListResponseDoc {
   data: {
     results: AuditLogResponse[];
@@ -300,6 +352,41 @@ export interface AuthUserResponse {
   updatedAt: string;
   username: string;
   usernameChangedAt: string | null;
+}
+
+export interface BalanceDeltaDataResponse {
+  account: BillingAccountResponse;
+  transaction: BalanceTransactionResponse;
+}
+
+export interface BalanceDeltaResponseDoc {
+  data: BalanceDeltaDataResponse;
+  errorMsg: string;
+}
+
+export interface BalanceTransactionListResponseDoc {
+  data: {
+    results: BalanceTransactionResponse[];
+    total: number;
+  };
+  errorMsg: string;
+}
+
+export interface BalanceTransactionResponse {
+  accountID: number;
+  amountNanousd: number;
+  amountUSD: number;
+  balanceAfterNanousd: number;
+  balanceAfterUSD: number;
+  createdAt: string;
+  description: string;
+  id: number;
+  refID: number;
+  refNo: string;
+  refType: string;
+  type: string;
+  updatedAt: string;
+  userID: number;
 }
 
 export interface BatchDeleteRedemptionCodeDataResponse {
@@ -447,8 +534,51 @@ export interface BillingOverviewResponseDoc {
   errorMsg: string;
 }
 
+export interface BillingPaymentOrderListResponseDoc {
+  data: {
+    results: BillingPaymentOrderResponse[];
+    total: number;
+  };
+  errorMsg: string;
+}
+
+export interface BillingPaymentOrderResponse {
+  baseAmountCents: number;
+  baseCurrency: string;
+  billingInterval: string;
+  checkoutURL?: string;
+  createdAt: string;
+  creditNanousd: number;
+  creditUSD: number;
+  cycles: number;
+  expiredAt: string;
+  externalCheckoutID?: string;
+  externalPaymentID?: string;
+  fxRate: string;
+  orderNo: string;
+  orderType: string;
+  paidAt: string;
+  payAmountCents: number;
+  payCurrency: string;
+  planID: number;
+  priceID: number;
+  provider: string;
+  status: string;
+  updatedAt: string;
+  userID: number;
+}
+
 export interface BillingPlanDataResponse {
   plan: BillingPlanResponse;
+}
+
+export interface BillingPlanDeleteDataResponse {
+  deleted: boolean;
+}
+
+export interface BillingPlanDeleteResponseDoc {
+  data: BillingPlanDeleteDataResponse;
+  errorMsg: string;
 }
 
 export interface BillingPlanResponse {
@@ -479,6 +609,24 @@ export interface BillingPriceResponse {
   id: number;
   isDefault: boolean;
   planID: number;
+}
+
+export interface BillingRiskSummaryDataResponse {
+  risk: BillingRiskSummaryResponse;
+}
+
+export interface BillingRiskSummaryResponse {
+  generatedAt: string;
+  highRiskClusterCount: number;
+  ignoredClusterCount: number;
+  multiAccountClusterCount: number;
+  uniqueFingerprintCount: number;
+  uniqueIPCount: number;
+}
+
+export interface BillingRiskSummaryResponseDoc {
+  data: BillingRiskSummaryDataResponse;
+  errorMsg: string;
 }
 
 export interface BindModelUpstreamSourceRequest {
@@ -542,6 +690,37 @@ export interface ChannelErrorDoc {
   errorCode?: string;
   errorMsg: string;
   requestId?: string;
+}
+
+export interface CheckInClaimDataResponse {
+  checkIn: CheckInClaimResponse;
+}
+
+export interface CheckInClaimResponse {
+  account: BillingAccountResponse;
+  alreadyClaimed: boolean;
+  balanceTransactionID: number;
+  checkInDate: string;
+  consecutiveDays: number;
+  id: number;
+  rewardNanousd: number;
+  rewardUSD: number;
+  transaction?: BalanceTransactionResponse;
+}
+
+export interface CheckInStatusDataResponse {
+  checkIn: CheckInStatusResponse;
+}
+
+export interface CheckInStatusResponse {
+  account: BillingAccountResponse;
+  consecutiveDays: number;
+  lastCheckInDate: string;
+  latestTransaction?: BalanceTransactionResponse;
+  nextCheckInDate: string;
+  rewardNanousd: number;
+  rewardUSD: number;
+  todayClaimed: boolean;
 }
 
 export interface CheckoutDataResponse {
@@ -1042,6 +1221,33 @@ export interface CreateAnnouncementRequest {
   type?: "critical" | "warning" | "info" | "normal" | "general";
 }
 
+export interface CreateBillingPlanRequest {
+  /** @min 0 */
+  amountUSD: number;
+  billingInterval: "month" | "year" | "lifetime";
+  /**
+   * @minLength 2
+   * @maxLength 32
+   */
+  code: string;
+  /** @maxLength 16 */
+  currency: string;
+  /** @maxLength 255 */
+  description: string;
+  /**
+   * @min 0
+   * @max 100
+   */
+  discountPercent: number;
+  /**
+   * @minLength 1
+   * @maxLength 64
+   */
+  name: string;
+  /** @min 0 */
+  periodCreditUSD: number;
+}
+
 export interface CreateCheckoutRequest {
   /** @min 0 */
   amountMinorUnits?: number;
@@ -1385,6 +1591,28 @@ export interface Envelope {
   requestId?: string;
 }
 
+export interface ExternalAccountLinkResponse {
+  externalDisplayName: string;
+  id: number;
+  lastSyncedAt: string;
+  linkedAt: string;
+  platform: string;
+  status: string;
+}
+
+export interface ExternalTransferResponse {
+  completedAt: string;
+  createdAt: string;
+  creditedAmountNanousd: number;
+  creditedAmountUSD: number;
+  direction: string;
+  externalAmountUSD: number;
+  id: number;
+  platform: string;
+  requestedAt: string;
+  status: string;
+}
+
 export interface FileListResponse {
   quota: StorageQuotaResponse;
   results: FileObjectResponse[];
@@ -1676,9 +1904,12 @@ export interface KnowledgebaseErrorDoc {
 }
 
 export interface LoginOptionsResponse {
+  emailCodeLoginEnabled: boolean;
   emailEnabled: boolean;
   emailRegistrationEnabled: boolean;
   emailVerificationEnabled: boolean;
+  inviteProviderRegistration: boolean;
+  inviteRegistrationRequired: boolean;
   passwordResetEnabled: boolean;
   providerAuthBridge: ProviderAuthBridgeResponse;
   providers: IdentityProviderResponse[];
@@ -1708,6 +1939,9 @@ export interface LoginRequest {
 export interface LoginResponse {
   accessToken: string;
   expiresAt: string;
+  /** InvitationRequired 为 true 时前端需引导用户输入邀请码并调用注册完成接口。 */
+  invitationRequired?: boolean;
+  pendingRegistrationToken?: string;
   refreshExpiresAt: string;
   sessionID: string;
   twoFactorChallengeToken?: string;
@@ -1773,6 +2007,37 @@ export interface MessageBillingCostResponse {
   billedUSD: number;
   billingMode: string;
   pricingSnapshotJSON: string;
+}
+
+export interface MessageBookmarkListItemResponse {
+  conversation: ConversationResponse;
+  createdAt: string;
+  id: number;
+  message: MessageResponse;
+  note: string;
+  tags: string[];
+  updatedAt: string;
+}
+
+export interface MessageBookmarkListResponseDoc {
+  data: {
+    results: MessageBookmarkListItemResponse[];
+    total: number;
+  };
+  errorMsg: string;
+}
+
+export interface MessageBookmarkResponse {
+  bookmarked: boolean;
+  messageID: number;
+  messagePublicID: string;
+  note: string;
+  tags: string[];
+}
+
+export interface MessageBookmarkResponseDoc {
+  data: MessageBookmarkResponse;
+  errorMsg: string;
 }
 
 export interface MessageFeedbackResponse {
@@ -2159,6 +2424,15 @@ export interface ModelResponse {
   vendorName: string;
 }
 
+export interface ModelStatusDetail {
+  /** 0.0-1.0 */
+  availability: number;
+  lastChecked: string;
+  modelName: string;
+  /** "operational" | "degraded" | "down" */
+  status: string;
+}
+
 export interface ModelUpstreamSourceDataResponse {
   source: ModelUpstreamSourceResponse;
 }
@@ -2247,6 +2521,13 @@ export interface ModelVendorResponse {
   updatedAt: string;
 }
 
+export interface ModelsStatusResponse {
+  lastUpdated: string;
+  models: ModelStatusDetail[];
+  /** "operational" | "degraded" | "down" */
+  overallStatus: string;
+}
+
 export interface NativeToolPricingRequest {
   billable?: boolean;
   priceLabel?: string;
@@ -2265,6 +2546,78 @@ export interface NativeToolPricingResponse {
   toolKey: string;
   type: string;
   unit: string;
+}
+
+export interface NewAPIBalanceDataResponse {
+  balance: NewAPIBalanceResponse;
+}
+
+export interface NewAPIBalanceResponse {
+  externalBalanceUSD: number;
+  link: ExternalAccountLinkResponse;
+  linked: boolean;
+  maxDailyTransferUSD: number;
+  minTransferUSD: number;
+  rate: number;
+  transferableUSD: number;
+}
+
+export interface NewAPITransferDataResponse {
+  account: BillingAccountResponse;
+  transaction?: BalanceTransactionResponse;
+  transfer: ExternalTransferResponse;
+}
+
+export interface NewAPITransferRequest {
+  /**
+   * @min 1
+   * @max 500
+   */
+  amountUSD: number;
+  /**
+   * @minLength 8
+   * @maxLength 128
+   */
+  idempotencyKey: string;
+}
+
+export interface NotificationErrorDoc {
+  data: any;
+  details?: any;
+  /** @example "invalid_request" */
+  errorCode?: string;
+  /** @example "invalid request" */
+  errorMsg: string;
+  /** @example "" */
+  requestId?: string;
+}
+
+export interface NotificationListResponseDoc {
+  data: {
+    results: NotificationResponse[];
+    total: number;
+  };
+  errorMsg: string;
+}
+
+export interface NotificationReadDataResponse {
+  read: boolean;
+}
+
+export interface NotificationReadResponseDoc {
+  data: NotificationReadDataResponse;
+  errorMsg: string;
+}
+
+export interface NotificationResponse {
+  body: string;
+  createdAt: string;
+  id: string;
+  link: string;
+  readAt: string;
+  title: string;
+  type: string;
+  updatedAt: string;
 }
 
 export interface OpenRouterOfficialPricingDataResponse {
@@ -2465,42 +2818,20 @@ export interface PatchUsernameRequest {
   username: string;
 }
 
-export interface PaymentOrderListResponseDoc {
-  data: {
-    results: PaymentOrderResponse[];
-    total: number;
-  };
-  errorMsg: string;
+export interface PaymentOrderActionRequest {
+  action: "complete" | "expire" | "fail";
+  /** @maxLength 128 */
+  externalPaymentID: string;
 }
 
-export interface PaymentOrderResponse {
-  baseAmountCents: number;
-  baseCurrency: string;
-  billingInterval: string;
-  createdAt: string;
-  creditNanousd: number;
-  creditUSD: number;
-  cycles: number;
-  expiredAt: string | null;
-  externalCheckoutID: string;
-  externalPaymentID: string;
-  fxRate: string;
-  id: number;
-  orderNo: string;
-  orderType: string;
-  paidAt: string | null;
-  payAmountCents: number;
-  payCurrency: string;
-  planID: number;
-  priceID: number;
-  provider: string;
-  snapshotJSON: string;
-  status: string;
-  updatedAt: string;
-  userDisplayName: string;
-  userID: number;
-  userLabel: string;
-  username: string;
+export interface PaymentOrderDataResponse {
+  activated?: boolean;
+  order: BillingPaymentOrderResponse;
+}
+
+export interface PaymentOrderResponseDoc {
+  data: PaymentOrderDataResponse;
+  errorMsg: string;
 }
 
 export interface PaymentTypeResponse {
@@ -2718,11 +3049,15 @@ export interface PublicModelResponse {
 export interface PublicSharedConversationResponse {
   createdAt: string;
   defaultMessagePublicIDs: string[];
+  expiresAt: string;
   lastAccessedAt: string | null;
   messages: PublicSharedMessageResponse[];
   model: string;
+  requiresPassword: boolean;
+  scope: string;
   shareID: string;
   title: string;
+  verified: boolean;
 }
 
 export interface PublicSharedConversationResponseDoc {
@@ -2757,7 +3092,6 @@ export interface PublicSharedMessageResponse {
   status: string;
   tokenUsage: number;
   updatedAt: string;
-  upstreamModelName: string;
 }
 
 export interface RedeemCodeRequest {
@@ -2836,6 +3170,14 @@ export interface RedemptionCodeResponse {
 
 export interface RedemptionCodeResponseDoc {
   data: RedemptionCodeDataResponse;
+  errorMsg: string;
+}
+
+export interface RedemptionListResponseDoc {
+  data: {
+    results: RedemptionResponse[];
+    total: number;
+  };
   errorMsg: string;
 }
 
@@ -2963,7 +3305,6 @@ export interface RunResponse {
   updatedAt: string;
   upstreamID: number;
   upstreamModelID: number;
-  upstreamModelName: string;
   userID: number;
 }
 
@@ -3074,6 +3415,14 @@ export interface SetGroupModelsRequest {
 
 export interface SetGroupUsersRequest {
   userIDs?: number[];
+}
+
+export interface SetMessageBookmarkRequest {
+  bookmarked: boolean;
+  /** @maxLength 512 */
+  note: string;
+  /** @maxItems 12 */
+  tags: string[];
 }
 
 export interface SetMessageFeedbackRequest {
@@ -3344,6 +3693,15 @@ export interface ToolResponse {
 
 export interface ToolResponseDoc {
   data: ToolResponse;
+  errorMsg: string;
+}
+
+export interface UnreadCountDataResponse {
+  unreadCount: number;
+}
+
+export interface UnreadCountResponseDoc {
+  data: UnreadCountDataResponse;
   errorMsg: string;
 }
 
@@ -4158,6 +4516,70 @@ export interface WriteSkillRequest {
 
 export namespace Admin {
   /**
+   * No description
+   * @tags admin/alerting
+   * @name AlertingConfigList
+   * @summary 查询告警配置
+   * @request GET:/admin/alerting/config
+   * @secure
+   */
+  export namespace AlertingConfigList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = Envelope;
+  }
+
+  /**
+   * No description
+   * @tags admin/alerting
+   * @name AlertingConfigPartialUpdate
+   * @summary 更新告警配置
+   * @request PATCH:/admin/alerting/config
+   * @secure
+   */
+  export namespace AlertingConfigPartialUpdate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = Envelope;
+  }
+
+  /**
+   * No description
+   * @tags admin/alerting
+   * @name AlertingTestTelegramCreate
+   * @summary 测试 Telegram 告警
+   * @request POST:/admin/alerting/test-telegram
+   * @secure
+   */
+  export namespace AlertingTestTelegramCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = Envelope;
+  }
+
+  /**
+   * No description
+   * @tags admin/alerting
+   * @name AlertingTestWebhookCreate
+   * @summary 测试 Webhook 告警
+   * @request POST:/admin/alerting/test-webhook
+   * @secure
+   */
+  export namespace AlertingTestWebhookCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = Envelope;
+  }
+
+  /**
    * @description 分页查询站点公告
    * @tags admin-announcements
    * @name AnnouncementsList
@@ -4176,7 +4598,7 @@ export namespace Admin {
       pinned?: boolean;
       /** 搜索关键词 */
       q?: string;
-      /** 状态：active/inactive */
+      /** 状态：active/inactive/draft */
       status?: string;
       /** 类型：critical/warning/info/normal/general */
       type?: string;
@@ -4238,6 +4660,25 @@ export namespace Admin {
     export type RequestBody = PatchAnnouncementRequestDoc;
     export type RequestHeaders = {};
     export type ResponseBody = AnnouncementResponseDoc;
+  }
+
+  /**
+   * @description 聚合各模型的胜场、总对局数与胜率，按胜率降序
+   * @tags admin
+   * @name ArenaLeaderboardList
+   * @summary 竞技场偏好榜
+   * @request GET:/admin/arena/leaderboard
+   * @secure
+   */
+  export namespace ArenaLeaderboardList {
+    export type RequestParams = {};
+    export type RequestQuery = {
+      /** 返回条数上限 */
+      limit?: number;
+    };
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = SuccessDoc;
   }
 
   /**
@@ -4384,6 +4825,41 @@ export namespace Admin {
   }
 
   /**
+   * No description
+   * @tags admin-billing
+   * @name BillingAccountsBalanceDeltaCreate
+   * @summary 管理员原子增减用户余额
+   * @request POST:/admin/billing/accounts/{user_id}/balance-delta
+   * @secure
+   */
+  export namespace BillingAccountsBalanceDeltaCreate {
+    export type RequestParams = {
+      /** 用户ID */
+      userId: number;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = AdjustBillingAccountBalanceRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = BalanceDeltaResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags admin-billing
+   * @name BillingBalanceTransactionsList
+   * @summary 管理员查询余额流水
+   * @request GET:/admin/billing/balance-transactions
+   * @secure
+   */
+  export namespace BillingBalanceTransactionsList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = BalanceTransactionListResponseDoc;
+  }
+
+  /**
    * @description 查询当前全局计费模式
    * @tags admin-billing
    * @name BillingConfigList
@@ -4471,6 +4947,76 @@ export namespace Admin {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = OpenRouterOfficialPricingResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags admin-billing
+   * @name BillingPaymentOrdersList
+   * @summary 管理员查询支付单
+   * @request GET:/admin/billing/payment-orders
+   * @secure
+   */
+  export namespace BillingPaymentOrdersList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = BillingPaymentOrderListResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags admin-billing
+   * @name BillingPaymentOrdersActionsCreate
+   * @summary 管理员处理支付单
+   * @request POST:/admin/billing/payment-orders/{order_no}/actions
+   * @secure
+   */
+  export namespace BillingPaymentOrdersActionsCreate {
+    export type RequestParams = {
+      /** 支付单号 */
+      orderNo: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = PaymentOrderActionRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = PaymentOrderResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags admin-billing
+   * @name BillingPlansCreate
+   * @summary 管理员创建周期套餐
+   * @request POST:/admin/billing/plans
+   * @secure
+   */
+  export namespace BillingPlansCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = CreateBillingPlanRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = BillingPlanResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags admin-billing
+   * @name BillingPlansDelete
+   * @summary 管理员删除周期套餐
+   * @request DELETE:/admin/billing/plans/{id}
+   * @secure
+   */
+  export namespace BillingPlansDelete {
+    export type RequestParams = {
+      /** 套餐ID */
+      id: number;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = BillingPlanDeleteResponseDoc;
   }
 
   /**
@@ -4608,6 +5154,38 @@ export namespace Admin {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = RedemptionCodeResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags admin-billing
+   * @name BillingRiskSummaryList
+   * @summary 管理员查询计费风控摘要
+   * @request GET:/admin/billing/risk-summary
+   * @secure
+   */
+  export namespace BillingRiskSummaryList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = BillingRiskSummaryResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags admin-billing
+   * @name BillingUsageCsvList
+   * @summary 管理员导出调用日志 CSV
+   * @request GET:/admin/billing/usage.csv
+   * @secure
+   */
+  export namespace BillingUsageCsvList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = any;
   }
 
   /**
@@ -6323,7 +6901,7 @@ export namespace Admin {
     };
     export type RequestBody = never;
     export type RequestHeaders = {};
-    export type ResponseBody = PaymentOrderListResponseDoc;
+    export type ResponseBody = AdminPaymentOrderListResponseDoc;
   }
 
   /**
@@ -7216,6 +7794,23 @@ export namespace Announcements {
   }
 }
 
+export namespace Api {
+  /**
+   * @description 返回所有模型的可用性状态（基于最近 24 小时调用数据）
+   * @tags Status
+   * @name V1StatusModelsList
+   * @summary 查询模型可用性状态
+   * @request GET:/api/v1/status/models
+   */
+  export namespace V1StatusModelsList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = ModelsStatusResponse;
+  }
+}
+
 export namespace Auth {
   /**
    * @description 登录后返回JWT访问令牌
@@ -7460,6 +8055,118 @@ export namespace Billing {
   }
 
   /**
+   * No description
+   * @tags billing
+   * @name BalanceTransactionsList
+   * @summary 查询当前用户余额流水
+   * @request GET:/billing/balance-transactions
+   * @secure
+   */
+  export namespace BalanceTransactionsList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = BalanceTransactionListResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags billing
+   * @name CheckinList
+   * @summary 查询每日签到状态
+   * @request GET:/billing/checkin
+   * @secure
+   */
+  export namespace CheckinList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = CheckInStatusDataResponse;
+  }
+
+  /**
+   * No description
+   * @tags billing
+   * @name CheckinCreate
+   * @summary 领取每日签到奖励
+   * @request POST:/billing/checkin
+   * @secure
+   */
+  export namespace CheckinCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = CheckInClaimDataResponse;
+  }
+
+  /**
+   * No description
+   * @tags billing
+   * @name ExternalNewapiBalanceList
+   * @summary 查询 NewAPI 绑定与余额
+   * @request GET:/billing/external/newapi/balance
+   * @secure
+   */
+  export namespace ExternalNewapiBalanceList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = NewAPIBalanceDataResponse;
+  }
+
+  /**
+   * No description
+   * @tags billing
+   * @name ExternalNewapiLinkCreate
+   * @summary 绑定 NewAPI 账号
+   * @request POST:/billing/external/newapi/link
+   * @secure
+   */
+  export namespace ExternalNewapiLinkCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = NewAPIBalanceDataResponse;
+  }
+
+  /**
+   * No description
+   * @tags billing
+   * @name ExternalNewapiTransferCreate
+   * @summary 从 NewAPI 转入余额
+   * @request POST:/billing/external/newapi/transfer
+   * @secure
+   */
+  export namespace ExternalNewapiTransferCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = NewAPITransferRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = NewAPITransferDataResponse;
+  }
+
+  /**
+   * No description
+   * @tags billing
+   * @name ExternalNewapiTransfersList
+   * @summary 查询 NewAPI 转入历史
+   * @request GET:/billing/external/newapi/transfers
+   * @secure
+   */
+  export namespace ExternalNewapiTransfersList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = any;
+  }
+
+  /**
    * @description 查询当前计费方式、周期额度或按量余额
    * @tags billing
    * @name OverviewList
@@ -7473,6 +8180,31 @@ export namespace Billing {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = BillingOverviewResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags billing
+   * @name PaymentsList
+   * @summary 查询当前用户支付单
+   * @request GET:/billing/payments
+   * @secure
+   */
+  export namespace PaymentsList {
+    export type RequestParams = {};
+    export type RequestQuery = {
+      /** 订单类型 */
+      order_type?: string;
+      /** 页码 */
+      page?: number;
+      /** 每页数量 */
+      page_size?: number;
+      /** 状态 */
+      status?: string;
+    };
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = BillingPaymentOrderListResponseDoc;
   }
 
   /**
@@ -7522,6 +8254,25 @@ export namespace Billing {
   }
 
   /**
+   * No description
+   * @tags billing
+   * @name PaymentsDetail
+   * @summary 查询当前用户支付单状态
+   * @request GET:/billing/payments/{order_no}
+   * @secure
+   */
+  export namespace PaymentsDetail {
+    export type RequestParams = {
+      /** 支付单号 */
+      orderNo: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = PaymentOrderResponseDoc;
+  }
+
+  /**
    * @description 查询所有启用的订阅套餐及价格
    * @tags billing
    * @name PlansList
@@ -7535,6 +8286,22 @@ export namespace Billing {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = PlanListResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags billing
+   * @name RedemptionsList
+   * @summary 查询当前用户兑换记录
+   * @request GET:/billing/redemptions
+   * @secure
+   */
+  export namespace RedemptionsList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = RedemptionListResponseDoc;
   }
 
   /**
@@ -7594,6 +8361,22 @@ export namespace Billing {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = UsageLedgerListResponseDoc;
+  }
+
+  /**
+   * No description
+   * @tags billing
+   * @name UsageCsvList
+   * @summary 导出当前用户用量 CSV
+   * @request GET:/billing/usage.csv
+   * @secure
+   */
+  export namespace UsageCsvList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = any;
   }
 
   /**
@@ -8040,6 +8823,25 @@ export namespace Conversations {
     export type RequestBody = SetConversationArchiveRequest;
     export type RequestHeaders = {};
     export type ResponseBody = ConversationUpdateResponseDoc;
+  }
+
+  /**
+   * @description 对一组并排对比的模型分支投票，同组同用户只能投一次
+   * @tags chat
+   * @name ArenaVoteCreate
+   * @summary 竞技场投票
+   * @request POST:/conversations/{id}/arena-vote
+   * @secure
+   */
+  export namespace ArenaVoteCreate {
+    export type RequestParams = {
+      /** 会话 public_id */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = ArenaVoteRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = SuccessDoc;
   }
 
   /**
@@ -8915,7 +9717,51 @@ export namespace Memories {
   }
 }
 
+export namespace MessageBookmarks {
+  /**
+   * @description 查询当前用户收藏的消息
+   * @tags chat
+   * @name MessageBookmarksList
+   * @summary 收藏消息列表
+   * @request GET:/message-bookmarks
+   * @secure
+   */
+  export namespace MessageBookmarksList {
+    export type RequestParams = {};
+    export type RequestQuery = {
+      /** 页码 */
+      page?: number;
+      /** 每页数量 */
+      page_size?: number;
+      /** 搜索关键词 */
+      q?: string;
+    };
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = MessageBookmarkListResponseDoc;
+  }
+}
+
 export namespace Messages {
+  /**
+   * @description 将当前用户的一条消息标记为已删除；后续列表、导出和分享默认不再返回
+   * @tags chat
+   * @name MessagesDelete
+   * @summary 删除消息
+   * @request DELETE:/messages/{id}
+   * @secure
+   */
+  export namespace MessagesDelete {
+    export type RequestParams = {
+      /** 消息 public_id */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = MessageResponseDoc;
+  }
+
   /**
    * @description 更新当前用户会话中的 assistant 消息内容，并标记为已编辑
    * @tags chat
@@ -8933,6 +9779,44 @@ export namespace Messages {
     export type RequestBody = UpdateMessageRequest;
     export type RequestHeaders = {};
     export type ResponseBody = MessageResponseDoc;
+  }
+
+  /**
+   * @description 收藏或取消收藏当前用户消息
+   * @tags chat
+   * @name BookmarkUpdate
+   * @summary 设置消息收藏
+   * @request PUT:/messages/{id}/bookmark
+   * @secure
+   */
+  export namespace BookmarkUpdate {
+    export type RequestParams = {
+      /** 消息 public_id */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = SetMessageBookmarkRequest;
+    export type RequestHeaders = {};
+    export type ResponseBody = MessageBookmarkResponseDoc;
+  }
+
+  /**
+   * @description 取消收藏当前用户消息
+   * @tags chat
+   * @name BookmarkDelete
+   * @summary 取消消息收藏
+   * @request DELETE:/messages/{id}/bookmark
+   * @secure
+   */
+  export namespace BookmarkDelete {
+    export type RequestParams = {
+      /** 消息 public_id */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = MessageBookmarkResponseDoc;
   }
 
   /**
@@ -8970,6 +9854,82 @@ export namespace Models {
     export type RequestBody = never;
     export type RequestHeaders = {};
     export type ResponseBody = PublicModelListResponseDoc;
+  }
+}
+
+export namespace Notifications {
+  /**
+   * @description 登录用户分页查询站内通知；公告会作为虚拟通知合入
+   * @tags notifications
+   * @name NotificationsList
+   * @summary 查询通知列表
+   * @request GET:/notifications
+   * @secure
+   */
+  export namespace NotificationsList {
+    export type RequestParams = {};
+    export type RequestQuery = {
+      /** 页码 */
+      page?: number;
+      /** 每页数量 */
+      page_size?: number;
+      /** 仅未读 */
+      unread?: boolean;
+    };
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = NotificationListResponseDoc;
+  }
+
+  /**
+   * @description 登录用户标记全部站内通知已读
+   * @tags notifications
+   * @name ReadAllCreate
+   * @summary 标记全部通知已读
+   * @request POST:/notifications/read-all
+   * @secure
+   */
+  export namespace ReadAllCreate {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = NotificationReadResponseDoc;
+  }
+
+  /**
+   * @description 登录用户查询站内未读通知数
+   * @tags notifications
+   * @name UnreadCountList
+   * @summary 查询未读通知数
+   * @request GET:/notifications/unread-count
+   * @secure
+   */
+  export namespace UnreadCountList {
+    export type RequestParams = {};
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = UnreadCountResponseDoc;
+  }
+
+  /**
+   * @description 登录用户标记单条通知已读
+   * @tags notifications
+   * @name ReadCreate
+   * @summary 标记通知已读
+   * @request POST:/notifications/{id}/read
+   * @secure
+   */
+  export namespace ReadCreate {
+    export type RequestParams = {
+      /** 通知ID */
+      id: string;
+    };
+    export type RequestQuery = {};
+    export type RequestBody = never;
+    export type RequestHeaders = {};
+    export type ResponseBody = NotificationReadResponseDoc;
   }
 }
 

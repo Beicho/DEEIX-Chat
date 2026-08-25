@@ -151,6 +151,17 @@ definitions:
     required:
     - fileIDs
     type: object
+  AdjustBillingAccountBalanceRequest:
+    properties:
+      deltaUSD:
+        type: number
+      description:
+        maxLength: 255
+        type: string
+    required:
+    - deltaUSD
+    - description
+    type: object
   AdminAnnouncementListResponseDoc:
     properties:
       data:
@@ -184,6 +195,115 @@ definitions:
     required:
     - data
     - errorMsg
+    type: object
+  AdminPaymentOrderListResponseDoc:
+    properties:
+      data:
+        properties:
+          results:
+            items:
+              $ref: '#/definitions/AdminPaymentOrderResponse'
+            type: array
+          total:
+            type: integer
+        required:
+        - results
+        - total
+        type: object
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  AdminPaymentOrderResponse:
+    properties:
+      baseAmountCents:
+        type: integer
+      baseCurrency:
+        type: string
+      billingInterval:
+        type: string
+      createdAt:
+        type: string
+      creditNanousd:
+        type: integer
+      creditUSD:
+        type: number
+      cycles:
+        type: integer
+      expiredAt:
+        type: string
+        x-nullable: true
+        x-omitempty: false
+      externalCheckoutID:
+        type: string
+      externalPaymentID:
+        type: string
+      fxRate:
+        type: string
+      id:
+        type: integer
+      orderNo:
+        type: string
+      orderType:
+        type: string
+      paidAt:
+        type: string
+        x-nullable: true
+        x-omitempty: false
+      payAmountCents:
+        type: integer
+      payCurrency:
+        type: string
+      planID:
+        type: integer
+      priceID:
+        type: integer
+      provider:
+        type: string
+      snapshotJSON:
+        type: string
+      status:
+        type: string
+      updatedAt:
+        type: string
+      userDisplayName:
+        type: string
+      userID:
+        type: integer
+      userLabel:
+        type: string
+      username:
+        type: string
+    required:
+    - baseAmountCents
+    - baseCurrency
+    - billingInterval
+    - createdAt
+    - creditNanousd
+    - creditUSD
+    - cycles
+    - expiredAt
+    - externalCheckoutID
+    - externalPaymentID
+    - fxRate
+    - id
+    - orderNo
+    - orderType
+    - paidAt
+    - payAmountCents
+    - payCurrency
+    - planID
+    - priceID
+    - provider
+    - snapshotJSON
+    - status
+    - updatedAt
+    - userDisplayName
+    - userID
+    - userLabel
+    - username
     type: object
   AdminUserIdentityProviderSummaryResponse:
     properties:
@@ -473,6 +593,21 @@ definitions:
         type: string
     required:
     - updatedAt
+    type: object
+  ArenaVoteRequest:
+    properties:
+      blindMode:
+        type: boolean
+      messageGroupID:
+        maxLength: 64
+        type: string
+      winnerModel:
+        maxLength: 128
+        type: string
+    required:
+    - blindMode
+    - messageGroupID
+    - winnerModel
     type: object
   AuditLogListResponseDoc:
     properties:
@@ -764,6 +899,92 @@ definitions:
     - updatedAt
     - username
     - usernameChangedAt
+    type: object
+  BalanceDeltaDataResponse:
+    properties:
+      account:
+        $ref: '#/definitions/BillingAccountResponse'
+      transaction:
+        $ref: '#/definitions/BalanceTransactionResponse'
+    required:
+    - account
+    - transaction
+    type: object
+  BalanceDeltaResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/BalanceDeltaDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  BalanceTransactionListResponseDoc:
+    properties:
+      data:
+        properties:
+          results:
+            items:
+              $ref: '#/definitions/BalanceTransactionResponse'
+            type: array
+          total:
+            type: integer
+        required:
+        - results
+        - total
+        type: object
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  BalanceTransactionResponse:
+    properties:
+      accountID:
+        type: integer
+      amountNanousd:
+        type: integer
+      amountUSD:
+        type: number
+      balanceAfterNanousd:
+        type: integer
+      balanceAfterUSD:
+        type: number
+      createdAt:
+        type: string
+      description:
+        type: string
+      id:
+        type: integer
+      refID:
+        type: integer
+      refNo:
+        type: string
+      refType:
+        type: string
+      type:
+        type: string
+      updatedAt:
+        type: string
+      userID:
+        type: integer
+    required:
+    - accountID
+    - amountNanousd
+    - amountUSD
+    - balanceAfterNanousd
+    - balanceAfterUSD
+    - createdAt
+    - description
+    - id
+    - refID
+    - refNo
+    - refType
+    - type
+    - updatedAt
+    - userID
     type: object
   BatchDeleteRedemptionCodeDataResponse:
     properties:
@@ -1104,12 +1325,119 @@ definitions:
     - data
     - errorMsg
     type: object
+  BillingPaymentOrderListResponseDoc:
+    properties:
+      data:
+        properties:
+          results:
+            items:
+              $ref: '#/definitions/BillingPaymentOrderResponse'
+            type: array
+          total:
+            type: integer
+        required:
+        - results
+        - total
+        type: object
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  BillingPaymentOrderResponse:
+    properties:
+      baseAmountCents:
+        type: integer
+      baseCurrency:
+        type: string
+      billingInterval:
+        type: string
+      checkoutURL:
+        type: string
+      createdAt:
+        type: string
+      creditNanousd:
+        type: integer
+      creditUSD:
+        type: number
+      cycles:
+        type: integer
+      expiredAt:
+        type: string
+      externalCheckoutID:
+        type: string
+      externalPaymentID:
+        type: string
+      fxRate:
+        type: string
+      orderNo:
+        type: string
+      orderType:
+        type: string
+      paidAt:
+        type: string
+      payAmountCents:
+        type: integer
+      payCurrency:
+        type: string
+      planID:
+        type: integer
+      priceID:
+        type: integer
+      provider:
+        type: string
+      status:
+        type: string
+      updatedAt:
+        type: string
+      userID:
+        type: integer
+    required:
+    - baseAmountCents
+    - baseCurrency
+    - billingInterval
+    - createdAt
+    - creditNanousd
+    - creditUSD
+    - cycles
+    - expiredAt
+    - fxRate
+    - orderNo
+    - orderType
+    - paidAt
+    - payAmountCents
+    - payCurrency
+    - planID
+    - priceID
+    - provider
+    - status
+    - updatedAt
+    - userID
+    type: object
   BillingPlanDataResponse:
     properties:
       plan:
         $ref: '#/definitions/BillingPlanResponse'
     required:
     - plan
+    type: object
+  BillingPlanDeleteDataResponse:
+    properties:
+      deleted:
+        type: boolean
+    required:
+    - deleted
+    type: object
+  BillingPlanDeleteResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/BillingPlanDeleteDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
     type: object
   BillingPlanResponse:
     properties:
@@ -1189,6 +1517,45 @@ definitions:
     - id
     - isDefault
     - planID
+    type: object
+  BillingRiskSummaryDataResponse:
+    properties:
+      risk:
+        $ref: '#/definitions/BillingRiskSummaryResponse'
+    required:
+    - risk
+    type: object
+  BillingRiskSummaryResponse:
+    properties:
+      generatedAt:
+        type: string
+      highRiskClusterCount:
+        type: integer
+      ignoredClusterCount:
+        type: integer
+      multiAccountClusterCount:
+        type: integer
+      uniqueFingerprintCount:
+        type: integer
+      uniqueIPCount:
+        type: integer
+    required:
+    - generatedAt
+    - highRiskClusterCount
+    - ignoredClusterCount
+    - multiAccountClusterCount
+    - uniqueFingerprintCount
+    - uniqueIPCount
+    type: object
+  BillingRiskSummaryResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/BillingRiskSummaryDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
     type: object
   BindModelUpstreamSourceRequest:
     properties:
@@ -1335,6 +1702,77 @@ definitions:
     required:
     - data
     - errorMsg
+    type: object
+  CheckInClaimDataResponse:
+    properties:
+      checkIn:
+        $ref: '#/definitions/CheckInClaimResponse'
+    required:
+    - checkIn
+    type: object
+  CheckInClaimResponse:
+    properties:
+      account:
+        $ref: '#/definitions/BillingAccountResponse'
+      alreadyClaimed:
+        type: boolean
+      balanceTransactionID:
+        type: integer
+      checkInDate:
+        type: string
+      consecutiveDays:
+        type: integer
+      id:
+        type: integer
+      rewardNanousd:
+        type: integer
+      rewardUSD:
+        type: number
+      transaction:
+        $ref: '#/definitions/BalanceTransactionResponse'
+    required:
+    - account
+    - alreadyClaimed
+    - balanceTransactionID
+    - checkInDate
+    - consecutiveDays
+    - id
+    - rewardNanousd
+    - rewardUSD
+    type: object
+  CheckInStatusDataResponse:
+    properties:
+      checkIn:
+        $ref: '#/definitions/CheckInStatusResponse'
+    required:
+    - checkIn
+    type: object
+  CheckInStatusResponse:
+    properties:
+      account:
+        $ref: '#/definitions/BillingAccountResponse'
+      consecutiveDays:
+        type: integer
+      lastCheckInDate:
+        type: string
+      latestTransaction:
+        $ref: '#/definitions/BalanceTransactionResponse'
+      nextCheckInDate:
+        type: string
+      rewardNanousd:
+        type: integer
+      rewardUSD:
+        type: number
+      todayClaimed:
+        type: boolean
+    required:
+    - account
+    - consecutiveDays
+    - lastCheckInDate
+    - nextCheckInDate
+    - rewardNanousd
+    - rewardUSD
+    - todayClaimed
     type: object
   CheckoutDataResponse:
     properties:
@@ -2555,6 +2993,48 @@ definitions:
     - contentMarkdown
     - title
     type: object
+  CreateBillingPlanRequest:
+    properties:
+      amountUSD:
+        minimum: 0
+        type: number
+      billingInterval:
+        enum:
+        - month
+        - year
+        - lifetime
+        type: string
+      code:
+        maxLength: 32
+        minLength: 2
+        type: string
+      currency:
+        maxLength: 16
+        type: string
+      description:
+        maxLength: 255
+        type: string
+      discountPercent:
+        maximum: 100
+        minimum: 0
+        type: integer
+      name:
+        maxLength: 64
+        minLength: 1
+        type: string
+      periodCreditUSD:
+        minimum: 0
+        type: number
+    required:
+    - amountUSD
+    - billingInterval
+    - code
+    - currency
+    - description
+    - discountPercent
+    - name
+    - periodCreditUSD
+    type: object
   CreateCheckoutRequest:
     properties:
       amountMinorUnits:
@@ -3128,6 +3608,62 @@ definitions:
     required:
     - data
     - errorMsg
+    type: object
+  ExternalAccountLinkResponse:
+    properties:
+      externalDisplayName:
+        type: string
+      id:
+        type: integer
+      lastSyncedAt:
+        type: string
+      linkedAt:
+        type: string
+      platform:
+        type: string
+      status:
+        type: string
+    required:
+    - externalDisplayName
+    - id
+    - lastSyncedAt
+    - linkedAt
+    - platform
+    - status
+    type: object
+  ExternalTransferResponse:
+    properties:
+      completedAt:
+        type: string
+      createdAt:
+        type: string
+      creditedAmountNanousd:
+        type: integer
+      creditedAmountUSD:
+        type: number
+      direction:
+        type: string
+      externalAmountUSD:
+        type: number
+      id:
+        type: integer
+      platform:
+        type: string
+      requestedAt:
+        type: string
+      status:
+        type: string
+    required:
+    - completedAt
+    - createdAt
+    - creditedAmountNanousd
+    - creditedAmountUSD
+    - direction
+    - externalAmountUSD
+    - id
+    - platform
+    - requestedAt
+    - status
     type: object
   FileListResponse:
     properties:
@@ -3806,11 +4342,17 @@ definitions:
     type: object
   LoginOptionsResponse:
     properties:
+      emailCodeLoginEnabled:
+        type: boolean
       emailEnabled:
         type: boolean
       emailRegistrationEnabled:
         type: boolean
       emailVerificationEnabled:
+        type: boolean
+      inviteProviderRegistration:
+        type: boolean
+      inviteRegistrationRequired:
         type: boolean
       passwordResetEnabled:
         type: boolean
@@ -3827,9 +4369,12 @@ definitions:
       usernameEnabled:
         type: boolean
     required:
+    - emailCodeLoginEnabled
     - emailEnabled
     - emailRegistrationEnabled
     - emailVerificationEnabled
+    - inviteProviderRegistration
+    - inviteRegistrationRequired
     - passwordResetEnabled
     - providerAuthBridge
     - providers
@@ -3866,6 +4411,11 @@ definitions:
       accessToken:
         type: string
       expiresAt:
+        type: string
+      invitationRequired:
+        description: InvitationRequired 为 true 时前端需引导用户输入邀请码并调用注册完成接口。
+        type: boolean
+      pendingRegistrationToken:
         type: string
       refreshExpiresAt:
         type: string
@@ -4004,6 +4554,84 @@ definitions:
     - billedUSD
     - billingMode
     - pricingSnapshotJSON
+    type: object
+  MessageBookmarkListItemResponse:
+    properties:
+      conversation:
+        $ref: '#/definitions/ConversationResponse'
+      createdAt:
+        type: string
+      id:
+        type: integer
+      message:
+        $ref: '#/definitions/MessageResponse'
+      note:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      updatedAt:
+        type: string
+    required:
+    - conversation
+    - createdAt
+    - id
+    - message
+    - note
+    - tags
+    - updatedAt
+    type: object
+  MessageBookmarkListResponseDoc:
+    properties:
+      data:
+        properties:
+          results:
+            items:
+              $ref: '#/definitions/MessageBookmarkListItemResponse'
+            type: array
+          total:
+            type: integer
+        required:
+        - results
+        - total
+        type: object
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  MessageBookmarkResponse:
+    properties:
+      bookmarked:
+        type: boolean
+      messageID:
+        type: integer
+      messagePublicID:
+        type: string
+      note:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    required:
+    - bookmarked
+    - messageID
+    - messagePublicID
+    - note
+    - tags
+    type: object
+  MessageBookmarkResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/MessageBookmarkResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
     type: object
   MessageFeedbackResponse:
     properties:
@@ -4952,6 +5580,24 @@ definitions:
     - vendorIcon
     - vendorName
     type: object
+  ModelStatusDetail:
+    properties:
+      availability:
+        description: 0.0-1.0
+        type: number
+      lastChecked:
+        type: string
+      modelName:
+        type: string
+      status:
+        description: '"operational" | "degraded" | "down"'
+        type: string
+    required:
+    - availability
+    - lastChecked
+    - modelName
+    - status
+    type: object
   ModelUpstreamSourceDataResponse:
     properties:
       source:
@@ -5171,6 +5817,22 @@ definitions:
     - sortOrder
     - updatedAt
     type: object
+  ModelsStatusResponse:
+    properties:
+      lastUpdated:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/ModelStatusDetail'
+        type: array
+      overallStatus:
+        description: '"operational" | "degraded" | "down"'
+        type: string
+    required:
+    - lastUpdated
+    - models
+    - overallStatus
+    type: object
   NativeToolPricingRequest:
     properties:
       billable:
@@ -5214,6 +5876,146 @@ definitions:
     - toolKey
     - type
     - unit
+    type: object
+  NewAPIBalanceDataResponse:
+    properties:
+      balance:
+        $ref: '#/definitions/NewAPIBalanceResponse'
+    required:
+    - balance
+    type: object
+  NewAPIBalanceResponse:
+    properties:
+      externalBalanceUSD:
+        type: number
+      link:
+        $ref: '#/definitions/ExternalAccountLinkResponse'
+      linked:
+        type: boolean
+      maxDailyTransferUSD:
+        type: number
+      minTransferUSD:
+        type: number
+      rate:
+        type: number
+      transferableUSD:
+        type: number
+    required:
+    - externalBalanceUSD
+    - link
+    - linked
+    - maxDailyTransferUSD
+    - minTransferUSD
+    - rate
+    - transferableUSD
+    type: object
+  NewAPITransferDataResponse:
+    properties:
+      account:
+        $ref: '#/definitions/BillingAccountResponse'
+      transaction:
+        $ref: '#/definitions/BalanceTransactionResponse'
+      transfer:
+        $ref: '#/definitions/ExternalTransferResponse'
+    required:
+    - account
+    - transfer
+    type: object
+  NewAPITransferRequest:
+    properties:
+      amountUSD:
+        maximum: 500
+        minimum: 1
+        type: number
+      idempotencyKey:
+        maxLength: 128
+        minLength: 8
+        type: string
+    required:
+    - amountUSD
+    - idempotencyKey
+    type: object
+  NotificationErrorDoc:
+    properties:
+      data: {}
+      details: {}
+      errorCode:
+        example: invalid_request
+        type: string
+      errorMsg:
+        example: invalid request
+        type: string
+      requestId:
+        example: ""
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  NotificationListResponseDoc:
+    properties:
+      data:
+        properties:
+          results:
+            items:
+              $ref: '#/definitions/NotificationResponse'
+            type: array
+          total:
+            type: integer
+        required:
+        - results
+        - total
+        type: object
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  NotificationReadDataResponse:
+    properties:
+      read:
+        type: boolean
+    required:
+    - read
+    type: object
+  NotificationReadResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/NotificationReadDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  NotificationResponse:
+    properties:
+      body:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      link:
+        type: string
+      readAt:
+        type: string
+      title:
+        type: string
+      type:
+        type: string
+      updatedAt:
+        type: string
+    required:
+    - body
+    - createdAt
+    - id
+    - link
+    - readAt
+    - title
+    - type
+    - updatedAt
     type: object
   OpenRouterOfficialPricingDataResponse:
     properties:
@@ -5549,114 +6351,39 @@ definitions:
     required:
     - username
     type: object
-  PaymentOrderListResponseDoc:
+  PaymentOrderActionRequest:
+    properties:
+      action:
+        enum:
+        - complete
+        - expire
+        - fail
+        type: string
+      externalPaymentID:
+        maxLength: 128
+        type: string
+    required:
+    - action
+    - externalPaymentID
+    type: object
+  PaymentOrderDataResponse:
+    properties:
+      activated:
+        type: boolean
+      order:
+        $ref: '#/definitions/BillingPaymentOrderResponse'
+    required:
+    - order
+    type: object
+  PaymentOrderResponseDoc:
     properties:
       data:
-        properties:
-          results:
-            items:
-              $ref: '#/definitions/PaymentOrderResponse'
-            type: array
-          total:
-            type: integer
-        required:
-        - results
-        - total
-        type: object
+        $ref: '#/definitions/PaymentOrderDataResponse'
       errorMsg:
         type: string
     required:
     - data
     - errorMsg
-    type: object
-  PaymentOrderResponse:
-    properties:
-      baseAmountCents:
-        type: integer
-      baseCurrency:
-        type: string
-      billingInterval:
-        type: string
-      createdAt:
-        type: string
-      creditNanousd:
-        type: integer
-      creditUSD:
-        type: number
-      cycles:
-        type: integer
-      expiredAt:
-        type: string
-        x-nullable: true
-        x-omitempty: false
-      externalCheckoutID:
-        type: string
-      externalPaymentID:
-        type: string
-      fxRate:
-        type: string
-      id:
-        type: integer
-      orderNo:
-        type: string
-      orderType:
-        type: string
-      paidAt:
-        type: string
-        x-nullable: true
-        x-omitempty: false
-      payAmountCents:
-        type: integer
-      payCurrency:
-        type: string
-      planID:
-        type: integer
-      priceID:
-        type: integer
-      provider:
-        type: string
-      snapshotJSON:
-        type: string
-      status:
-        type: string
-      updatedAt:
-        type: string
-      userDisplayName:
-        type: string
-      userID:
-        type: integer
-      userLabel:
-        type: string
-      username:
-        type: string
-    required:
-    - baseAmountCents
-    - baseCurrency
-    - billingInterval
-    - createdAt
-    - creditNanousd
-    - creditUSD
-    - cycles
-    - expiredAt
-    - externalCheckoutID
-    - externalPaymentID
-    - fxRate
-    - id
-    - orderNo
-    - orderType
-    - paidAt
-    - payAmountCents
-    - payCurrency
-    - planID
-    - priceID
-    - provider
-    - snapshotJSON
-    - status
-    - updatedAt
-    - userDisplayName
-    - userID
-    - userLabel
-    - username
     type: object
   PaymentTypeResponse:
     properties:
@@ -6126,6 +6853,8 @@ definitions:
         items:
           type: string
         type: array
+      expiresAt:
+        type: string
       lastAccessedAt:
         type: string
         x-nullable: true
@@ -6136,18 +6865,28 @@ definitions:
         type: array
       model:
         type: string
+      requiresPassword:
+        type: boolean
+      scope:
+        type: string
       shareID:
         type: string
       title:
         type: string
+      verified:
+        type: boolean
     required:
     - createdAt
     - defaultMessagePublicIDs
+    - expiresAt
     - lastAccessedAt
     - messages
     - model
+    - requiresPassword
+    - scope
     - shareID
     - title
+    - verified
     type: object
   PublicSharedConversationResponseDoc:
     properties:
@@ -6215,8 +6954,6 @@ definitions:
         type: integer
       updatedAt:
         type: string
-      upstreamModelName:
-        type: string
     required:
     - attachments
     - branchReason
@@ -6243,7 +6980,6 @@ definitions:
     - status
     - tokenUsage
     - updatedAt
-    - upstreamModelName
     type: object
   RedeemCodeRequest:
     properties:
@@ -6413,6 +7149,26 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/RedemptionCodeDataResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  RedemptionListResponseDoc:
+    properties:
+      data:
+        properties:
+          results:
+            items:
+              $ref: '#/definitions/RedemptionResponse'
+            type: array
+          total:
+            type: integer
+        required:
+        - results
+        - total
+        type: object
       errorMsg:
         type: string
     required:
@@ -6668,8 +7424,6 @@ definitions:
         type: integer
       upstreamModelID:
         type: integer
-      upstreamModelName:
-        type: string
       userID:
         type: integer
     required:
@@ -6703,7 +7457,6 @@ definitions:
     - updatedAt
     - upstreamID
     - upstreamModelID
-    - upstreamModelName
     - userID
     type: object
   SecurityVerificationStartRequest:
@@ -6946,6 +7699,23 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  SetMessageBookmarkRequest:
+    properties:
+      bookmarked:
+        type: boolean
+      note:
+        maxLength: 512
+        type: string
+      tags:
+        items:
+          type: string
+        maxItems: 12
+        type: array
+    required:
+    - bookmarked
+    - note
+    - tags
     type: object
   SetMessageFeedbackRequest:
     properties:
@@ -7544,6 +8314,23 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/ToolResponse'
+      errorMsg:
+        type: string
+    required:
+    - data
+    - errorMsg
+    type: object
+  UnreadCountDataResponse:
+    properties:
+      unreadCount:
+        type: integer
+    required:
+    - unreadCount
+    type: object
+  UnreadCountResponseDoc:
+    properties:
+      data:
+        $ref: '#/definitions/UnreadCountDataResponse'
       errorMsg:
         type: string
     required:
@@ -9339,13 +10126,74 @@ info:
   title: DEEIX Chat API
   version: "0.3.6"
 paths:
+  /admin/alerting/config:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 查询告警配置
+      tags:
+      - admin/alerting
+    patch:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 更新告警配置
+      tags:
+      - admin/alerting
+  /admin/alerting/test-telegram:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 测试 Telegram 告警
+      tags:
+      - admin/alerting
+  /admin/alerting/test-webhook:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Envelope'
+      security:
+      - BearerAuth: []
+      summary: 测试 Webhook 告警
+      tags:
+      - admin/alerting
   /admin/announcements:
     get:
       consumes:
       - application/json
       description: 分页查询站点公告
       parameters:
-      - description: 状态：active/inactive
+      - description: 状态：active/inactive/draft
         in: query
         name: status
         type: string
@@ -9491,6 +10339,26 @@ paths:
       summary: 管理员更新公告
       tags:
       - admin-announcements
+  /admin/arena/leaderboard:
+    get:
+      description: 聚合各模型的胜场、总对局数与胜率，按胜率降序
+      parameters:
+      - description: 返回条数上限
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/SuccessDoc'
+      security:
+      - BearerAuth: []
+      summary: 竞技场偏好榜
+      tags:
+      - admin
   /admin/audit-logs:
     get:
       consumes:
@@ -9733,6 +10601,54 @@ paths:
       summary: 管理员设置用户按量余额
       tags:
       - admin-billing
+  /admin/billing/accounts/{user_id}/balance-delta:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 用户ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      - description: 余额增减
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/AdjustBillingAccountBalanceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/BalanceDeltaResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BillingErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 管理员原子增减用户余额
+      tags:
+      - admin-billing
+  /admin/billing/balance-transactions:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/BalanceTransactionListResponseDoc'
+      security:
+      - BearerAuth: []
+      summary: 管理员查询余额流水
+      tags:
+      - admin-billing
   /admin/billing/config:
     get:
       consumes:
@@ -9881,7 +10797,107 @@ paths:
       summary: 管理员获取 OpenRouter 官方模型目录
       tags:
       - admin-billing
+  /admin/billing/payment-orders:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/BillingPaymentOrderListResponseDoc'
+      security:
+      - BearerAuth: []
+      summary: 管理员查询支付单
+      tags:
+      - admin-billing
+  /admin/billing/payment-orders/{order_no}/actions:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 支付单号
+        in: path
+        name: order_no
+        required: true
+        type: string
+      - description: 动作
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/PaymentOrderActionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/PaymentOrderResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BillingErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 管理员处理支付单
+      tags:
+      - admin-billing
+  /admin/billing/plans:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 套餐配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/CreateBillingPlanRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/BillingPlanResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BillingErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 管理员创建周期套餐
+      tags:
+      - admin-billing
   /admin/billing/plans/{id}:
+    delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: 套餐ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/BillingPlanDeleteResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BillingErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 管理员删除周期套餐
+      tags:
+      - admin-billing
     patch:
       consumes:
       - application/json
@@ -10131,6 +11147,32 @@ paths:
       security:
       - BearerAuth: []
       summary: 管理员批量删除兑换码
+      tags:
+      - admin-billing
+  /admin/billing/risk-summary:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/BillingRiskSummaryResponseDoc'
+      security:
+      - BearerAuth: []
+      summary: 管理员查询计费风控摘要
+      tags:
+      - admin-billing
+  /admin/billing/usage.csv:
+    get:
+      produces:
+      - text/csv
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: 管理员导出调用日志 CSV
       tags:
       - admin-billing
   /admin/call-logs:
@@ -13061,7 +14103,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/PaymentOrderListResponseDoc'
+            $ref: '#/definitions/AdminPaymentOrderListResponseDoc'
         "400":
           description: Bad Request
           schema:
@@ -14518,6 +15560,19 @@ paths:
       summary: 今日不再显示公告
       tags:
       - announcements
+  /api/v1/status/models:
+    get:
+      description: 返回所有模型的可用性状态（基于最近 24 小时调用数据）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/ModelsStatusResponse'
+      summary: 查询模型可用性状态
+      tags:
+      - Status
   /auth/login:
     post:
       consumes:
@@ -14935,6 +15990,120 @@ paths:
       summary: 获取按量计费账户
       tags:
       - billing
+  /billing/balance-transactions:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/BalanceTransactionListResponseDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询当前用户余额流水
+      tags:
+      - billing
+  /billing/checkin:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/CheckInStatusDataResponse'
+      security:
+      - BearerAuth: []
+      summary: 查询每日签到状态
+      tags:
+      - billing
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/CheckInClaimDataResponse'
+      security:
+      - BearerAuth: []
+      summary: 领取每日签到奖励
+      tags:
+      - billing
+  /billing/external/newapi/balance:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NewAPIBalanceDataResponse'
+      security:
+      - BearerAuth: []
+      summary: 查询 NewAPI 绑定与余额
+      tags:
+      - billing
+  /billing/external/newapi/link:
+    post:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NewAPIBalanceDataResponse'
+      security:
+      - BearerAuth: []
+      summary: 绑定 NewAPI 账号
+      tags:
+      - billing
+  /billing/external/newapi/transfer:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 转入金额
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/NewAPITransferRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NewAPITransferDataResponse'
+      security:
+      - BearerAuth: []
+      summary: 从 NewAPI 转入余额
+      tags:
+      - billing
+  /billing/external/newapi/transfers:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: 查询 NewAPI 转入历史
+      tags:
+      - billing
   /billing/overview:
     get:
       consumes:
@@ -14954,6 +16123,69 @@ paths:
       security:
       - BearerAuth: []
       summary: 获取当前用户计费概览
+      tags:
+      - billing
+  /billing/payments:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 状态
+        in: query
+        name: status
+        type: string
+      - description: 订单类型
+        in: query
+        name: order_type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/BillingPaymentOrderListResponseDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/BillingErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询当前用户支付单
+      tags:
+      - billing
+  /billing/payments/{order_no}:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: 支付单号
+        in: path
+        name: order_no
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/PaymentOrderResponseDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/BillingErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询当前用户支付单状态
       tags:
       - billing
   /billing/payments/checkout:
@@ -15036,6 +16268,21 @@ paths:
       tags:
       - billing
   /billing/redemptions:
+    get:
+      consumes:
+      - application/json
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/RedemptionListResponseDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询当前用户兑换记录
+      tags:
+      - billing
     post:
       consumes:
       - application/json
@@ -15139,6 +16386,16 @@ paths:
       security:
       - BearerAuth: []
       summary: 查询用量账单
+      tags:
+      - billing
+  /billing/usage.csv:
+    get:
+      produces:
+      - text/csv
+      responses: {}
+      security:
+      - BearerAuth: []
+      summary: 导出当前用户用量 CSV
       tags:
       - billing
   /billing/usage/daily:
@@ -15700,6 +16957,47 @@ paths:
       security:
       - BearerAuth: []
       summary: 设置会话归档
+      tags:
+      - chat
+  /conversations/{id}/arena-vote:
+    post:
+      consumes:
+      - application/json
+      description: 对一组并排对比的模型分支投票，同组同用户只能投一次
+      parameters:
+      - description: 会话 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 投票参数
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ArenaVoteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/SuccessDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 竞技场投票
       tags:
       - chat
   /conversations/{id}/export:
@@ -17329,7 +18627,75 @@ paths:
       summary: 删除用户个性化记忆
       tags:
       - memory
+  /message-bookmarks:
+    get:
+      consumes:
+      - application/json
+      description: 查询当前用户收藏的消息
+      parameters:
+      - description: 搜索关键词
+        in: query
+        name: q
+        type: string
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/MessageBookmarkListResponseDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 收藏消息列表
+      tags:
+      - chat
   /messages/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 将当前用户的一条消息标记为已删除；后续列表、导出和分享默认不再返回
+      parameters:
+      - description: 消息 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/MessageResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 删除消息
+      tags:
+      - chat
     patch:
       consumes:
       - application/json
@@ -17368,6 +18734,81 @@ paths:
       security:
       - BearerAuth: []
       summary: 更新消息内容
+      tags:
+      - chat
+  /messages/{id}/bookmark:
+    delete:
+      consumes:
+      - application/json
+      description: 取消收藏当前用户消息
+      parameters:
+      - description: 消息 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/MessageBookmarkResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 取消消息收藏
+      tags:
+      - chat
+    put:
+      consumes:
+      - application/json
+      description: 收藏或取消收藏当前用户消息
+      parameters:
+      - description: 消息 public_id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 收藏参数
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/SetMessageBookmarkRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/MessageBookmarkResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/ConversationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 设置消息收藏
       tags:
       - chat
   /messages/{id}/feedback:
@@ -17432,6 +18873,129 @@ paths:
       summary: 查询可用模型目录
       tags:
       - llm
+  /notifications:
+    get:
+      consumes:
+      - application/json
+      description: 登录用户分页查询站内通知；公告会作为虚拟通知合入
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: page_size
+        type: integer
+      - description: 仅未读
+        in: query
+        name: unread
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NotificationListResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/NotificationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/NotificationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询通知列表
+      tags:
+      - notifications
+  /notifications/{id}/read:
+    post:
+      consumes:
+      - application/json
+      description: 登录用户标记单条通知已读
+      parameters:
+      - description: 通知ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NotificationReadResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/NotificationErrorDoc'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/NotificationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/NotificationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 标记通知已读
+      tags:
+      - notifications
+  /notifications/read-all:
+    post:
+      consumes:
+      - application/json
+      description: 登录用户标记全部站内通知已读
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/NotificationReadResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/NotificationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/NotificationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 标记全部通知已读
+      tags:
+      - notifications
+  /notifications/unread-count:
+    get:
+      consumes:
+      - application/json
+      description: 登录用户查询站内未读通知数
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/UnreadCountResponseDoc'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/NotificationErrorDoc'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/NotificationErrorDoc'
+      security:
+      - BearerAuth: []
+      summary: 查询未读通知数
+      tags:
+      - notifications
   /prompt-presets:
     get:
       consumes:
