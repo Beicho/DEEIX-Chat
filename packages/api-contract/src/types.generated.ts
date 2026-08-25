@@ -164,6 +164,10 @@ export interface AdminUserResponse {
   subscriptionPlanName: string;
   subscriptionStatus: string;
   subscriptionTier: string;
+  suspendedAt: string | null;
+  suspendedBy: number | null;
+  suspensionDetail: string;
+  suspensionReason: string;
   timezone: string;
   twoFactorAvailable: boolean;
   twoFactorEnabled: boolean;

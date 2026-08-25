@@ -15713,6 +15713,10 @@ const docTemplate = `{
                 "subscriptionPlanName",
                 "subscriptionStatus",
                 "subscriptionTier",
+                "suspendedAt",
+                "suspendedBy",
+                "suspensionDetail",
+                "suspensionReason",
                 "timezone",
                 "twoFactorAvailable",
                 "twoFactorEnabled",
@@ -15813,6 +15817,22 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "subscriptionTier": {
+                    "type": "string"
+                },
+                "suspendedAt": {
+                    "type": "string",
+                    "x-nullable": true,
+                    "x-omitempty": false
+                },
+                "suspendedBy": {
+                    "type": "integer",
+                    "x-nullable": true,
+                    "x-omitempty": false
+                },
+                "suspensionDetail": {
+                    "type": "string"
+                },
+                "suspensionReason": {
                     "type": "string"
                 },
                 "timezone": {

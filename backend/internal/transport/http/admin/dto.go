@@ -133,6 +133,10 @@ type UserResponse struct {
 	Phone                  string                                `json:"phone"`
 	Role                   string                                `json:"role"`
 	Status                 string                                `json:"status"`
+	SuspensionReason       string                                `json:"suspensionReason"`
+	SuspensionDetail       string                                `json:"suspensionDetail"`
+	SuspendedAt            *time.Time                            `json:"suspendedAt" extensions:"x-nullable,!x-omitempty"`
+	SuspendedBy            *uint                                 `json:"suspendedBy" extensions:"x-nullable,!x-omitempty"`
 	Timezone               string                                `json:"timezone"`
 	Locale                 string                                `json:"locale"`
 	ProfilePreferences     string                                `json:"profilePreferences"`
@@ -628,6 +632,68 @@ type UsageStatisticsResponseDoc struct {
 	Data     UsageStatisticsResponse `json:"data"`
 }
 
+type DashboardUsageResponse struct {
+	RecordCount     int64 `json:"recordCount"`
+	ActiveUserCount int64 `json:"activeUserCount"`
+	CallCount       int64 `json:"callCount"`
+	TokenCount      int64 `json:"tokenCount"`
+	DurationSeconds int64 `json:"durationSeconds"`
+	BilledNanousd   int64 `json:"billedNanousd"`
+}
+
+type DashboardSalesResponse struct {
+	PaidOrderCount  int64 `json:"paidOrderCount"`
+	BaseAmountCents int64 `json:"baseAmountCents"`
+	CreditNanousd   int64 `json:"creditNanousd"`
+}
+
+type DashboardModelResponse struct {
+	PlatformModelName string `json:"platformModelName"`
+	RecordCount       int64  `json:"recordCount"`
+	ActiveUserCount   int64  `json:"activeUserCount"`
+	CallCount         int64  `json:"callCount"`
+	TokenCount        int64  `json:"tokenCount"`
+	DurationSeconds   int64  `json:"durationSeconds"`
+	BilledNanousd     int64  `json:"billedNanousd"`
+}
+
+type DashboardResponse struct {
+	Usage       DashboardUsageResponse   `json:"usage"`
+	Sales       DashboardSalesResponse   `json:"sales"`
+	TopModels   []DashboardModelResponse `json:"topModels"`
+	GeneratedAt *time.Time               `json:"generatedAt" extensions:"x-nullable,!x-omitempty"`
+	PeriodStart *time.Time               `json:"periodStart" extensions:"x-nullable,!x-omitempty"`
+	PeriodEnd   *time.Time               `json:"periodEnd" extensions:"x-nullable,!x-omitempty"`
+}
+
+type DashboardDataResponse struct {
+	Dashboard DashboardResponse `json:"dashboard"`
+}
+
+type MultiAccountUserResponse struct {
+	ID          uint   `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName"`
+	Email       string `json:"email"`
+	Status      string `json:"status"`
+}
+
+type MultiAccountCandidateResponse struct {
+	AssociationID   uint                       `json:"associationID"`
+	FingerprintID   string                     `json:"fingerprintID"`
+	ConfidenceScore float64                    `json:"confidenceScore"`
+	RiskLevel       string                     `json:"riskLevel"`
+	DetectedAt      time.Time                  `json:"detectedAt"`
+	IgnoredAt       *time.Time                 `json:"ignoredAt" extensions:"x-nullable,!x-omitempty"`
+	Reason          string                     `json:"reason"`
+	UserIDs         []uint                     `json:"userIDs"`
+	Users           []MultiAccountUserResponse `json:"users"`
+}
+
+type MultiAccountCandidatesDataResponse struct {
+	Candidates []MultiAccountCandidateResponse `json:"candidates"`
+}
+
 // PaymentOrderListResponseDoc 支付订单分页响应。
 type PaymentOrderListResponseDoc struct {
 	ErrorMsg string `json:"errorMsg"`
@@ -837,6 +903,71 @@ func nullableBalanceNanousdToUSD(value *int64) *float64 {
 	}
 	converted := float64(*value) / 1_000_000_000
 	return &converted
+}
+
+func toDashboardResponse(stats *domainbilling.AdminDashboardStats) DashboardResponse {
+	if stats == nil {
+		stats = &domainbilling.AdminDashboardStats{}
+	}
+	topModels := make([]DashboardModelResponse, 0, len(stats.TopModels))
+	for _, item := range stats.TopModels {
+		topModels = append(topModels, DashboardModelResponse{
+			PlatformModelName: item.PlatformModelName,
+			RecordCount:       item.RecordCount,
+			ActiveUserCount:   item.ActiveUserCount,
+			CallCount:         item.CallCount,
+			TokenCount:        item.TokenCount,
+			DurationSeconds:   item.DurationSeconds,
+			BilledNanousd:     item.BilledNanousd,
+		})
+	}
+	return DashboardResponse{
+		Usage: DashboardUsageResponse{
+			RecordCount:     stats.Usage.RecordCount,
+			ActiveUserCount: stats.Usage.ActiveUserCount,
+			CallCount:       stats.Usage.CallCount,
+			TokenCount:      stats.Usage.TokenCount,
+			DurationSeconds: stats.Usage.DurationSeconds,
+			BilledNanousd:   stats.Usage.BilledNanousd,
+		},
+		Sales: DashboardSalesResponse{
+			PaidOrderCount:  stats.Sales.PaidOrderCount,
+			BaseAmountCents: stats.Sales.BaseAmountCents,
+			CreditNanousd:   stats.Sales.CreditNanousd,
+		},
+		TopModels:   topModels,
+		GeneratedAt: &stats.GeneratedAt,
+		PeriodStart: &stats.PeriodStart,
+		PeriodEnd:   &stats.PeriodEnd,
+	}
+}
+
+func toMultiAccountCandidateResponses(items []domainuser.MultiAccountCandidate) []MultiAccountCandidateResponse {
+	results := make([]MultiAccountCandidateResponse, 0, len(items))
+	for _, item := range items {
+		users := make([]MultiAccountUserResponse, 0, len(item.Users))
+		for _, userItem := range item.Users {
+			users = append(users, MultiAccountUserResponse{
+				ID:          userItem.ID,
+				Username:    userItem.Username,
+				DisplayName: userItem.DisplayName,
+				Email:       userItem.Email,
+				Status:      userItem.Status,
+			})
+		}
+		results = append(results, MultiAccountCandidateResponse{
+			AssociationID:   item.AssociationID,
+			FingerprintID:   item.FingerprintID,
+			ConfidenceScore: item.ConfidenceScore,
+			RiskLevel:       item.RiskLevel,
+			DetectedAt:      item.DetectedAt,
+			IgnoredAt:       item.IgnoredAt,
+			Reason:          item.Reason,
+			UserIDs:         item.UserIDs,
+			Users:           users,
+		})
+	}
+	return results
 }
 
 func toUsageStatisticsMetricsResponse(item domainbilling.UsageStatisticsMetrics) UsageStatisticsMetricsResponse {
