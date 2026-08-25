@@ -22,6 +22,7 @@ import (
 	authhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/auth"
 	billinghttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/billing"
 	channelhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/channel"
+	collaborationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/collaboration"
 	contentmoderationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/contentmoderation"
 	conversationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/conversation"
 	knowledgebasehttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/knowledgebase"
@@ -64,17 +65,28 @@ type Modules struct {
 	Conversation      *conversationhttp.Module
 	MCP               *mcphttp.Module
 	Memory            *memoryhttp.Module
+	Security          *securityhttp.Module
+	BrowserProof      middleware.BrowserProofVerifier
+	Fingerprint       middleware.FingerprintRecorder
 	Billing           *billinghttp.Module
 	Admin             *adminhttp.Module
 	ContentModeration *contentmoderationhttp.Module
 	Announcement      *announcementhttp.Module
+	Notification      *notificationhttp.Module
+	Collaboration     *collaborationhttp.Module
 	PromptPreset      *promptpresethttp.Module
 	Skill             *skillhttp.Module
 	KnowledgeBase     *knowledgebasehttp.Module
 	Settings          *settingshttp.Module
 	User              *userhttp.Module
 	UserSettings      *usersettingshttp.Module
+	Status            *statushttp.Module
+	Alerting          *alertinghttp.Module
 	StartupLog        func(*zap.Logger)
+}
+
+type frontendShareMetadataProvider interface {
+	GetPublicShareMetadata(ctx context.Context, shareID string) (title string, description string, err error)
 }
 
 // NewEngine 创建并注册 API 路由。
@@ -122,6 +134,9 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 		c.Header("Pragma", "no-cache")
 		c.JSON(http.StatusOK, buildinfo.Snapshot())
 	})
+	if modules.Status != nil {
+		modules.Status.RegisterPublicRoutes(api)
+	}
 	if modules.Auth != nil || modules.Settings != nil || modules.Billing != nil || modules.Conversation != nil || modules.User != nil || modules.Channel != nil {
 		publicAuth := api.Group("")
 		publicAuth.Use(middleware.PublicAuthRateLimit(limiter, cfg))
@@ -209,7 +224,7 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.User != nil {
 		modules.User.RegisterRoutes(authRequired)
 	}
-	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.MCP != nil || modules.Settings != nil || modules.Announcement != nil || modules.PromptPreset != nil || modules.Skill != nil || modules.KnowledgeBase != nil || modules.ContentModeration != nil {
+	if modules.Admin != nil || modules.Auth != nil || modules.Billing != nil || modules.Channel != nil || modules.Conversation != nil || modules.MCP != nil || modules.Settings != nil || modules.Security != nil || modules.Announcement != nil || modules.Notification != nil || modules.Collaboration != nil || modules.PromptPreset != nil || modules.Skill != nil || modules.KnowledgeBase != nil || modules.ContentModeration != nil || modules.Alerting != nil {
 		adminGroup := authRequired.Group("/admin")
 		adminGroup.Use(middleware.AdminOnly())
 		if modules.Auth != nil {
@@ -262,7 +277,7 @@ func NewEngine(cfg *config.Runtime, log *zap.Logger, modules Modules, hc HealthC
 	if modules.Settings != nil {
 		modules.Settings.RegisterFrontendRoutes(engine)
 	}
-	registerFrontendStatic(engine, snapshot.FrontendDistDir, log)
+	registerFrontendStatic(engine, snapshot.FrontendDistDir, log, modules.Conversation)
 
 	return engine, nil
 }

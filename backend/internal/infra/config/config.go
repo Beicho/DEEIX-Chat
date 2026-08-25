@@ -406,12 +406,24 @@ type Config struct {
 	SMTPPassword                 string
 	SMTPFrom                     string
 	TurnstileSiteverifyURL       string
-	OTelEnabled                  *bool
-	OTelExporterOTLPEndpoint     string
-	OTelExporterOTLPHeaders      string
-	OTelExporterOTLPInsecure     bool
-	OTelExporterOTLPProtocol     string
-	OTelSamplingRate             float64
+
+	BrowserProofEnabled                bool
+	BrowserProofShadowMode             bool
+	PoWEnabled                         bool
+	PoWBaseDifficulty                  map[string]int
+	PoWMaxDifficulty                   int
+	PoWChallengeTTLSeconds             int
+	PoWNonceTTLSeconds                 int
+	RequestSigningEnabled              bool
+	RequestSigningTimestampSkewSeconds int
+	RequestSigningNonceTTLSeconds      int
+
+	OTelEnabled              *bool
+	OTelExporterOTLPEndpoint string
+	OTelExporterOTLPHeaders  string
+	OTelExporterOTLPInsecure bool
+	OTelExporterOTLPProtocol string
+	OTelSamplingRate         float64
 
 	// ── 动态配置（由 DB 种子初始化默认值，settings.RuntimeSettings.ApplyTo 覆盖） ──
 	// 认证配置
@@ -698,12 +710,24 @@ func Load() Config {
 		SMTPPassword:                 "",
 		SMTPFrom:                     "",
 		TurnstileSiteverifyURL:       envOr("TURNSTILE_SITEVERIFY_URL", yc.Security.TurnstileSiteverifyURL, DefaultTurnstileSiteverifyURL),
-		OTelEnabled:                  envOrBoolOptional("OTEL_ENABLED", yc.Observability.Tracing.Enabled),
-		OTelExporterOTLPEndpoint:     envOr("OTEL_EXPORTER_OTLP_ENDPOINT", yc.Observability.Tracing.Endpoint, ""),
-		OTelExporterOTLPHeaders:      envOr("OTEL_EXPORTER_OTLP_HEADERS", yc.Observability.Tracing.Headers, ""),
-		OTelExporterOTLPInsecure:     envOrBoolPtr("OTEL_EXPORTER_OTLP_INSECURE", yc.Observability.Tracing.Insecure, false),
-		OTelExporterOTLPProtocol:     normalizeOTelExporterOTLPProtocol(envOr("OTEL_EXPORTER_OTLP_PROTOCOL", yc.Observability.Tracing.Protocol, "grpc")),
-		OTelSamplingRate:             envOrFloat("OTEL_TRACES_SAMPLER_ARG", envOrFloat("OTEL_SAMPLING_RATE", yc.Observability.Tracing.SamplingRate, 1), 1),
+
+		BrowserProofEnabled:                envOrBoolPtr("BROWSER_PROOF_ENABLED", yc.Security.BrowserProof.Enabled, true),
+		BrowserProofShadowMode:             envOrBoolPtr("BROWSER_PROOF_SHADOW_MODE", yc.Security.BrowserProof.ShadowMode, false),
+		PoWEnabled:                         envOrBoolPtr("POW_ENABLED", yc.Security.PoW.Enabled, true),
+		PoWBaseDifficulty:                  defaultPoWBaseDifficulty(yc.Security.PoW.BaseDifficulty),
+		PoWMaxDifficulty:                   envOrInt("POW_MAX_DIFFICULTY", yc.Security.PoW.MaxDifficulty, 10),
+		PoWChallengeTTLSeconds:             envOrInt("POW_CHALLENGE_TTL_SECONDS", yc.Security.PoW.ChallengeTTLSeconds, 60),
+		PoWNonceTTLSeconds:                 envOrInt("POW_NONCE_TTL_SECONDS", yc.Security.PoW.NonceTTLSeconds, 120),
+		RequestSigningEnabled:              envOrBoolPtr("REQUEST_SIGNING_ENABLED", yc.Security.RequestSigning.Enabled, true),
+		RequestSigningTimestampSkewSeconds: envOrInt("REQUEST_SIGNING_TIMESTAMP_SKEW_SECONDS", yc.Security.RequestSigning.TimestampSkewSeconds, 60),
+		RequestSigningNonceTTLSeconds:      envOrInt("REQUEST_SIGNING_NONCE_TTL_SECONDS", yc.Security.RequestSigning.NonceTTLSeconds, 120),
+
+		OTelEnabled:              envOrBoolOptional("OTEL_ENABLED", yc.Observability.Tracing.Enabled),
+		OTelExporterOTLPEndpoint: envOr("OTEL_EXPORTER_OTLP_ENDPOINT", yc.Observability.Tracing.Endpoint, ""),
+		OTelExporterOTLPHeaders:  envOr("OTEL_EXPORTER_OTLP_HEADERS", yc.Observability.Tracing.Headers, ""),
+		OTelExporterOTLPInsecure: envOrBoolPtr("OTEL_EXPORTER_OTLP_INSECURE", yc.Observability.Tracing.Insecure, false),
+		OTelExporterOTLPProtocol: normalizeOTelExporterOTLPProtocol(envOr("OTEL_EXPORTER_OTLP_PROTOCOL", yc.Observability.Tracing.Protocol, "grpc")),
+		OTelSamplingRate:         envOrFloat("OTEL_TRACES_SAMPLER_ARG", envOrFloat("OTEL_SAMPLING_RATE", yc.Observability.Tracing.SamplingRate, 1), 1),
 
 		// 动态配置默认值（会被 DB 覆盖）
 		TokenTTLHours:                     24,

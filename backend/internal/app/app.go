@@ -82,6 +82,7 @@ import (
 	authhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/auth"
 	billinghttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/billing"
 	channelhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/channel"
+	collaborationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/collaboration"
 	contentmoderationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/contentmoderation"
 	conversationhttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/conversation"
 	knowledgebasehttp "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/knowledgebase"
@@ -534,16 +535,23 @@ func NewApp() (*App, error) {
 		Conversation:      conversationModule,
 		MCP:               mcpModule,
 		Memory:            memoryModule,
+		Security:          securityModule,
+		BrowserProof:      requestProofService,
+		Fingerprint:       fingerprintService,
 		Billing:           billingModule,
 		Admin:             adminModule,
 		ContentModeration: contentModerationModule,
 		Announcement:      announcementModule,
+		Notification:      notificationModule,
+		Collaboration:     collaborationModule,
 		PromptPreset:      promptPresetModule,
 		Skill:             skillModule,
 		KnowledgeBase:     knowledgeBaseModule,
 		Settings:          settingsModule,
 		UserSettings:      userSettingsModule,
 		User:              userModule,
+		Status:            statusModule,
+		Alerting:          alertingModule,
 		StartupLog: func(log *zap.Logger) {
 			if log == nil || bootstrapSuperAdmin == nil {
 				return
