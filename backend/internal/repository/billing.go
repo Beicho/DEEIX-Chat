@@ -128,12 +128,16 @@ type ExternalTransferListFilter struct {
 	CreatedTo   *time.Time
 }
 
-// RedemptionListFilter 描述用户兑换记录分页筛选条件。
+// RedemptionListFilter 描述用户和管理员兑换记录分页筛选条件。
 type RedemptionListFilter struct {
-	UserID uint
-	Mode   string
-	Query  string
-	Sort   string
+	CodeID      uint
+	UserID      uint
+	Mode        string
+	RewardType  string
+	Query       string
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
+	Sort        string
 }
 
 // RedemptionCodeListFilter 描述管理员兑换码列表筛选条件。
@@ -154,17 +158,6 @@ type RedemptionCodePatch struct {
 	ExpiresAtSet      bool
 	ExpiresAt         *time.Time
 	Description       *string
-}
-
-// RedemptionListFilter 描述管理员兑换记录列表筛选条件。
-type RedemptionListFilter struct {
-	CodeID      uint
-	UserID      uint
-	RewardType  string
-	Query       string
-	CreatedFrom *time.Time
-	CreatedTo   *time.Time
-	Sort        string
 }
 
 // RedemptionRecord 表示带兑换码与余额流水上下文的兑换记录。
