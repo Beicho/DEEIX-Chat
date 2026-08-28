@@ -42,7 +42,7 @@ func TestVersionEndpointIsPublicAndUncached(t *testing.T) {
 	}
 }
 
-func TestNewEngineRegistersChannelPublicRoutesOnce(t *testing.T) {
+func TestNewEngineRegistersAllChannelPublicRoutesOnce(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	channelModule := channelhttp.NewModule(channelhttp.NewHandler(nil))
 	engine, err := NewEngine(
@@ -56,15 +56,21 @@ func TestNewEngineRegistersChannelPublicRoutesOnce(t *testing.T) {
 		t.Fatalf("create engine with channel module: %v", err)
 	}
 
-	const iconAssetPath = "/api/v1/llm/icon-assets/:public_id"
-	registrations := 0
+	expectedPaths := map[string]int{
+		"/api/v1/public/models":              0,
+		"/api/v1/llm/icon-assets/:public_id": 0,
+	}
 	for _, route := range engine.Routes() {
-		if route.Method == http.MethodGet && route.Path == iconAssetPath {
-			registrations++
+		if route.Method == http.MethodGet {
+			if _, ok := expectedPaths[route.Path]; ok {
+				expectedPaths[route.Path]++
+			}
 		}
 	}
-	if registrations != 1 {
-		t.Fatalf("icon asset route registrations = %d, want 1", registrations)
+	for path, registrations := range expectedPaths {
+		if registrations != 1 {
+			t.Fatalf("route %s registrations = %d, want 1", path, registrations)
+		}
 	}
 }
 

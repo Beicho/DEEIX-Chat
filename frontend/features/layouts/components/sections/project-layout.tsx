@@ -10,6 +10,7 @@ import { AppSidebar } from "@/features/layouts/components/navigation/app-sidebar
 import { MobileHeader } from "@/features/layouts/components/sections/mobile-header";
 import { LayoutConversationNavigationProvider } from "@/features/layouts/context/layout-conversation-navigation-context";
 import { MobileHeaderActionProvider } from "@/features/layouts/context/mobile-header-action-context";
+import { SidebarRecentsProvider } from "@/features/recent/context/sidebar-recents-context";
 import { ChatSessionProvider, useChatSession } from "@/features/chat";
 import { AppearancePreferencesSync } from "@/features/settings";
 import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
@@ -87,18 +88,20 @@ export function ProjectLayout({
       <InitialSecurityGuard />
       <AnnouncementDialogHost />
       <SidebarProvider className="h-svh overflow-hidden" defaultOpen={defaultSidebarOpen}>
-        <LayoutConversationNavigationProvider>
-          <SidebarConversationsProvider
-            bulkPendingTitle={tRecent("dialogs.bulk.pending")}
-            newConversationTitle={tRecent("newChat")}
-          >
-            <ChatSessionProvider>
-              <MobileHeaderActionProvider>
-                <ProjectLayoutShell>{children}</ProjectLayoutShell>
-              </MobileHeaderActionProvider>
-            </ChatSessionProvider>
-          </SidebarConversationsProvider>
-        </LayoutConversationNavigationProvider>
+        <SidebarRecentsProvider>
+          <LayoutConversationNavigationProvider>
+            <SidebarConversationsProvider
+              bulkPendingTitle={tRecent("dialogs.bulk.pending")}
+              newConversationTitle={tRecent("newChat")}
+            >
+              <ChatSessionProvider>
+                <MobileHeaderActionProvider>
+                  <ProjectLayoutShell>{children}</ProjectLayoutShell>
+                </MobileHeaderActionProvider>
+              </ChatSessionProvider>
+            </SidebarConversationsProvider>
+          </LayoutConversationNavigationProvider>
+        </SidebarRecentsProvider>
       </SidebarProvider>
     </>
   );

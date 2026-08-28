@@ -2,8 +2,9 @@ package channel
 
 import "github.com/gin-gonic/gin"
 
-// RegisterPublicRoutes 注册无需登录即可由 img 元素读取的安全图标内容。
+// RegisterPublicRoutes 注册公开模型目录和无需登录即可由 img 元素读取的安全图标内容。
 func (m *Module) RegisterPublicRoutes(public *gin.RouterGroup) {
+	public.GET("/public/models", m.Handler.ListPublicModels)
 	public.GET("/llm/icon-assets/:public_id", m.Handler.GetModelIconAsset)
 }
 
