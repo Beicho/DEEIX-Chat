@@ -15,6 +15,7 @@ import (
 	appauth "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/auth"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/identityprovider"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/secretbox"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/transport/http/middleware"
@@ -77,11 +78,17 @@ func TestCompleteProviderLoginReturnsSuspensionReason(t *testing.T) {
 			SuspendedAt:      &suspendedAt,
 		},
 	}
-	service := appauth.NewService(config.Config{
+	authConfig := config.Config{
 		JWTSecret:              jwtSecret,
 		DataEncryptionKey:      dataKey,
 		ThirdPartyLoginEnabled: true,
-	}, repo, nil)
+	}
+	service := appauth.NewServiceWithRuntime(
+		config.NewRuntime(authConfig),
+		repo,
+		nil,
+		identityprovider.New(authConfig.StrictOutboundPolicy()),
+	)
 	handler := NewHandler(service)
 	router := gin.New()
 	router.Use(middleware.RequestID())

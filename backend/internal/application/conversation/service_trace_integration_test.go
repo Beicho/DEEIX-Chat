@@ -56,6 +56,14 @@ func (r *assistantEditTraceRepository) GetMessageFeedbackCounts(
 	return map[uint]map[string]int64{}, nil
 }
 
+func (r *assistantEditTraceRepository) GetUserMessageBookmarkMap(
+	context.Context,
+	uint,
+	[]uint,
+) (map[uint]model.MessageBookmark, error) {
+	return map[uint]model.MessageBookmark{}, nil
+}
+
 func (r *assistantEditTraceRepository) ListConversationMessageTracesByMessageIDs(
 	context.Context,
 	[]uint,

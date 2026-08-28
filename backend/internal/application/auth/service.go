@@ -20,8 +20,6 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/userview"
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/geoip"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/identityprovider"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/conv"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/token"
 	idpport "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/identityprovider"
@@ -77,13 +75,6 @@ type auditWriter interface {
 
 type avatarFileValidator interface {
 	ValidateImageFile(ctx context.Context, userID uint, fileID string) error
-}
-
-// NewService preserves the configuration-value constructor used by focused
-// callers while routing all behavior through the runtime-aware implementation.
-func NewService(cfg config.Config, repo repository.AuthRepository, geoResolver *geoip.Client) *Service {
-	runtimeCfg := config.NewRuntime(cfg)
-	return NewServiceWithRuntime(runtimeCfg, repo, geoResolver, identityprovider.New(cfg.StrictOutboundPolicy()))
 }
 
 // NewServiceWithRuntime 创建使用运行时配置容器的服务。

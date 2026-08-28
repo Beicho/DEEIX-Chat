@@ -791,7 +791,7 @@ func TestLoginReturnsSuspendedAccountErrorWithReason(t *testing.T) {
 			42: {UserID: 42, PasswordEnabled: true, PasswordHash: "unused"},
 		},
 	}
-	service := NewService(config.Config{JWTSecret: "test-secret", UsernameLoginEnabled: true}, repo, nil)
+	service := newTestService(config.Config{JWTSecret: "test-secret", UsernameLoginEnabled: true}, repo, nil)
 
 	_, err := service.Login(context.Background(), "blocked", "password", "req_1", requestmeta.SessionAuditContext{})
 	var suspendedErr *AccountSuspendedError
