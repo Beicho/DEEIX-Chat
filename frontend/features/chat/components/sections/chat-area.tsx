@@ -436,6 +436,7 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
     return (
       <ChatMessageUser
         item={item}
+        busy={busy}
         onRetryUserMessage={onRetryUserMessage}
         onEditUserMessage={onEditUserMessage}
         modelOptions={modelOptions}
@@ -461,20 +462,14 @@ const ChatMessageRow = React.memo(function ChatMessageRow({
         onRetryAssistantMessage={onRetryAssistantMessage}
         onContinueAssistantMessage={onContinueAssistantMessage}
         onEditAssistantMessage={onEditAssistantMessage}
-        onForkMessage={onForkMessage}
         onCycleMessageBranch={onCycleMessageBranch}
         onReactAssistantMessage={onReactAssistantMessage}
         onCopy={() => void onCopy()}
         copySucceeded={isCopied(copyKey)}
         attachmentContentLoader={attachmentContentLoader}
         onEditImageAttachment={onEditImageAttachment}
-        onExtendVideoAttachment={
-          sourceSupportsVideoExtension ? onExtendVideoAttachment : undefined
-        }
         artifactActions={artifactActions}
         markdownRender={markdownRender}
-        autoExpandThinking={autoExpandThinking}
-        autoExpandToolCalls={autoExpandToolCalls}
         showModelInfo={showModelInfo}
         showLatency={showLatency}
         showTokenUsage={showTokenUsage}
@@ -654,9 +649,9 @@ export function ChatArea({
             shareActive={shareActive}
             onExport={canOperateConversation ? onExport : undefined}
             onDelete={canOperateConversation ? onDelete : undefined}
-            screenshotLatestLabel={tScreenshot("captureLatest")}
+            screenshotFullLabel={tScreenshot("captureFull")}
             screenshotSelectLabel={tScreenshot("captureSelect")}
-            onScreenshotLatest={onScreenshotLatest}
+            onScreenshotFull={onScreenshotLatest}
             onScreenshotSelect={onScreenshotSelect}
           />
           {canOperateConversation ? (
@@ -667,9 +662,9 @@ export function ChatArea({
               active={shareActive}
               onShare={onShare}
               onExport={onExport}
-              screenshotLatestLabel={tScreenshot("captureLatest")}
+              screenshotFullLabel={tScreenshot("captureFull")}
               screenshotSelectLabel={tScreenshot("captureSelect")}
-              onScreenshotLatest={onScreenshotLatest}
+              onScreenshotFull={onScreenshotLatest}
               onScreenshotSelect={onScreenshotSelect}
             />
           ) : null}

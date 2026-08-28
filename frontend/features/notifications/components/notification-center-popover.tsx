@@ -19,7 +19,7 @@ import {
 import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useSidebar } from "@/components/ui/sidebar";
+import { useSidebarIsMobile, useSidebarVisualState } from "@/components/ui/sidebar";
 import { useLocalizedErrorMessage } from "@/i18n/use-localized-error";
 import { cn } from "@/lib/utils";
 import {
@@ -112,7 +112,8 @@ export function NotificationCenterPopover({ variant = "icon", className }: Notif
   const locale = useLocale();
   const router = useRouter();
   const isMobileViewport = useIsMobile();
-  const { state, isMobile: sidebarMobile } = useSidebar();
+  const state = useSidebarVisualState();
+  const sidebarMobile = useSidebarIsMobile();
   const { accessToken, userStatus, user } = useAuthSession();
   const resolveErrorMessage = useLocalizedErrorMessage();
   const [open, setOpen] = React.useState(false);

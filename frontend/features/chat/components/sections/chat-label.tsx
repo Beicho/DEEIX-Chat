@@ -36,6 +36,8 @@ type ChatLabelProps = {
   onToggleStar?: () => void | Promise<void>;
   onRename?: (title: string) => void | Promise<void>;
   onAutoRename?: () => void | Promise<void>;
+  labels?: string[];
+  onUpdateLabels?: (labels: string[]) => void | Promise<void>;
   projectMenu?: {
     label: string;
     unassignedLabel: string;

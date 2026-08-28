@@ -34,7 +34,7 @@ export function ChangePasswordDialog({
   verificationMethods: SecurityVerificationMethod[];
   required?: boolean;
   onSendCode: (method: SecurityVerificationMethod) => Promise<void>;
-  onSubmit: (payload: { currentPassword: string; newPassword: string; verificationMethod: SecurityVerificationMethod; code: string }) => Promise<void>;
+  onSubmit: (payload: { currentPassword: string; newPassword: string; verificationMethod: SecurityVerificationMethod; code: string; revokeOtherSessions: boolean }) => Promise<void>;
 }) {
   const t = useTranslations("settings.accountPage.securityDialog.password");
   const common = useTranslations("settings.accountPage.securityDialog.common");
@@ -69,11 +69,11 @@ export function ChangePasswordDialog({
     const payload = { currentPassword: currentPasswordValue, newPassword };
     const method = verificationMethods[0] ?? "none";
     if (required) {
-      void onSubmit({ ...payload, verificationMethod: "none", code: "" });
+      void onSubmit({ ...payload, verificationMethod: "none", code: "", revokeOtherSessions: false });
       return;
     }
     if (method === "none") {
-      void onSubmit({ ...payload, verificationMethod: method, code: "" });
+      void onSubmit({ ...payload, verificationMethod: method, code: "", revokeOtherSessions: false });
       return;
     }
     setSelectedVerificationMethod(method);
@@ -145,7 +145,7 @@ export function ChangePasswordDialog({
         sendingCode={sendingCode}
         resendCooldownSeconds={resendCooldownSeconds}
         onSendCode={onSendCode}
-        onSubmit={(code, method) => onSubmit({ ...(pendingPayload ?? { currentPassword: currentPasswordValue, newPassword }), verificationMethod: method, code })}
+        onSubmit={(code, method) => onSubmit({ ...(pendingPayload ?? { currentPassword: currentPasswordValue, newPassword }), verificationMethod: method, code, revokeOtherSessions: false })}
       />
     </>
   );

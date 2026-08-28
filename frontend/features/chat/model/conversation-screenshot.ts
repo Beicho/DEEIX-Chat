@@ -2,6 +2,8 @@
 
 import { domToBlob } from "modern-screenshot";
 
+export const MAX_SCREENSHOT_MESSAGES = 100;
+
 function safeFileNamePart(value: string) {
   const normalized = value
     .trim()

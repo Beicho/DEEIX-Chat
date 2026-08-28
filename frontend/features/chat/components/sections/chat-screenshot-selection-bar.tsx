@@ -9,6 +9,7 @@ import { SpinnerLabel } from "@/components/ui/spinner";
 type ChatScreenshotSelectionBarProps = {
   selectedCount: number;
   totalCount: number;
+  maxSelectionCount: number;
   capturing: boolean;
   onSelectAll: () => void;
   onClearSelection: () => void;
@@ -19,6 +20,7 @@ type ChatScreenshotSelectionBarProps = {
 export function ChatScreenshotSelectionBar({
   selectedCount,
   totalCount,
+  maxSelectionCount,
   capturing,
   onSelectAll,
   onClearSelection,
@@ -26,7 +28,8 @@ export function ChatScreenshotSelectionBar({
   onExit,
 }: ChatScreenshotSelectionBarProps) {
   const t = useTranslations("chat.screenshot");
-  const allSelected = totalCount > 0 && selectedCount >= totalCount;
+  const selectableCount = Math.min(totalCount, maxSelectionCount);
+  const allSelected = selectableCount > 0 && selectedCount >= selectableCount;
 
   return (
     <div className="flex w-full flex-col gap-2 rounded-lg bg-muted/25 px-2 py-1.5 sm:flex-row sm:items-center sm:justify-between">
@@ -35,7 +38,7 @@ export function ChatScreenshotSelectionBar({
           {t("captureSelect")}
         </span>
         <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-          {selectedCount}/{totalCount}
+          {selectedCount}/{selectableCount}
         </span>
       </div>
       <div className="flex min-w-0 items-center justify-end gap-1">

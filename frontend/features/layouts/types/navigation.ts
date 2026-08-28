@@ -1,7 +1,7 @@
 import type * as React from "react"
 import type { LucideIcon } from "lucide-react"
 
-export type ShortcutKey = "shift" | "command" | string
+export type ShortcutKey = "command" | "shift" | "K" | "O"
 
 export type NavigationIconProps = {
   size?: number
@@ -11,16 +11,26 @@ export type NavigationIconProps = {
   "aria-hidden"?: boolean
 }
 
-export type NavigationItem = {
-  id: "newChat" | "search" | "recent" | "files" | "knowledgeBases" | "skillsPrompt" | "announcements" | "bookmarks" | "checkin" | "arena"
-  title: string
-  url: string
+type NavigationItemBase = {
   icon: React.ComponentType<NavigationIconProps>
   group: "primary" | "secondary"
   variant?: "primary"
   shortcut?: readonly ShortcutKey[]
   external?: boolean
 }
+
+type NavigationCommandItem = NavigationItemBase & {
+  id: "newChat" | "search"
+  kind: "command"
+}
+
+type NavigationLinkItem = NavigationItemBase & {
+  id: "recent" | "files" | "knowledgeBases" | "skillsPrompt" | "announcements" | "bookmarks" | "checkin" | "arena"
+  kind: "link"
+  href: string
+}
+
+export type NavigationItem = NavigationCommandItem | NavigationLinkItem
 
 export type ConversationSearchResult = {
   resultID?: string

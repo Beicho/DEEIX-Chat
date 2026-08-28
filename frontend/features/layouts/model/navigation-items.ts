@@ -7,27 +7,26 @@ import { Search } from "@/components/animate-ui/icons/search"
 import { Blend } from "@/components/animate-ui/icons/blend"
 import type { NavigationItem } from "@/features/layouts/types/navigation"
 
-function BellIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" }) {
+function BellIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" | false }) {
   return createElement(Bell, { size, strokeWidth, className })
 }
 
-function BookmarkIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" }) {
+function BookmarkIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" | false }) {
   return createElement(Bookmark, { size, strokeWidth, className })
 }
 
-function GiftIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" }) {
+function GiftIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" | false }) {
   return createElement(Gift, { size, strokeWidth, className })
 }
 
-function SwordsIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" }) {
+function SwordsIcon({ size = 18, strokeWidth = 1.6, className }: { size?: number; strokeWidth?: number; className?: string; animate?: "default" | false }) {
   return createElement(Swords, { size, strokeWidth, className })
 }
 
 export const NAVIGATION_ITEMS = [
   {
     id: "newChat",
-    title: "New chat",
-    url: "#",
+    kind: "command",
     icon: PlusIcon,
     variant: "primary",
     group: "primary",
@@ -35,58 +34,57 @@ export const NAVIGATION_ITEMS = [
   },
   {
     id: "search",
-    title: "Search",
-    url: "#",
+    kind: "command",
     icon: Search,
     group: "primary",
     shortcut: ["command", "K"],
   },
   {
     id: "recent",
-    title: "Recent",
-    url: "/recent",
+    kind: "link",
+    href: "/recent",
     icon: MessageCircleMore,
     group: "secondary",
   },
   {
     id: "checkin",
-    title: "Check-in",
-    url: "/checkin",
+    kind: "link",
+    href: "/checkin",
     icon: GiftIcon,
     group: "secondary",
   },
   {
     id: "arena",
-    title: "Arena",
-    url: "/arena",
+    kind: "link",
+    href: "/arena",
     icon: SwordsIcon,
     group: "secondary",
   },
   {
     id: "announcements",
-    title: "Announcements",
-    url: "/announcements",
+    kind: "link",
+    href: "/announcements",
     icon: BellIcon,
     group: "secondary",
   },
   {
     id: "bookmarks",
-    title: "Bookmarks",
-    url: "/bookmarks",
+    kind: "link",
+    href: "/bookmarks",
     icon: BookmarkIcon,
     group: "secondary",
   },
   {
     id: "files",
-    title: "Files",
-    url: "/files",
+    kind: "link",
+    href: "/files",
     icon: Layers,
     group: "secondary",
   },
   {
     id: "skillsPrompt",
-    title: "Skills & Prompts",
-    url: "/skills-prompt",
+    kind: "link",
+    href: "/skills-prompt",
     icon: Blend,
     group: "secondary",
   },

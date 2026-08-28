@@ -21,6 +21,8 @@ import { SidebarAnimatedItem } from "@/features/layouts/components/navigation/si
 import { SIDEBAR_TRANSFER_TRANSITION } from "@/features/layouts/model/sidebar-motion"
 import { ConversationProjectSubmenu } from "@/shared/components/conversation-project-submenu"
 import { ConversationShareExportSubmenu } from "@/shared/components/conversation-share-export-menu"
+import { ConversationLabelsMenuItem } from "@/entities/conversation"
+import { parseConversationLabelsJSON } from "@/shared/lib/conversation-labels"
 import type {
   SidebarConversationItem as SidebarConversationItemModel,
   SidebarConversationProjectMenu,
@@ -45,6 +47,7 @@ type SidebarConversationItemProps = {
   onRename: (publicID: string, currentTitle: string) => void
   onAutoRename?: (publicID: string) => void | Promise<void>
   isAutoRenaming?: boolean
+  onManageLabels?: () => void
   onArchive: (publicID: string) => void
   onShare?: (publicID: string, title: string) => void
   onExport?: (publicID: string) => void | Promise<void>
@@ -52,7 +55,7 @@ type SidebarConversationItemProps = {
   onExportImage?: (publicID: string) => void | Promise<void>
   onCopyMarkdown?: (publicID: string) => void | Promise<void>
   onDelete: (publicID: string, title: string) => void
-  onNavigate?: (url: string, event: React.MouseEvent<HTMLAnchorElement>) => void
+  onNavigate?: (conversationID: string, url: string, event: React.MouseEvent<HTMLAnchorElement>) => void
 }
 
 export function SidebarConversationItem({
@@ -72,6 +75,7 @@ export function SidebarConversationItem({
   onRename,
   onAutoRename,
   isAutoRenaming = false,
+  onManageLabels,
   onArchive,
   onShare,
   onExport,
@@ -83,6 +87,10 @@ export function SidebarConversationItem({
 }: SidebarConversationItemProps) {
   const t = useTranslations("recent.row")
   const [isMenuOpen, setIsMenuOpen] = React.useState(false)
+  const labels = React.useMemo(
+    () => parseConversationLabelsJSON(item.labelsJSON ?? "[]"),
+    [item.labelsJSON],
+  )
 
   return (
     <SidebarAnimatedItem
@@ -153,7 +161,7 @@ export function SidebarConversationItem({
             href={item.url}
             prefetch={false}
             className={cn("flex h-full min-w-0 flex-1 items-center pl-2 pr-9", linkClassName)}
-            onClick={(event) => onNavigate?.(item.url, event)}
+            onClick={(event) => onNavigate?.(item.publicID, item.url, event)}
           >
             <AnimatedText
               text={item.title}
@@ -198,6 +206,14 @@ export function SidebarConversationItem({
                 <DropdownMenuItemIcon icon={PencilLine} />
                 {t("rename")}
               </DropdownMenuItem>
+              <ConversationLabelsMenuItem
+                labels={labels}
+                disabled={!onManageLabels}
+                onSelect={() => {
+                  setIsMenuOpen(false)
+                  requestAnimationFrame(() => onManageLabels?.())
+                }}
+              />
               {projectMenu ? (
                 <ConversationProjectSubmenu
                   label={projectMenu.label}

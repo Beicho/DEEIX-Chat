@@ -80,9 +80,9 @@ export function TeamsPage() {
     setMemberForms((prev) => ({
       ...prev,
       [teamID]: {
-        login: "",
-        role: "member",
         ...(prev[teamID] ?? {}),
+        login: prev[teamID]?.login ?? "",
+        role: prev[teamID]?.role ?? "member",
         ...patch,
       },
     }));

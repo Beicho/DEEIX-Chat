@@ -15,6 +15,7 @@ export type MCPToolDTO = {
   defaultEnabled: boolean;
   requiresConfirmation: boolean;
   toolKind: string;
+  priceNanousd: number;
   createdAt: string;
   updatedAt: string;
 };

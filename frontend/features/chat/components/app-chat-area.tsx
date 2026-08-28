@@ -555,10 +555,10 @@ export function AppChatArea() {
   const screenshotMessages = React.useMemo(
     () => ({
       emptySelection: tScreenshot("emptySelection"),
-      selectionLimitReached: tScreenshot("selectionLimitReached"),
       generating: tScreenshot("generating"),
       ready: tScreenshot("ready"),
       failed: tScreenshot("failed"),
+      loadLimitReached: tScreenshot("loadLimitReached"),
       tooLarge: tScreenshot("tooLarge"),
       downloaded: tScreenshot("downloaded"),
       copied: tScreenshot("copied"),
@@ -639,8 +639,7 @@ export function AppChatArea() {
   });
   const displayMessages = temporaryMode ? temporaryRuntime.messages : messagesWithInlineError;
   const artifactWorkspace = useChatArtifacts({
-    scopeKey: conversationID,
-    transient: temporaryMode,
+    conversationID: temporaryMode ? "__temporary__" : conversationID,
     messages: displayMessages,
   });
   const { workspaceRef, artifactResizing, onArtifactResizeStart } = useChatArtifactResize(artifactWorkspace);
@@ -671,6 +670,7 @@ export function AppChatArea() {
     sending: composerSending,
     uploading: temporaryMode ? false : uploading,
     isConversationMode: composerConversationMode,
+    maxFilesPerMessage,
     fileMode,
     ragAvailable,
     ragAvailabilityReason,
@@ -684,6 +684,11 @@ export function AppChatArea() {
     selectedPlatformModelName,
     availableTools: temporaryMode ? temporaryAvailableTools : availableTools,
     selectedToolIDs: temporaryMode ? temporarySelectedToolIDs : selectedToolIDs,
+    confirmedToolIDs: temporaryMode ? temporarySelectedToolIDs : selectedToolIDs,
+    webSearchEnabled: false,
+    codeSandboxEnabled: false,
+    researchMaxLLMCalls: 0,
+    researchMaxToolCalls: 0,
     selectedSkills,
     selectedKnowledgeBaseIDs,
     defaultToolIDs,
@@ -701,6 +706,11 @@ export function AppChatArea() {
     onModelChange: setSelectedPlatformModelName,
     onModelCatalogRefresh: refreshModelCatalogForComposer,
     onSelectedToolsChange,
+    onConfirmedToolsChange: onSelectedToolsChange,
+    onWebSearchEnabledChange: () => undefined,
+    onCodeSandboxEnabledChange: () => undefined,
+    onResearchMaxLLMCallsChange: () => undefined,
+    onResearchMaxToolCallsChange: () => undefined,
     maxSelectedSkills: mcpMaxSelectedTools,
     onSelectedSkillsChange,
     onSelectedKnowledgeBasesChange,
@@ -826,7 +836,7 @@ export function AppChatArea() {
                   billingDisplayUsdToCnyRate={billingDisplayUsdToCnyRate}
                   splitRightInset={hasInlineArtifact}
                   contentWidthClassName={chatContentWidthClassName}
-                  onScreenshotLatest={screenshot.captureLatestMessages}
+                  onScreenshotLatest={screenshot.captureFullConversation}
                   onScreenshotSelect={screenshot.startSelectionScreenshot}
                   screenshot={{
                     selectionMode: screenshot.selectionMode,

@@ -126,7 +126,7 @@ export function AdminLoginSettingsPage() {
       setSettingsMap(flattened);
       setSavedMap(flattened);
       setProviders(providerPage.results);
-      setProviderCallbackBaseURL(loginOptions.providerAuthBridge.callbackBaseURL);
+      setProviderCallbackBaseURL(loginOptions.providerAuthBridge?.callbackBaseURL ?? "");
     } catch (error) {
       toast.error(t("toast.loadFailed"), { description: resolveAdminErrorMessage(error) });
     } finally {

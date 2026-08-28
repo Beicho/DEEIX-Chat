@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/accordion";
 import { Marker, MarkerContent } from "@/components/ui/marker";
 import type { ChatTraceBlock, ChatTraceEvent } from "@/features/chat/types/messages";
-import { useProcessTraceLabels } from "@/features/chat/hooks/use-process-trace-labels";
+import { useChatTraceLabels as useProcessTraceLabels } from "@/features/chat/hooks/use-chat-trace-labels";
 import {
   hasActiveToolTraceCalls,
   MessageToolChainTrace,
@@ -291,4 +291,3 @@ export function MessageUpstreamThink({
     </div>
   );
 }
-

@@ -14,9 +14,9 @@ import { Marker, MarkerContent } from "@/components/ui/marker";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ChatTraceBlock } from "@/features/chat/types/messages";
 import {
-  useProcessTraceLabels,
+  useChatTraceLabels as useProcessTraceLabels,
   type ProcessTraceLabels,
-} from "@/features/chat/hooks/use-process-trace-labels";
+} from "@/features/chat/hooks/use-chat-trace-labels";
 import { StreamdownRender } from "@/shared/components/markdown/streamdown-render";
 import { cn } from "@/lib/utils";
 import { TRACE_ROOT_CLASS } from "@/features/chat/components/shared/message-process-trace-shared";

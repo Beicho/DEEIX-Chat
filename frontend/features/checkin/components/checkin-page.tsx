@@ -148,7 +148,7 @@ export function CheckInPage() {
               </div>
               <h2 className="mb-2 text-2xl font-semibold">{t("readyToClaim")}</h2>
               <p className="mb-6 text-muted-foreground">
-                {t("claimReward", { amount: status?.rewardUSD.toFixed(2) })}
+                {t("claimReward", { amount: (status?.rewardUSD ?? 0).toFixed(2) })}
               </p>
               <Button onClick={handleClaim} disabled={claiming} className="min-h-11 w-full sm:w-auto sm:min-w-[200px]">
                 {claiming ? t("claiming") : t("claimNow")}

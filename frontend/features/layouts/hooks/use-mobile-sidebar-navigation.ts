@@ -3,11 +3,11 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 
-import { useSidebar } from "@/components/ui/sidebar"
+import { useSidebarIsMobile } from "@/components/ui/sidebar"
 
 export function useMobileSidebarNavigation() {
   const router = useRouter()
-  const { isMobile } = useSidebar()
+  const isMobile = useSidebarIsMobile()
 
   return React.useCallback((href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
     if (!isMobile) {
@@ -18,4 +18,3 @@ export function useMobileSidebarNavigation() {
     router.push(href)
   }, [isMobile, router])
 }
-

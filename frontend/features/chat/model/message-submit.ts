@@ -5,6 +5,18 @@ import type {
   TraceBlockDTO,
 } from "@/shared/api/conversation.types";
 
+export function resolveAssistantInputSideUsageValue(
+  assistantOwnsUsage: boolean,
+  assistantValue: number | null | undefined,
+  userValue: number | null | undefined,
+  liveValue: number | null | undefined,
+): number {
+  if (assistantOwnsUsage) {
+    return assistantValue ?? liveValue ?? 0;
+  }
+  return userValue ?? assistantValue ?? liveValue ?? 0;
+}
+
 export function toPendingAttachments(message: ChatAreaMessage | null | undefined): PendingAttachment[] {
   if (!message?.attachments || message.attachments.length === 0) {
     return [];
