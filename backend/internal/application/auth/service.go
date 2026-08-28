@@ -20,6 +20,8 @@ import (
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/userview"
 	domainuser "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/user"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/config"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/geoip"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/identityprovider"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/conv"
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/pkg/token"
 	idpport "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/identityprovider"

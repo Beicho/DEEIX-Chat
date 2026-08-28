@@ -577,7 +577,7 @@ func (s *Service) testServerConnection(ctx context.Context, server *domainmcp.Se
 	if err != nil {
 		return friendlyConnectionError(err)
 	}
-	tools, err := s.client.ListTools(ctx, inframcp.CallConfig{
+	tools, err := s.client.ListTools(ctx, portmcp.CallConfig{
 		BaseURL:   server.BaseURL,
 		AuthToken: token,
 		TimeoutMS: resolveServerTimeoutMS(server.TimeoutSeconds, s.cfg.Snapshot().MCPToolTimeoutSeconds, defaultMCPServerToolListTimeoutMS),
