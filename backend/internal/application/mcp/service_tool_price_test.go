@@ -13,7 +13,7 @@ type availableToolsRepoFake struct {
 	repository.MCPRepository
 }
 
-func (availableToolsRepoFake) ListServers(context.Context) ([]domainmcp.Server, error) {
+func (availableToolsRepoFake) ListServersForUser(context.Context, uint, bool) ([]domainmcp.Server, error) {
 	return []domainmcp.Server{{ID: 1, Name: "exa", Status: "active"}}, nil
 }
 
@@ -41,7 +41,7 @@ func newAvailableToolsService(mode string) *Service {
 }
 
 func TestListAvailableToolsHidesPriceInSelfBillingMode(t *testing.T) {
-	tools, err := newAvailableToolsService("self").ListAvailableTools(context.Background())
+	tools, err := newAvailableToolsService("self").ListAvailableTools(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("list available tools failed: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestListAvailableToolsHidesPriceInSelfBillingMode(t *testing.T) {
 
 func TestListAvailableToolsKeepsPriceInBilledModes(t *testing.T) {
 	for _, mode := range []string{"usage", "period"} {
-		tools, err := newAvailableToolsService(mode).ListAvailableTools(context.Background())
+		tools, err := newAvailableToolsService(mode).ListAvailableTools(context.Background(), 1)
 		if err != nil {
 			t.Fatalf("list available tools failed in %s mode: %v", mode, err)
 		}
@@ -68,7 +68,7 @@ func TestListAvailableToolsKeepsPriceInBilledModes(t *testing.T) {
 }
 
 func TestListAvailableToolsKeepsPriceWithoutBillingModeProvider(t *testing.T) {
-	tools, err := newAvailableToolsService("").ListAvailableTools(context.Background())
+	tools, err := newAvailableToolsService("").ListAvailableTools(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("list available tools failed: %v", err)
 	}
