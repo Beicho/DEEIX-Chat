@@ -139,8 +139,8 @@
     "invalid": "分享对话无效。",
     "invalidId": "分享 ID 无效。",
     "notFound": "分享不存在。",
-    "passwordRequired": "需要输入访问密码。",
     "passwordInvalid": "访问密码不正确。",
+    "passwordRequired": "需要输入访问密码。",
     "schemaOutdated": "分享数据结构已过期，请重建数据库。"
   },
   "contextArtifact": {
@@ -151,11 +151,11 @@
     "originForbidden": "当前来源不允许访问。"
   },
   "embedding": {
-    "serviceNotConfigured": "请先启用并配置文件索引服务。",
-    "serviceUnavailable": "文件索引服务暂不可用。"
+    "serviceNotConfigured": "请先启用并配置 Embedding 服务。",
+    "serviceUnavailable": "向量服务不可用。"
   },
   "file": {
-    "embeddingUnavailable": "当前文件暂不支持智能检索。",
+    "embeddingUnavailable": "当前文件暂不支持向量处理。",
     "extractNotReady": "文件解析尚未完成。",
     "invalidId": "文件 ID 无效。",
     "invalidName": "文件名无效。",
@@ -218,24 +218,24 @@
     "platformModelNameRequired": "平台模型名称不能为空。",
     "protocolRequired": "协议不能为空。",
     "remoteModelsUnavailable": "远程模型列表暂不可用。",
-    "routeConflict": "该模型来源已存在相同平台模型和协议的绑定，请删除重复绑定后再保存。",
+    "routeConflict": "该上游模型已存在相同平台模型和协议的绑定，请删除重复绑定后再保存。",
     "routesUnavailable": "所有模型路由都不可用。"
   },
   "mcp": {
-    "clientUnavailable": "连接器客户端不可用。",
-    "invalidServerBaseUrl": "连接器服务地址无效。",
-    "invalidServerHeaders": "连接器服务请求头配置无效。",
-    "invalidServerName": "连接器服务名称无效。",
-    "invalidServerStatus": "连接器服务状态无效。",
-    "invalidToolDescription": "扩展工具描述无效。",
-    "invalidToolName": "扩展工具名称无效。",
-    "invalidToolSelection": "扩展工具选择配置无效。",
-    "invalidToolStatus": "扩展工具状态无效。",
+    "clientUnavailable": "MCP 客户端不可用。",
+    "invalidServerBaseUrl": "MCP 服务地址无效。",
+    "invalidServerHeaders": "MCP 服务请求头配置无效。",
+    "invalidServerName": "MCP 服务名称无效。",
+    "invalidServerStatus": "MCP 服务状态无效。",
+    "invalidToolDescription": "MCP 工具描述无效。",
+    "invalidToolName": "MCP 工具名称无效。",
+    "invalidToolSelection": "MCP 工具选择配置无效。",
+    "invalidToolStatus": "MCP 工具状态无效。",
     "server": {
-      "invalidId": "连接器服务 ID 无效。"
+      "invalidId": "MCP 服务 ID 无效。"
     },
     "tool": {
-      "invalidId": "扩展工具 ID 无效。"
+      "invalidId": "MCP 工具 ID 无效。"
     }
   },
   "memory": {
@@ -320,7 +320,7 @@
   },
   "settings": {
     "billingPaymentInvalid": "计费支付设置无效。",
-    "embeddingInvalid": "文件索引设置无效。",
+    "embeddingInvalid": "向量设置无效。",
     "extractInvalid": "文件解析设置无效。",
     "invalidKey": "设置项无效。",
     "invalidNamespace": "设置命名空间无效。",
@@ -331,10 +331,11 @@
     "smtpInvalid": "SMTP 设置无效。"
   },
   "upstream": {
-    "unavailable": "模型服务暂不可用。"
+    "rateLimited": "上游请求正在限流，请稍后重试。",
+    "unavailable": "上游服务不可用。"
   },
-  "upstreamEmptyResponse": "模型返回了空响应，请稍后重试。",
-  "upstreamRequestFailed": "模型请求失败，请稍后重试。",
+  "upstreamEmptyResponse": "上游返回了空响应，请稍后重试或联系管理员检查模型路由。",
+  "upstreamRequestFailed": "上游请求失败，请稍后重试或联系管理员检查模型路由。",
   "user": {
     "accountDeleteVerificationRequired": "删除账号前需要先验证身份。",
     "emptyPatch": "请至少修改一个用户字段。",

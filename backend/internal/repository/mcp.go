@@ -51,9 +51,11 @@ type UpdateMCPToolInput struct {
 	AttachmentArgument       *string
 	AttachmentEncoding       *string
 	AttachmentPromptArgument *string
-	Status                   *string
-	DefaultEnabled           *bool
-	RequiresConfirm          *bool
+	// PriceNanousd 更新单次调用价格（nano USD），0 表示不单独计费。
+	PriceNanousd    *int64
+	Status          *string
+	DefaultEnabled  *bool
+	RequiresConfirm *bool
 }
 
 // UpsertMCPToolPreferenceInput defines a user's persisted tool selection.

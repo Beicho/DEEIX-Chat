@@ -139,8 +139,8 @@
     "invalid": "Invalid conversation share.",
     "invalidId": "Invalid share ID.",
     "notFound": "Share not found.",
-    "passwordRequired": "Enter the share password.",
     "passwordInvalid": "The share password is incorrect.",
+    "passwordRequired": "Enter the share password.",
     "schemaOutdated": "Share schema is outdated. Rebuild the database."
   },
   "contextArtifact": {
@@ -151,11 +151,11 @@
     "originForbidden": "This origin is not allowed."
   },
   "embedding": {
-    "serviceNotConfigured": "Enable and configure file indexing first.",
-    "serviceUnavailable": "File indexing is unavailable."
+    "serviceNotConfigured": "Enable and configure the embedding service first.",
+    "serviceUnavailable": "Embedding service is unavailable."
   },
   "file": {
-    "embeddingUnavailable": "Smart retrieval is unavailable for this file.",
+    "embeddingUnavailable": "Embedding is unavailable for this file.",
     "extractNotReady": "File extraction is not ready.",
     "invalidId": "Invalid file ID.",
     "invalidName": "Invalid file name.",
@@ -166,7 +166,7 @@
     "notReady": "File is not ready.",
     "required": "File is required.",
     "tooLarge": "File is too large.",
-    "tooLargeForContext": "File is too large for direct reading.",
+    "tooLargeForContext": "File is too large for full-context injection.",
     "typeBlocked": "This file type is not allowed."
   },
   "identityProvider": {
@@ -218,24 +218,24 @@
     "platformModelNameRequired": "Platform model name is required.",
     "protocolRequired": "Protocol is required.",
     "remoteModelsUnavailable": "Remote models are unavailable.",
-    "routeConflict": "This model source already has a binding for the same platform model and protocol. Remove the duplicate binding before saving.",
+    "routeConflict": "This upstream model already has a binding for the same platform model and protocol. Remove the duplicate binding before saving.",
     "routesUnavailable": "All model routes are unavailable."
   },
   "mcp": {
-    "clientUnavailable": "Connector client is unavailable.",
-    "invalidServerBaseUrl": "Invalid connector server base URL.",
-    "invalidServerHeaders": "Invalid connector server headers.",
-    "invalidServerName": "Invalid connector server name.",
-    "invalidServerStatus": "Invalid connector server status.",
-    "invalidToolDescription": "Invalid connector tool description.",
-    "invalidToolName": "Invalid connector tool name.",
-    "invalidToolSelection": "Invalid connector tool selection.",
-    "invalidToolStatus": "Invalid connector tool status.",
+    "clientUnavailable": "MCP client is unavailable.",
+    "invalidServerBaseUrl": "Invalid MCP server base URL.",
+    "invalidServerHeaders": "Invalid MCP server headers.",
+    "invalidServerName": "Invalid MCP server name.",
+    "invalidServerStatus": "Invalid MCP server status.",
+    "invalidToolDescription": "Invalid MCP tool description.",
+    "invalidToolName": "Invalid MCP tool name.",
+    "invalidToolSelection": "Invalid MCP tool selection.",
+    "invalidToolStatus": "Invalid MCP tool status.",
     "server": {
-      "invalidId": "Invalid connector server ID."
+      "invalidId": "Invalid MCP server ID."
     },
     "tool": {
-      "invalidId": "Invalid connector tool ID."
+      "invalidId": "Invalid MCP tool ID."
     }
   },
   "memory": {
@@ -320,7 +320,7 @@
   },
   "settings": {
     "billingPaymentInvalid": "Invalid billing payment settings.",
-    "embeddingInvalid": "Invalid file indexing settings.",
+    "embeddingInvalid": "Invalid embedding settings.",
     "extractInvalid": "Invalid file extraction settings.",
     "invalidKey": "Invalid setting key.",
     "invalidNamespace": "Invalid setting namespace.",
@@ -331,10 +331,11 @@
     "smtpInvalid": "Invalid SMTP settings."
   },
   "upstream": {
-    "unavailable": "Model service is unavailable."
+    "rateLimited": "The upstream is rate limiting requests. Try again shortly.",
+    "unavailable": "Upstream service is unavailable."
   },
-  "upstreamEmptyResponse": "The model returned an empty response. Try again later.",
-  "upstreamRequestFailed": "The model request failed. Try again later.",
+  "upstreamEmptyResponse": "The upstream returned an empty response. Try again later or ask an administrator to check the model route.",
+  "upstreamRequestFailed": "The upstream request failed. Try again later or ask an administrator to check the model route.",
   "user": {
     "accountDeleteVerificationRequired": "Verify your identity before deleting the account.",
     "emptyPatch": "Change at least one user field.",

@@ -1,3 +1,4 @@
+import type { RedemptionRecordResponse } from "@deeix/api-contract";
 import type { PagePayload } from "@/shared/api/common.types";
 import type { UserDTO } from "@/shared/api/auth.types";
 
@@ -259,6 +260,8 @@ export type AdminPaymentOrderDTO = {
   updatedAt: string;
 };
 
+export type AdminRedemptionRecordDTO = RedemptionRecordResponse;
+
 export type AdminConversationEventDTO = {
   id: number;
   messageID: number;
@@ -306,6 +309,7 @@ export type ListAdminAuditLogsResult = PagePayload<AdminAuditLogDTO>;
 export type ListAdminSystemEventsResult = PagePayload<AdminSystemEventDTO>;
 export type ListAdminUsageLogsResult = PagePayload<AdminUsageLogDTO>;
 export type ListAdminPaymentOrdersResult = PagePayload<AdminPaymentOrderDTO>;
+export type ListAdminRedemptionsResult = PagePayload<AdminRedemptionRecordDTO>;
 export type ListAdminConversationEventsResult = PagePayload<AdminConversationEventDTO>;
 
 export type TikaRuntimeStatus =

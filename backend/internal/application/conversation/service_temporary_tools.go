@@ -7,13 +7,15 @@ import (
 	"time"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 )
 
 type temporaryGenerationResult struct {
 	Output            *llm.GenerateOutput
 	Usage             llm.Usage
 	FirstTokenLatency int64
+	// MCPToolUsage 聚合本次临时生成中成功的 MCP 调用；错误中断时也需带出已产生的上游费用。
+	MCPToolUsage []MCPToolUsageItem
 }
 
 func (s *Service) runTemporaryGeneration(
@@ -30,6 +32,7 @@ func (s *Service) runTemporaryGeneration(
 	cfg := s.cfg.Snapshot()
 	totalUsage := llm.Usage{}
 	totalServerToolUsage := map[string]int64(nil)
+	var totalMCPToolUsage []MCPToolUsageItem
 	firstTokenLatency := int64(0)
 	llmCallCount := 0
 
@@ -104,6 +107,14 @@ func (s *Service) runTemporaryGeneration(
 	if err != nil {
 		return temporaryGenerationResult{Output: output, Usage: totalUsage, FirstTokenLatency: firstTokenLatency}, err
 	}
+	buildResult := func() temporaryGenerationResult {
+		return temporaryGenerationResult{
+			Output:            output,
+			Usage:             totalUsage,
+			FirstTokenLatency: firstTokenLatency,
+			MCPToolUsage:      totalMCPToolUsage,
+		}
+	}
 
 	messages := cloneLLMMessages(initialInput.Messages)
 	remainingToolCalls := s.resolveMaxToolCallsPerRun()
@@ -137,16 +148,17 @@ func (s *Service) runTemporaryGeneration(
 			ToolCallLimit:     remainingToolCalls,
 			TraceRecorder:     traceRecorder,
 			ToolNameMap:       toolRuntime.nameMap,
-			MCPConfigs:        toolRuntime.mcpConfigs,
+			MCPBindings:       toolRuntime.mcpBindings,
 			BuiltInTools:      toolRuntime.builtIn,
 			ToolSchemas:       toolRuntime.schemas,
 			Ledger:            ledger,
 			ResultTokenBudget: resultBudget,
 			Ephemeral:         true,
 		})
+		totalMCPToolUsage = mergeMCPToolUsage(totalMCPToolUsage, toolResult.MCPToolUsage)
 		remainingToolCalls -= len(toolResult.Rows)
 		if toolResult.FatalErr != nil {
-			return temporaryGenerationResult{Output: output, Usage: totalUsage, FirstTokenLatency: firstTokenLatency}, toolResult.FatalErr
+			return buildResult(), toolResult.FatalErr
 		}
 		if len(toolResult.ToolResults) == 0 {
 			break
@@ -163,7 +175,7 @@ func (s *Service) runTemporaryGeneration(
 		}
 		output, err = runGenerate(followUp, true)
 		if err != nil {
-			return temporaryGenerationResult{Output: output, Usage: totalUsage, FirstTokenLatency: firstTokenLatency}, err
+			return buildResult(), err
 		}
 	}
 
@@ -174,13 +186,9 @@ func (s *Service) runTemporaryGeneration(
 		finalInput.DisableTools = true
 		output, err = runGenerate(finalInput, true)
 		if err != nil {
-			return temporaryGenerationResult{Output: output, Usage: totalUsage, FirstTokenLatency: firstTokenLatency}, err
+			return buildResult(), err
 		}
 	}
 
-	return temporaryGenerationResult{
-		Output:            output,
-		Usage:             totalUsage,
-		FirstTokenLatency: firstTokenLatency,
-	}, nil
+	return buildResult(), nil
 }

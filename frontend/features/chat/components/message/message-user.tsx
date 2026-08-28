@@ -15,11 +15,11 @@ import {
   useChatMentionMenu,
   type ChatMentionMenuKind,
 } from "@/features/chat/hooks/use-chat-mention-menu";
-import type { ChatModelOption } from "@/features/chat/types/chat-runtime";
+import type { ChatModelOption, PendingAttachment } from "@/features/chat/types/chat-runtime";
+import type { MCPToolDTO } from "@/shared/api/mcp.types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { FileContentResult } from "@/shared/api/file";
-import type { PreviewDialogFile } from "@/shared/components/file-preview/file-preview-dialog";
+import type { FileContentLoader } from "@/shared/components/file-preview/preview-dialog";
 
 const USER_MESSAGE_COLLAPSED_LINES = 6;
 const USER_MESSAGE_LINE_HEIGHT_REM = 2;
@@ -29,9 +29,9 @@ const USER_MESSAGE_EXPAND_TRANSITION = {
   ease: [0.16, 1, 0.3, 1] as const,
 };
 const EDIT_MESSAGE_MENTION_KINDS: readonly ChatMentionMenuKind[] = ["model", "prompt"];
-const EDIT_MESSAGE_EMPTY_ATTACHMENTS = [];
-const EDIT_MESSAGE_EMPTY_TOOLS = [];
-const EDIT_MESSAGE_EMPTY_TOOL_IDS = [];
+const EDIT_MESSAGE_EMPTY_ATTACHMENTS: PendingAttachment[] = [];
+const EDIT_MESSAGE_EMPTY_TOOLS: MCPToolDTO[] = [];
+const EDIT_MESSAGE_EMPTY_TOOL_IDS: number[] = [];
 
 type ChatMessageUserProps = {
   item: ChatAreaMessage;
@@ -49,7 +49,7 @@ type ChatMessageUserProps = {
   onToggleBookmark?: () => void;
   copySucceeded?: boolean;
   readOnly?: boolean;
-  attachmentContentLoader?: (file: PreviewDialogFile) => Promise<FileContentResult>;
+  attachmentContentLoader?: FileContentLoader;
   showBranchNavigator?: boolean;
   screenshotMeta?: React.ReactNode;
 };

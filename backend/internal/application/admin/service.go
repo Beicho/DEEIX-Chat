@@ -105,6 +105,7 @@ type usageStatisticsService interface {
 
 type orderLogService interface {
 	ListPaymentOrderLogs(ctx context.Context, page int, pageSize int, filter billing.PaymentOrderListFilter) ([]domainbilling.PaymentOrder, int64, error)
+	ListRedemptionLogs(ctx context.Context, page int, pageSize int, filter billing.RedemptionListFilter) ([]billing.RedemptionRecordView, int64, error)
 }
 
 type conversationEventService interface {
@@ -1296,4 +1297,3 @@ func (s *Service) ListMultiAccountCandidates(ctx context.Context, limit int) ([]
 	}
 	return s.userService.ListMultiAccountCandidates(ctx, limit)
 }
-

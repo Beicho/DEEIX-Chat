@@ -38,6 +38,7 @@ type ToolResponse struct {
 	AttachmentArgument       string    `json:"attachmentArgument"`
 	AttachmentEncoding       string    `json:"attachmentEncoding" enums:",base64,data_url"`
 	AttachmentPromptArgument string    `json:"attachmentPromptArgument"`
+	PriceNanousd             int64     `json:"priceNanousd"`
 	Status                   string    `json:"status"`
 	SortOrder                int       `json:"sortOrder"`
 	DefaultEnabled           bool      `json:"defaultEnabled"`
@@ -70,9 +71,11 @@ type UpdateToolRequest struct {
 	AttachmentArgument       *string `json:"attachmentArgument,omitempty"`
 	AttachmentEncoding       *string `json:"attachmentEncoding,omitempty" enums:"base64,data_url"`
 	AttachmentPromptArgument *string `json:"attachmentPromptArgument,omitempty"`
-	Status                   *string `json:"status,omitempty"`
-	DefaultEnabled           *bool   `json:"defaultEnabled"`
-	RequiresConfirm          *bool   `json:"requiresConfirmation"`
+	// PriceNanousd 单次调用价格（nano USD），0 表示不单独计费。
+	PriceNanousd    *int64  `json:"priceNanousd,omitempty" minimum:"0"`
+	Status          *string `json:"status,omitempty"`
+	DefaultEnabled  *bool   `json:"defaultEnabled"`
+	RequiresConfirm *bool   `json:"requiresConfirmation"`
 }
 
 type UpdateServerToolsStatusRequest struct {

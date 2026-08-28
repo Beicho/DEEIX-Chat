@@ -1,6 +1,13 @@
 import { clearSessionSnapshot, readAccessToken, readSessionID, readSessionRevision, writeSessionSnapshot } from "@/shared/auth/session";
-import { apiRequest, ApiError, ApiNetworkError, resolveApiBaseURL, type ApiRequestOptions } from "@/shared/api/http-client";
-import type { ApiEnvelope } from "@/shared/api/common.types";
+import {
+  apiRequest,
+  ApiError,
+  ApiNetworkError,
+  resolveAbortError,
+  resolveApiBaseURL,
+  toApiError,
+  type ApiRequestOptions,
+} from "@/shared/api/http-client";
 import type { LoginData } from "@/shared/api/auth.types";
 import { attachBrowserProof, prepareProofBody } from "@/shared/security/browser-proof";
 import { invalidateBrowserKey } from "@/shared/security/browser-key-store";
@@ -9,9 +16,10 @@ type AuthedRequestOptions = Omit<ApiRequestOptions, "accessToken"> & {
   accessToken: string;
 };
 
-type AuthedFetchOptions = Omit<RequestInit, "headers"> & {
+type AuthedFetchOptions = Omit<RequestInit, "headers" | "signal"> & {
   accessToken: string;
   headers?: HeadersInit;
+  signal?: AbortSignal;
 };
 
 type NavigatorWithLocks = Navigator & {
@@ -116,6 +124,10 @@ export async function authedRequest<T>(
   try {
     return await apiRequest<T>(path, await prepareAuthedRequestOptions(path, options));
   } catch (error) {
+    const abortError = resolveAbortError(error, options.signal);
+    if (abortError) {
+      throw abortError;
+    }
     if (allowProofRecovery && isRecoverableBrowserProofError(error)) {
       await resetBrowserProofKey();
       return authedRequest<T>(path, options, allowRefresh, false);
@@ -126,6 +138,10 @@ export async function authedRequest<T>(
     }
 
     const refreshedToken = await recoverAccessToken(options.accessToken);
+    const refreshAbortError = resolveAbortError(undefined, options.signal);
+    if (refreshAbortError) {
+      throw refreshAbortError;
+    }
     if (!refreshedToken) {
       throw error;
     }
@@ -207,32 +223,6 @@ function headersToRecord(headers: Headers): Record<string, string> {
   return result;
 }
 
-async function toApiError(response: Response): Promise<ApiError> {
-  const contentType = response.headers.get("content-type") || "";
-  const requestId = response.headers.get("x-request-id") || undefined;
-  if (contentType.includes("application/json")) {
-    try {
-      const payload = (await response.json()) as Partial<ApiEnvelope<unknown>>;
-      return new ApiError(
-        payload?.errorMsg || `request failed: ${response.status}`,
-        response.status,
-        payload?.details,
-        payload?.errorCode,
-        payload?.requestId || requestId,
-      );
-    } catch {
-      return new ApiError(`request failed: ${response.status}`, response.status, undefined, undefined, requestId);
-    }
-  }
-
-  try {
-    const text = (await response.text()).trim();
-    return new ApiError(text || `request failed: ${response.status}`, response.status, undefined, undefined, requestId);
-  } catch {
-    return new ApiError(`request failed: ${response.status}`, response.status, undefined, undefined, requestId);
-  }
-}
-
 export async function authedFetch(
   path: string,
   options: AuthedFetchOptions,
@@ -244,6 +234,10 @@ export async function authedFetch(
   try {
     response = await fetch(endpoint, buildAuthedFetchInit(await prepareAuthedFetchOptions(path, options)));
   } catch (error) {
+    const abortError = resolveAbortError(error, options.signal);
+    if (abortError) {
+      throw abortError;
+    }
     throw new ApiNetworkError(error);
   }
   if (response.ok) {
@@ -264,7 +258,16 @@ export async function authedFetch(
     throw await toApiError(response);
   }
 
+  const responseAbortError = resolveAbortError(undefined, options.signal);
+  if (responseAbortError) {
+    throw responseAbortError;
+  }
+
   const refreshedToken = await recoverAccessToken(options.accessToken);
+  const refreshAbortError = resolveAbortError(undefined, options.signal);
+  if (refreshAbortError) {
+    throw refreshAbortError;
+  }
   if (!refreshedToken) {
     throw await toApiError(response);
   }
@@ -279,6 +282,10 @@ export async function authedFetch(
       })),
     );
   } catch (error) {
+    const abortError = resolveAbortError(error, options.signal);
+    if (abortError) {
+      throw abortError;
+    }
     throw new ApiNetworkError(error);
   }
   if (!retryResponse.ok) {

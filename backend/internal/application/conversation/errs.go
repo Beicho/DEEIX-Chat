@@ -1,6 +1,10 @@
 package conversation
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/repository"
+)
 
 var (
 	// ErrConversationNotFound 会话不存在或无权限。
@@ -29,16 +33,18 @@ var (
 	ErrInvalidConversationDraft = errors.New("invalid conversation draft")
 	// ErrInvalidConversationImport 会话导入文件不合法。
 	ErrInvalidConversationImport = errors.New("invalid conversation import")
+	// ErrConversationProjectLimitExceeded 单用户会话项目数量超限。
+	ErrConversationProjectLimitExceeded = repository.ErrConversationProjectLimitExceeded
 	// ErrInvalidFileReference 文件引用无效。
 	ErrInvalidFileReference = errors.New("invalid file reference")
 	// ErrInvalidFileName 文件名不合法。
 	ErrInvalidFileName = errors.New("invalid file name")
 	// ErrFileNotFound 文件不存在。
-	ErrFileNotFound = errors.New("file not found")
+	ErrFileNotFound = repository.ErrFileNotFound
 	// ErrFileInUse 文件正在被头像、知识库等资源使用。
 	ErrFileInUse = errors.New("file in use")
 	// ErrStorageQuotaExceeded 文件配额超限。
-	ErrStorageQuotaExceeded = errors.New("storage quota exceeded")
+	ErrStorageQuotaExceeded = repository.ErrStorageQuotaExceeded
 	// ErrFileTooLarge 文件过大。
 	ErrFileTooLarge = errors.New("file too large")
 	// ErrMIMEBlocked 文件类型不被允许。

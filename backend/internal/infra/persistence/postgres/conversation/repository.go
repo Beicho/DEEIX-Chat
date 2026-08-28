@@ -2440,6 +2440,26 @@ func (r *Repo) ListConversationRunsByRunIDs(
 	return toConversationRunDomains(items), nil
 }
 
+// ListConversationRunStatusesByRunIDs 按运行 ID 批量查询当前用户的最小运行状态快照。
+func (r *Repo) ListConversationRunStatusesByRunIDs(
+	ctx context.Context,
+	userID uint,
+	runIDs []string,
+) ([]domainconversation.RunStatus, error) {
+	if len(runIDs) == 0 {
+		return []domainconversation.RunStatus{}, nil
+	}
+	items := make([]domainconversation.RunStatus, 0, len(runIDs))
+	if err := r.db.WithContext(ctx).Model(&models.ConversationRun{}).
+		Select("run_id", "status").
+		Where("user_id = ? AND run_id IN ?", userID, runIDs).
+		Order("id ASC").
+		Scan(&items).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return items, nil
+}
+
 // GetMessageByID 按内部 ID 查询消息。
 func (r *Repo) GetMessageByID(ctx context.Context, conversationID uint, messageID uint) (*domainconversation.Message, error) {
 	var item models.Message
@@ -2736,6 +2756,27 @@ func (r *Repo) GetActiveFileObjectsByIDs(ctx context.Context, userID uint, fileI
 	return toFileObjectDomains(items), nil
 }
 
+// GetActiveFileProcessingStatusesByIDs 批量查询轮询所需的文件处理状态字段。
+func (r *Repo) GetActiveFileProcessingStatusesByIDs(ctx context.Context, userID uint, fileIDs []string) ([]domainconversation.FileObject, error) {
+	items := make([]models.FileObject, 0)
+	if len(fileIDs) == 0 {
+		return []domainconversation.FileObject{}, nil
+	}
+	if err := r.db.WithContext(ctx).
+		Select(
+			"file_id", "detected_mime", "file_category",
+			"processing_status", "processing_ready", "processing_error_code", "processing_error_message",
+			"extract_status", "extract_chars", "extract_pages", "preview_text", "ocr_used",
+			"rag_ready", "rag_reason", "embed_status", "embed_error", "chunk_count",
+			"processing_started_at", "processing_completed_at", "updated_at",
+		).
+		Where("user_id = ? AND status = ? AND file_id IN ?", userID, "active", fileIDs).
+		Find(&items).Error; err != nil {
+		return nil, translateError(err)
+	}
+	return toFileObjectDomains(items), nil
+}
+
 // GetActiveFileObjectByID 查询单个用户激活文件对象。
 func (r *Repo) GetActiveFileObjectByID(ctx context.Context, userID uint, fileID string) (*domainconversation.FileObject, error) {
 	var item models.FileObject
@@ -2743,7 +2784,7 @@ func (r *Repo) GetActiveFileObjectByID(ctx context.Context, userID uint, fileID 
 		Where("user_id = ? AND status = ? AND file_id = ?", userID, "active", fileID).
 		First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrFileNotFound
+			return nil, repository.ErrFileNotFound
 		}
 		return nil, translateError(err)
 	}
@@ -2758,7 +2799,7 @@ func (r *Repo) RenameFileObjectByID(ctx context.Context, userID uint, fileID str
 		Where("user_id = ? AND status = ? AND file_id = ?", userID, "active", fileID).
 		First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrFileNotFound
+			return nil, repository.ErrFileNotFound
 		}
 		return nil, translateError(err)
 	}
@@ -2778,7 +2819,7 @@ func (r *Repo) UpdateFileObjectRagOptOut(ctx context.Context, userID uint, fileI
 		Where("user_id = ? AND status = ? AND file_id = ?", userID, "active", fileID).
 		First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrFileNotFound
+			return nil, repository.ErrFileNotFound
 		}
 		return nil, translateError(err)
 	}
@@ -2996,7 +3037,7 @@ func (r *Repo) CreateFileObjectAndConsumeQuota(
 
 		nextUsed := quota.UsedBytes + entity.SizeBytes
 		if quota.QuotaBytes > 0 && nextUsed+quota.ReservedBytes > quota.QuotaBytes {
-			return ErrStorageQuotaExceeded
+			return repository.ErrStorageQuotaExceeded
 		}
 
 		if err = tx.Create(&entity).Error; err != nil {
@@ -3006,7 +3047,7 @@ func (r *Repo) CreateFileObjectAndConsumeQuota(
 
 		if err = tx.Model(&models.UserStorageQuota{}).
 			Where("id = ?", quota.ID).
-			Update("used_bytes", nextUsed).Error; err != nil {
+			Update("used_bytes", gorm.Expr("used_bytes + ?", entity.SizeBytes)).Error; err != nil {
 			return translateError(err)
 		}
 
@@ -3040,7 +3081,7 @@ func (r *Repo) DeleteFileObjectAndReleaseQuota(
 			Where("user_id = ? AND file_id = ? AND status = ?", userID, fileID, "active").
 			First(&deletedFile).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrFileNotFound
+				return repository.ErrFileNotFound
 			}
 			return translateError(err)
 		}
@@ -3082,15 +3123,15 @@ func (r *Repo) DeleteFileObjectAndReleaseQuota(
 			return translateError(err)
 		}
 
-		nextUsed := quota.UsedBytes
 		if remainingUserRefs == 0 {
-			nextUsed = quota.UsedBytes - deletedFile.SizeBytes
-			if nextUsed < 0 {
-				nextUsed = 0
-			}
+			// 扣减使用表达式更新并以 0 为下限（CASE WHEN 兼容 Postgres 与 SQLite），
+			// 避免内存值写回覆盖并发变更。
 			if err = tx.Model(&models.UserStorageQuota{}).
 				Where("id = ?", quota.ID).
-				Update("used_bytes", nextUsed).Error; err != nil {
+				Update("used_bytes", gorm.Expr(
+					"CASE WHEN used_bytes >= ? THEN used_bytes - ? ELSE 0 END",
+					deletedFile.SizeBytes, deletedFile.SizeBytes,
+				)).Error; err != nil {
 				return translateError(err)
 			}
 		}
@@ -4650,6 +4691,8 @@ func toConversationToolCallModel(item *domainconversation.ToolCall) models.ChatR
 		EventType:      item.ToolType,
 		ToolCallID:     item.ToolCallID,
 		ToolName:       item.ToolName,
+		MCPServerID:    item.MCPServerID,
+		MCPServerName:  item.MCPServerName,
 		Status:         item.Status,
 		LatencyMS:      item.LatencyMS,
 		InputJSON:      item.InputJSON,
@@ -4840,11 +4883,13 @@ func toFileObjectProcessingStateDomain(item models.FileObject) domainconversatio
 		DetectedMIME:       item.DetectedMIME,
 		FileCategory:       item.FileCategory,
 		ProcessingStatus:   item.ProcessingStatus,
+		ProcessingReady:    item.ProcessingReady,
 		ExtractStatus:      item.ExtractStatus,
 		ExtractEngine:      item.ExtractEngine,
 		ExtractStoragePath: item.ExtractStoragePath,
 		ExtractChars:       item.ExtractChars,
 		ExtractPages:       item.ExtractPages,
+		PageCount:          item.PageCount,
 		PreviewText:        item.PreviewText,
 		OCRUsed:            item.OCRUsed,
 		RAGReady:           item.RAGReady,
@@ -4855,6 +4900,7 @@ func toFileObjectProcessingStateDomain(item models.FileObject) domainconversatio
 		PayloadJSON:        item.ProcessingPayloadJSON,
 		StartedAt:          item.ProcessingStartedAt,
 		CompletedAt:        item.ProcessingCompletedAt,
+		ExtractedAt:        item.ExtractedAt,
 		CreatedAt:          item.CreatedAt,
 		UpdatedAt:          item.UpdatedAt,
 	}
@@ -4868,11 +4914,13 @@ func fileObjectProcessingStateUpdates(item *domainconversation.FileObjectProcess
 		"detected_mime":            item.DetectedMIME,
 		"file_category":            item.FileCategory,
 		"processing_status":        item.ProcessingStatus,
+		"processing_ready":         item.ProcessingReady,
 		"extract_status":           item.ExtractStatus,
 		"extract_engine":           item.ExtractEngine,
 		"extract_storage_path":     item.ExtractStoragePath,
 		"extract_chars":            item.ExtractChars,
 		"extract_pages":            item.ExtractPages,
+		"page_count":               item.PageCount,
 		"preview_text":             item.PreviewText,
 		"ocr_used":                 item.OCRUsed,
 		"rag_ready":                item.RAGReady,
@@ -4883,6 +4931,7 @@ func fileObjectProcessingStateUpdates(item *domainconversation.FileObjectProcess
 		"processing_payload_json":  item.PayloadJSON,
 		"processing_started_at":    item.StartedAt,
 		"processing_completed_at":  item.CompletedAt,
+		"extracted_at":             item.ExtractedAt,
 		"updated_at":               time.Now(),
 	}
 }

@@ -813,7 +813,7 @@ export function ChatModelPicker({
       if (nextOpen) {
         setActiveVendorKey(selectedVendorKey || vendorGroups[0]?.vendor || "");
         if (onModelCatalogRefresh) {
-          void Promise.resolve(onModelCatalogRefresh()).catch(() => undefined);
+          void Promise.resolve(onModelCatalogRefresh()).catch((): undefined => undefined);
         }
       } else {
         setSearchQuery("");

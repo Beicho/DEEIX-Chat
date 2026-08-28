@@ -7,16 +7,16 @@ const projectLayoutURL = new URL(
   import.meta.url,
 );
 
-test("project workspace keeps sidebar recents consumers inside their provider", async () => {
+test("project workspace keeps sidebar conversation consumers inside their provider", async () => {
   const source = await readFile(projectLayoutURL, "utf8");
   const importStatement =
-    'import { SidebarRecentsProvider } from "@/features/recent/context/sidebar-recents-context";';
-  const providerOpen = source.indexOf("<SidebarRecentsProvider>");
+    'import { SidebarConversationsProvider } from "@/entities/conversation";';
+  const providerOpen = source.indexOf("<SidebarConversationsProvider");
   const workspaceContent = source.indexOf("<ProjectLayoutShell>");
-  const providerClose = source.indexOf("</SidebarRecentsProvider>");
+  const providerClose = source.indexOf("</SidebarConversationsProvider>");
 
-  assert.ok(source.includes(importStatement), "project layout must import SidebarRecentsProvider directly");
-  assert.ok(providerOpen >= 0, "project layout must mount SidebarRecentsProvider");
-  assert.ok(workspaceContent > providerOpen, "project workspace content must be inside SidebarRecentsProvider");
-  assert.ok(providerClose > workspaceContent, "SidebarRecentsProvider must close after project workspace content");
+  assert.ok(source.includes(importStatement), "project layout must import SidebarConversationsProvider directly");
+  assert.ok(providerOpen >= 0, "project layout must mount SidebarConversationsProvider");
+  assert.ok(workspaceContent > providerOpen, "project workspace content must be inside SidebarConversationsProvider");
+  assert.ok(providerClose > workspaceContent, "SidebarConversationsProvider must close after project workspace content");
 });

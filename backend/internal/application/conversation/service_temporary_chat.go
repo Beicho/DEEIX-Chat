@@ -2,14 +2,13 @@ package conversation
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
 	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/channel"
 	appcm "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/application/contentmoderation"
 	model "github.com/DEEIX-AI/DEEIX-Chat/backend/internal/domain/conversation"
-	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/infra/llm"
+	"github.com/DEEIX-AI/DEEIX-Chat/backend/internal/ports/llm"
 	"github.com/google/uuid"
 )
 
@@ -60,14 +59,7 @@ func (s *Service) StreamTemporaryChat(
 		RequestID:         strings.TrimSpace(input.RequestID),
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, channel.ErrModelAccessDenied):
-			return nil, ErrModelAccessDenied
-		case errors.Is(err, channel.ErrRouteNotFound), errors.Is(err, channel.ErrModelNotFound):
-			return nil, ErrModelRouteNotConfigured
-		default:
-			return nil, wrapUpstreamRequestError(err)
-		}
+		return nil, mapRouteResolutionError(err)
 	}
 	attributionReferer, attributionTitle := s.llmAttribution()
 	routeConfig := messageRouteConfig(route, attributionReferer, attributionTitle)
@@ -282,6 +274,7 @@ func (s *Service) StreamTemporaryChat(
 		CacheWrite5mTokens:  usage.CacheWrite5mTokens,
 		CacheWrite1hTokens:  usage.CacheWrite1hTokens,
 		ServerSideToolUsage: output.ServerSideToolUsage,
+		MCPToolUsage:        generation.MCPToolUsage,
 		LatencyMS:           time.Since(startedAt).Milliseconds(),
 		StartedAt:           startedAt,
 	}

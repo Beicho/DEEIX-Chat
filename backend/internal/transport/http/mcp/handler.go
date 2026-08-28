@@ -406,6 +406,7 @@ func (h *Handler) UpdateTool(c *gin.Context) {
 		AttachmentArgument:       req.AttachmentArgument,
 		AttachmentEncoding:       req.AttachmentEncoding,
 		AttachmentPromptArgument: req.AttachmentPromptArgument,
+		PriceNanousd:             req.PriceNanousd,
 		Status:                   req.Status,
 		DefaultEnabled:           req.DefaultEnabled,
 		RequiresConfirm:          req.RequiresConfirm,
@@ -632,7 +633,9 @@ func writeServiceError(c *gin.Context, err error) {
 		errors.Is(err, appmcp.ErrInvalidToolName),
 		errors.Is(err, appmcp.ErrInvalidToolDesc),
 		errors.Is(err, appmcp.ErrInvalidToolAttachmentConfig),
-		errors.Is(err, appmcp.ErrInvalidToolSelection):
+		errors.Is(err, appmcp.ErrInvalidToolSelection),
+		errors.Is(err, appmcp.ErrInvalidToolPrice),
+		errors.Is(err, appmcp.ErrServerLimitExceeded):
 		response.ErrorFrom(c, http.StatusBadRequest, err)
 	case errors.Is(err, appmcp.ErrServerNotFound):
 		response.ErrorFrom(c, http.StatusNotFound, err)
@@ -684,6 +687,7 @@ func toToolResponse(item domainmcp.Tool) ToolResponse {
 		AttachmentArgument:       item.AttachmentArgument,
 		AttachmentEncoding:       item.AttachmentEncoding,
 		AttachmentPromptArgument: item.AttachmentPromptArgument,
+		PriceNanousd:             item.PriceNanousd,
 		Status:                   item.Status,
 		SortOrder:                item.SortOrder,
 		DefaultEnabled:           item.DefaultEnabled,

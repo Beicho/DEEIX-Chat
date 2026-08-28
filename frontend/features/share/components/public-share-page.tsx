@@ -23,8 +23,8 @@ import type {
   PublicSharedConversationDTO,
   PublicSharedMessageDTO,
 } from "@/shared/api/conversation.types";
-import { fetchSharedFileContent, type FileContentResult } from "@/shared/api/file";
-import type { PreviewDialogFile } from "@/shared/components/file-preview/file-preview-dialog";
+import { fetchSharedFileContent } from "@/shared/api/file";
+import type { FileContentLoader } from "@/shared/components/file-preview/preview-dialog";
 import { CenteredEmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -137,8 +137,8 @@ function mapPublicSharedMessage(item: PublicSharedMessageDTO, fallbackModel: str
   };
 }
 
-const noop = () => undefined;
-const noopAsync = async () => undefined;
+const noop = (): undefined => undefined;
+const noopAsync = async (): Promise<undefined> => undefined;
 
 function branchSelectionsFromDefaultPath(
   messages: ChatAreaMessage[],
@@ -162,7 +162,7 @@ function PublicSharedMessage({
   onCycleBranch,
 }: {
   item: ChatAreaMessage;
-  loadContent: (file: PreviewDialogFile) => Promise<FileContentResult>;
+  loadContent: FileContentLoader;
   onCycleBranch: (parentPublicID: string | null, direction: "previous" | "next") => void;
 }) {
   if (item.role === "user") {
@@ -368,8 +368,8 @@ export function PublicSharePage() {
     [messages],
   );
 
-  const loadSharedContent = React.useCallback(
-    (file: PreviewDialogFile) => fetchSharedFileContent(shareID, file.fileID, verifiedSharePassword),
+  const loadSharedContent = React.useCallback<FileContentLoader>(
+    (file, signal) => fetchSharedFileContent(shareID, file.fileID, verifiedSharePassword, signal),
     [shareID, verifiedSharePassword],
   );
   const accessToken = authSession?.accessToken || resolvedAccessToken;
